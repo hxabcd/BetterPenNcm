@@ -1,0 +1,26 @@
+# ===== 构建产物与运行时（不进仓库） =====
+node_modules/
+.falcon_/
+.falcon_tmp/
+.build.lock/
+.install.lock/
+build/
+shots/
+.data_bak/
+.data_bak_deploy/
+device_log.txt
+# 构建时生成（含构建号/时间戳）
+src/utils/buildInfo.js
+# 构建时生成（可能含开发机地址）
+src/utils/logconfig.generated.js
+
+# ===== 探索暂存（tmp/ 默认全部忽略） =====
+tmp/
+
+# ===== 杂项 =====
+scripts/__pycache__/
+**/__pycache__/
+.claude/
+
+# ===== 工作区本地记忆（各 worktree 各有，不进仓库） =====
+.workbuddy/

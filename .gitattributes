@@ -1,0 +1,8 @@
+# 统一文本换行：脚本在 Git Bash 下按 LF 执行
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.amr binary

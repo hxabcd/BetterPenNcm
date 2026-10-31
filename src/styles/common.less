@@ -1,0 +1,49 @@
+/**
+ * 设计系统 token —— 比例规格取自社区应用实测（PenMusic style_0 反编译）
+ *
+ * 视口 1020×240 横向；1vh = 2.4px。所有尺寸用 vh，比例不随分辨率变。
+ * 用法：页面/组件的 <style lang="less" scoped> 里 @import "…/styles/common.less";
+ *
+ * **令牌段是生成物**（2026-10-13 起）：`@tokens:begin` ~ `@tokens:end` 之间由
+ * `scripts/gen_tokens.py` 从 `src/utils/ui/tokens.js`（**唯一来源**）生成 ——
+ * 改视觉常量去那个文件、跑 `python scripts/gen_tokens.py --write`；手改这段会被校验拦下。
+ * JS 侧消费直接 `import { TOK } from '…/utils/ui/tokens.js'`（别再写字面量，会被巡检）。
+ *
+ * 注意（PenMusic 实测坑）：本平台样式按单类名注册，两个类名同时出现在一个节点上时
+ * 谁生效取决于加载顺序 —— 所以组件内类名一律加组件前缀（ptb-/srow-/prow-/tile-），
+ * 不要用 ".a.b" 复合选择器做状态切换，状态类用单类名。
+ */
+
+/* @tokens:begin 由 scripts/gen_tokens.py 从 utils/ui/tokens.js 生成，勿手改 */
+@panel: #1a1b1f;                        /* 面板/卡片 */
+@panel-2: #232428;                      /* 次级面（按钮底） */
+@line: rgba(255, 255, 255, 0.08);       /* 分割线 */
+@text: #ffffff;                         /* 主文字 */
+@text-2: #b9b9c0;                       /* 次要文字 */
+@text-3: #888890;                       /* 弱文字 */
+@ok: #7bd88f;                           /* 成功态 */
+@warn: #ffd166;                         /* 警示 */
+@danger-soft: #ff9a9a;                  /* 浅红（远端移除/遗留提示） */
+@surface-3: #2e3138;                    /* 面-3（浮窗内层/输入底） */
+@surface-4: #1c1e23;                    /* 面-4（浮窗更深层） */
+@btn-bg: #242424;                       /* 播放页键底 */
+@sub-bg: #272727;                       /* 播放页子面板底 */
+@card-bg: #373737;                      /* 子面板卡片/矩形键底 */
+@track-bg: #282828;                     /* 进度槽 */
+@scrim: rgba(0, 0, 0, 0.28);            /* 浅遮罩 */
+@scrim-deep: rgba(4, 7, 10, 0.6);       /* 深遮罩 */
+@fs-title: 11vh;                        /* 大标题 */
+@fs-strong: 8.5vh;                      /* 加粗正文（列表主文字） */
+@fs-dim: 7vh;                           /* 次要 */
+@fs-mute: 6vh;                          /* 弱 */
+@topbar-h: 15vh;                        /* 顶栏高 */
+@row-h: 23vh;                           /* 列表行高 */
+@radius: 2.5vh;                         /* 卡片圆角 */
+/* @tokens:end */
+
+/* 主题色的「书面默认值」（默认预设 = 深灰底 + 重音红）。**真值在 utils/theme.js 的
+   PRESETS / ACCENTS**：背景色与主题色运行时可换（设置页），组件一律走内联 :style 取值。
+   这里只保留书面值供阅读与静态兜底，别在换色目标上直接用它上色。
+   （@bg 与 @accent-soft 零消费，2026-10-13 已删：背景色运行时值见 theme.js 的 PRESETS。） */
+@accent: #D93A49;                      /* 默认主题色 = 重音红，运行时值见 theme.js 的 ACCENTS[0] */
+@accent-2: #F58A93;                    /* 强调浅色（选中文字，默认红的浅色版 = ACCENTS[0].light） */

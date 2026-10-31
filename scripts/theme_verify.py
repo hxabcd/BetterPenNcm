@@ -425,10 +425,10 @@ for _k, _v in _branch_pairs:
 if set(_k for _k, _ in _branch_pairs) != _menu_keys:
     _nav_bad.append('settings.vue 的 GROUPS 菜单 key %s 与 openGroup 的 go() 分支 %s 不一致'
                     % (sorted(_menu_keys), sorted(set(_k for _k, _ in _branch_pairs))))
-# 每个页面 .vue 都必须能在 app.json 找到（probe 仅探针构建打包，跳过）
+# 每个页面 .vue 都必须能在 app.json 找到（probe / anim 仅探针构建打包，跳过）
 for _p in _glob.glob(os.path.join(PROJ, 'src/pages', '*', '*.vue')):
     _rel2 = os.path.relpath(_p, PROJ).replace('\\', '/')
-    if _rel2.startswith('src/pages/probe/'):
+    if _rel2.startswith('src/pages/probe/') or _rel2.startswith('src/pages/anim/'):
         continue
     if _rel2[len('src/'):] not in _app_pages.values():
         _nav_bad.append('页面文件 %s 未在 src/app.json 注册（新页面要先注册 key 并登记导航槽位）' % _rel2)

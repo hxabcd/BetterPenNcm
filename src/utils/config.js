@@ -43,6 +43,12 @@ const DEFAULTS = {
   pauseOnExit: true,
   lyricOn: true, // 歌词开关
   showTrans: true, // 歌词翻译开关（仅 lyricOn 为真时有意义）
+  // 逐字歌词（默认开）：服务端有 YRC 时按音节逐字点亮/扫亮；
+  // 无 YRC 自动回退逐行歌词，关闭 = 强制逐行（保留单文本节点，不建逐字动画）。
+  lyricWord: true,
+  // 歌词动画（默认开）：滚动/字号高亮/逐字扫亮等过渡；
+  // 关闭 = 定位与逐字进度照常更新，但全部瞬时完成、无过渡。
+  lyricAnim: true,
   // 歌词是否允许拖动翻看。false = 省性能：**禁用拖动**，位置恒为「当前行居中」，
   // 只保留双击跳行。两种模式都只渲染可视范围（歌词面板是窗口化渲染）。
   lyricFull: true,

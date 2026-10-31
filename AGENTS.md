@@ -54,7 +54,6 @@ This file provides guidance to AI Agent when working with code in this repositor
 - **构建/装机互斥**：已有实例在跑时第二个直接报错退出、不排队。确认无人运行时 `rm -rf .build.lock/`（或 `.install.lock/`）或加 `--force`
 - **`miniapp_cli uninstall` 会清空整个 data 目录**：install.sh 在设备内暂存并恢复 `cookie.txt`、`storage/preferences.json`、`music/`、`covers/`、`store/`、`lrc/`；`cache/` 可再生，故意不备份（`store/` 与 `lrc/` 是拆分后的索引与歌词库，漏了会「有文件没索引」）
 - 改版必须先 uninstall 再 install，否则跑的是旧实例
-- **设备临时文件默认写 `/tmp`**（tmpfs，重启自清），不要在 `/userdisk` 根目录下建临时文件；`/tmp` 放不下的大文件才落 `/userdisk`；持久文件只进 `/userdisk/path/` 等既有子目录
 - 构建号写入生成物 `src/utils/buildInfo.js`（build.sh 生成，勿手改）并显示在首页顶栏，供核对设备版本
 - 平台能力的统一入口（别再各写各的）：可写路径一律走 `src/utils/paths.js`；`process.exec`/`curl`/`du`/`stat` 等能力探测走 `src/utils/exec.js`；`import('fs')` 句柄与 `fileSize` 等小工具走 `src/utils/fsutil.js`；单步超时护栏 `raceTimeout` 走 `src/utils/util.js`；**共享的 UI 视觉常量走 `src/utils/ui/tokens.js`**（唯一值表，改值改它再跑 `scripts/gen_tokens.py --write`；JS 用 `TOK.xxx`、LESS 用生成段里的 `@xxx`）。颜色字面量由 `theme_verify.py` 第五道强制拦截；字号/尺寸目前不巡，仍按值表与评审维护
 - **导航一律走 `src/utils/nav.js` 的 `go('<逻辑页名>')`**：不直接 `$falcon.navTo`、不写槽位 key、不传变量页名；参数用 `paramsFor()`。新增页面 / 调整层级见 [`docs/页面导航.md`](docs/页面导航.md)

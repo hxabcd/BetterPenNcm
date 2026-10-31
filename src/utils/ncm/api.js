@@ -2,6 +2,7 @@
  * 网易云 API 封装：搜索/直链/歌曲详情走明文 /api/；歌单详情、曲目批量详情、登录与写操作走 weapi（weapiPost 把 /api/ 换成 /weapi/）。
  */
 import { request } from '../net/request.js'
+import { weapiPost } from './weapi.js'
 
 const BASE = 'https://music.163.com'
 const UA =
@@ -250,19 +251,53 @@ function arr(v) {
 }
 
 /**
- * 歌词：原文 + 翻译
+ * 歌词：原行 + 翻译（+ 有则带上逐字）
  * 实测 GET /api/song/lyric?id=&lv=-1&kv=-1&tv=-1 直接可用（无需 weapi）。
- *   lrc.lyric   原文，标准 LRC
+ *
+ * 逐字（yrc）只有 **weapi 的 /song/lyric/v1** 返回。2026-11-01 用设备上的登录 cookie 实测：
+ *   - 明文 /api/song/lyric、/api/song/lyric/v1（music.163.com、interface、interface3 三个域）
+ *     无论 yv=-1 / yv=1 / cp=true 都不带 yrc 字段
+ *   - POST /weapi/song/lyric/v1（参数 cp/lv/kv/tv/rv/yv/ytv/yrv 全 0，同 NeteaseCloudMusicApi
+ *     的 /lyric/new）→ 返回 yrc；**匿名也能拿到**，实测 id=1875436617「きゅうくらりん」
+ *     yrc 10284 字符、另有 ytlrc（逐字翻译）与 yromalrc（逐字罗马音）
+ *   - yrc 里混着几条 JSON 元信息行（`{"t":0,"c":[{"tx":"作词: "}]}`），解析时按行首
+ *     `[start,dur]` 过滤即可；没有逐字的曲目该字段缺省
+ * 所以逐字单独走一条 weapi 请求，与明文请求并发；拿不到就当没有，主链路不受影响。
+ *
+ *   lrc.lyric    原文，标准 LRC
  *   tlyric.lyric 翻译，时间戳与原文逐行对齐
- *   pureMusic   true = 纯音乐（实测克罗地亚狂想曲返回此标记，lrc 只有元信息行）
- * 返回 {lrc, tlyric, pureMusic}
+ *   yrc.lyric    逐字原文（[行开始,时长](字开始,时长,0)文本）
+ *   pureMusic    true = 纯音乐（实测克罗地亚狂想曲返回此标记，lrc 只有元信息行）
+ * 返回 {lrc, tlyric, yrc, pureMusic}
  */
+async function fetchYrc(songId) {
+  try {
+    // 路径必须写成 /api/... —— weapiPost 只把 '/api/' 替换成 '/weapi/'，
+    // 写成 '/song/lyric/v1' 会拼出 https://music.163.com/song/lyric/v1（404）。
+    const r = await weapiPost('/api/song/lyric/v1', {
+      id: songId,
+      cp: false,
+      lv: 0,
+      kv: 0,
+      tv: 0,
+      yv: 0,
+      ytv: 0,
+      yrv: 0
+    }, { timeout: 12000 })
+    const j = r && r.json
+    if (j && j.code === 200 && j.yrc && j.yrc.lyric) return j.yrc.lyric
+  } catch (e) {}
+  return ''
+}
+
 export async function fetchLyric(songId) {
   const url = BASE + '/api/song/lyric?id=' + songId + '&lv=-1&kv=-1&tv=-1'
-  const j = await getJson(url)
+  const both = await Promise.all([getJson(url), fetchYrc(songId)])
+  const j = both[0]
   return {
     lrc: (j.lrc && j.lrc.lyric) || '',
     tlyric: (j.tlyric && j.tlyric.lyric) || '',
+    yrc: both[1],
     pureMusic: j.pureMusic === true
   }
 }

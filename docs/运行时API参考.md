@@ -115,7 +115,7 @@ const r = await P.exec('/bin/sh', ['-c', cmd], { timeout: 8000, maxBuffer: 26214
 | 搜索 | `GET /api/search/get/web?s=&type=1&offset=&limit=`（支持拼音） |
 | 直链 | `GET /api/song/enhance/player/url/v1?ids=[id]&level=<level>&encodeType=flac`（`level`/`encodeType` 均必需，见第 11 节） |
 | 歌曲详情 | `GET /api/song/detail?ids=[id]`（封面 `album.picUrl`）；`/api/v3/song/detail?c=[{"id":…}]` 字段更全 |
-| 歌词 | 见 `utils/player/lyric.js` |
+| 歌词 | 原文 + 翻译：`GET /api/song/lyric?id=&lv=-1&kv=-1&tv=-1`（明文匿名可用）；**逐字**：`POST /weapi/song/lyric/v1`（weapi 加密，`{id, cp:false, lv:0, kv:0, tv:0, rv:0, yv:0, ytv:0, yrv:0}`），响应里的 `yrc` / `ytlrc` / `yromalrc` 才是逐字原文/翻译/罗马音 —— 明文接口无论带不带 `yv` 都**没有** `yrc` 字段（2026-11-01 实测）。解析见 `utils/player/lyric.js` |
 | 歌曲评论 | 读取：`GET /api/v1/resource/comments/R_SO_4_<songId>?limit=20&offset=0`（**明文，匿名可用**；回 `hotComments/comments/total/more`，只有 offset=0 带热门、热门与最新会重复）；点赞 / 发评论：`POST /weapi/v1/comment/like`、`POST /weapi/resource/comments/add`（weapi，未登录 code=301）。实现见 `utils/ncm/comments.js` |
 | 歌单详情/曲目 | 经 `weapiPost` 转 `/weapi/v6/playlist/detail` 与 `/weapi/v3/song/detail` |
 | 登录 | `POST /weapi/login/qrcode/unikey` 等（`utils/ncm/login.js`） |

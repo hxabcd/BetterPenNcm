@@ -22,8 +22,8 @@
  * 动画（2026-11-01 按真机能力重做）：
  *   - **字级推进**：只在「当前字变化」时写一次 data，不按帧更新 —— 本平台 `color` 逐帧改
  *     会被合并成最终值（写 14 帧等于写 1 帧），之前那种逐帧混色是白费开销；
- *   - **已唱/当前字用主题色，未唱字用正文白**（内联，硬切：`color` 在本平台没有任何平滑路径，
- *     见 docs/平台约束与自检.md 的动画能力表）；
+ *   - **活动行整行白色**（`TOK.text`）：逐字进度的视觉信号只靠抬起，颜色不再区分
+ *     已唱/未唱；主题色只留给行左侧的指示条（LyricBoard 的 sMarkOn）。
  *   - **上浮 + 微缩放**由 class 里的 `transition: transform 120ms` 负责（`transform` 可插值）：
  *     当前字 `w-cur` 抬起，唱过的字**保持抬起不落下**（`w-past` 与 `w-cur` 同位移同缩放，
  *     切类时 transform 没有差值 → 不产生回落动画，颜色仍由内联硬切）；
@@ -32,11 +32,9 @@
  * 平台约束：样式单类名（每个状态一个完整类）；text 不嵌套；v-for key 稳定（字下标 + 段序）。
  */
 import { TOK } from '../../utils/ui/tokens.js'
-import { accentMixin } from '../../utils/theme.js'
 
 export default {
   name: 'LyricWordLine',
-  mixins: [accentMixin],
   props: {
     /** LyricBoard.rowsAll 里带 wordLines 的行（只传活动行） */
     row: { type: Object, required: true },
@@ -83,9 +81,9 @@ export default {
       // 无动画时已唱/当前字也不抬起（纯颜色硬切），统一按未抬起渲染
       return this.anim ? 'w-past' : 'w-future'
     },
-    /** 颜色只能内联（主题色是运行时值），硬切 */
-    wordStyle(seg) {
-      return { color: seg.w > this.wordIdx ? TOK.text : this.accent.c }
+    /** 活动行整行白色（进度只靠抬起；主题色留给左侧指示条） */
+    wordStyle() {
+      return { color: TOK.text }
     }
   }
 }

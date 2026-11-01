@@ -92,7 +92,13 @@ else
   dev_run() { $ADB shell "$1"; }
   dev_put() { $ADB push "$(cygpath -w "$1")" "$2" >/dev/null; }
 fi
-dev_exists() { dev_run "test -e $1" >/dev/null 2>&1; }
+# ⚠ 这台设备的 adbd 不回传远程退出码（`adb shell "test -e 不存在的路径"` 本地 rc 也是 0，
+#   2026-11-01 实测），所以 dev_exists **不能**靠 dev_run 的退出码 —— 那会恒为真，
+#   残留检查就永远误报「两边都有数据」。改看输出：`ls -d` 只在存在时打印路径，
+#   设备端自己 2>/dev/null 抑制报错（写在远端命令串里，PC 侧的 2>/dev/null 管不到 adb shell）。
+dev_exists() { [ -n "$(dev_run "ls -d $1 2>/dev/null" | tr -d '\r')" ]; }
+# 同理，`dev_run "..." || die` 在这台设备上永远不触发（rc 恒 0）——
+# 关键的 mv 之后必须用 dev_exists 做事后校验，别只依赖退出码。
 
 PKG="/userdisk/secondary/miniapp/data/mini_app/pkg/$APPID"
 DATA="$PKG/data"
@@ -156,6 +162,7 @@ if [ "$VM" = 0 ]; then
       die "请先处理上面的冲突再重跑"
     fi
     dev_run "mkdir -p $PKG && mv $BAK_DATA $DATA" || die "残留备份归位失败：$BAK_DATA 仍在设备上"
+    dev_exists "$DATA" || die "残留备份归位后 $DATA 不存在（adb 不回传退出码，mv 可能没执行）"
     info "  已把上次的备份归位到 data（登录态与下载都保住了）"
   else
     info "  无残留"
@@ -204,6 +211,7 @@ if [ "$BAK_ACTIVE" = 1 ]; then
   # install 可能建了空的 data（部分版本会），先清掉再 mv，否则会变成 data/data
   dev_run "mkdir -p $PKG; rm -rf $DATA; mv $BAK_DATA $DATA" \
     || die "恢复失败：数据完整保存在 $BAK_DATA"
+  dev_exists "$DATA" || die "恢复后 $DATA 不存在（adb 不回传退出码，mv 可能没执行）：数据完整保存在 $BAK_DATA"
   BAK_ACTIVE=0
   bak_cleanup
   info "  数据已回到 $DATA"

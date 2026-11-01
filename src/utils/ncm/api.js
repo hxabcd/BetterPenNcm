@@ -280,6 +280,7 @@ async function fetchYrc(songId) {
       lv: 0,
       kv: 0,
       tv: 0,
+      rv: 0,
       yv: 0,
       ytv: 0,
       yrv: 0

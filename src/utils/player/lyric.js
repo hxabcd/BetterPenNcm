@@ -108,10 +108,10 @@ export function parseYrc(raw) {
     if (!head) continue
     const body = line.slice(head[0].length)
     const marks = []
-    const re = new RegExp(YRC_WORD.source, 'g')
+    YRC_WORD.lastIndex = 0 // 复用模块级 /g 正则，免得每行 new RegExp
     let m
-    while ((m = re.exec(body)) !== null) {
-      marks.push({ at: m.index, end: re.lastIndex, time: Number(m[1]), dur: Number(m[2]) })
+    while ((m = YRC_WORD.exec(body)) !== null) {
+      marks.push({ at: m.index, end: YRC_WORD.lastIndex, time: Number(m[1]), dur: Number(m[2]) })
     }
     if (!marks.length) continue
     const words = []

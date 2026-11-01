@@ -17,7 +17,7 @@
 
 `$falcon.jsapi` 是点号展平的 API 表，不是模块注册表；编译器把 `import x from '$jsapi/x'` 替换成 `$falcon.jsapi['x']`。**本项目不用它做存储**——storage 走裸模块 `import('storage')`（构建时外部化，运行时由模块加载器提供），封装在 [`src/utils/store.js`](../src/utils/store.js)：
 
-- 模块成员：`getStorage / setStorage / getStorageKeys / removeStorage / clearStorage`（**没有 `getStorageInfo`**）。
+- `store.js` 封装并暴露 `getStorage / setStorage / removeStorage`；裸模块**没有 `getStorageInfo`**（见 §14），`getStorageKeys` / `clearStorage` 未在项目中使用。
 - 首次使用前要确保 `<appdata>/data/storage` 目录存在，否则 `setStorage` 会失败（`store.js` 顶部有自愈逻辑）。
 - 大值写入可用：512KB 写入+回读成功（约 90~270ms）；**但全部 key 落在同一个 `preferences.json`，
   每次 `setStorage` 都重写整份** —— 所以大表不放这里，走文件（`store/` 与 `lrc/`），
@@ -64,15 +64,9 @@ const sp = new SoundPlayer()
 - `stop()` / `quickStop()` / `playOnlineAudio(url)` / `playMediaSection(paramDataJson)` / TTS 系列
 - **无 pause / seek**：暂停 = `stop()`，续播/拖动/倍速 = `playFile(locator, 新位置, rate)`
 - 事件是信号对象，必须 `.on(cb)` 订阅；属性赋值方式收不到回调
-- `reportPosition=1` 时才持续上报位置；位置事件约每 50~60ms 一条
-- SoundPlayer 是全系统单例、事件全服务广播：按 `playFile` 返回的 uuid 过滤
-- 事件实参（当前固件实测）：
-  - `mediaPlayerPositionChanged(uuid, ms)`
-  - `mediaPlayerDurationChanged(uuid, ms)` —— **周期性重复上报**（与位置同频），不是一次性事件
-  - `mediaPlayerEndChanged(uuid)` —— 单参
-  - `mediaPlayerEndWithErrorChanged(uuid, code, sub, msg)` —— `stop()` 时也会派发（实测 `(uuid,2,0,"")` 等）
-  - `mediaPlayerProgressChanged(uuid, n)` —— 语义未明（观察到 0/4 等小整数），不参与逻辑
-- `playMediaSection` 的字段名是 **`fileName`**（不是 `url`）：`{fileName, position, endPosition, playBackRate, isInterruptPowerOff, reportPostion}`；`endPosition` 到点后位置停在终点、不再推进（实测 endPosition=4000 → 位置停在 4000ms）。
+- `reportPosition=1` 时才持续上报位置；SoundPlayer 是全系统单例、事件全服务广播：按 `playFile` 返回的 uuid 过滤
+- 事件名（实参形状）：`mediaPlayerPositionChanged(uuid, ms)` / `mediaPlayerDurationChanged(uuid, ms)` / `mediaPlayerEndChanged(uuid)` / `mediaPlayerEndWithErrorChanged(uuid, code, sub, msg)` / `mediaPlayerProgressChanged(uuid, n)`；各事件的实测行为（DurationChanged 周期性重报、`stop()` 时的派发与守卫、`EndChanged` 去重）见 [`播放与定位能力.md`](播放与定位能力.md) 第三节
+- `playMediaSection(paramDataJson)` 的字段名是 **`fileName`**（不是 `url`）；段播放与 `endPosition` 的实测行为见 [`播放与定位能力.md`](播放与定位能力.md) 第二节
 
 当前播放器实现见 [`src/utils/player/sound.js`](../src/utils/player/sound.js) 与 [`player.js`](../src/utils/player/player.js)。更细的定位/事件行为见 [`播放与定位能力.md`](播放与定位能力.md)。
 

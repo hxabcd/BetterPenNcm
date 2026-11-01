@@ -19,7 +19,7 @@
 - chrome 组件（PageShell / NavRail / PageTopbar 等）也混 `accentMixin`，不要再手写主题订阅。
 - `pageFrameMixin` 的 `rail` **必须在 computed**，不能放 methods：模板 `:rail="rail"` 编译成取字段（`get_field`），methods 会取到函数，NavRail 拿它 `slice` 会炸，整条左栏消失。
 - **播放页也用 page-shell**（2026-10-29 按设计稿重做、2026-10-30 调整；左栏 60px 样式已全局化到 NavRail）：`.psh-body` 里是控制区 `ControlPanel.vue`（480px）+ 子面板容器（480×240：`LyricBoard` / `CommentPanel` / `SeekPanel` / `SeekPanel` 内的 `TimerPanel`）。默认空面板（EmptyExtraPanel），三个切换键各自开合；`SeekPanel` 与 `TimerPanel` 是同一子面板内的两级页面（`seekView`）。子面板组件都不含 slot，所以页面级 `v-if` 整体切换安全；新增面板沿用同一约定（props/computed 驱动、提示走 `$emit('toast')`、不自上底色）。
-- 「d 一次性启动链」的 Promise 回调不走 pageBus（它不是订阅）；index 的 boot 仍用模块级 live。
+- boot 一次性启动链的 Promise 回调不走 pageBus（它不是订阅）；index 的 boot 仍用模块级 live。
 
 ## 三、设计决定
 

@@ -1,5 +1,6 @@
 /**
- * 网易云 API 封装：搜索/直链/歌曲详情走明文 /api/；歌单详情、曲目批量详情、登录与写操作走 weapi（weapiPost 把 /api/ 换成 /weapi/）。
+ * 网易云 API 封装：歌词/搜索/直链/歌曲详情等读取全部走明文 /api/；
+ * 登录与写操作走 weapi（weapiPost 把 /api/ 换成 /weapi/，本文件不再直接用它，见 weapi.js 的调用方）。
  */
 import { request } from '../net/request.js'
 
@@ -250,19 +251,31 @@ function arr(v) {
 }
 
 /**
- * 歌词：原文 + 翻译
- * 实测 GET /api/song/lyric?id=&lv=-1&kv=-1&tv=-1 直接可用（无需 weapi）。
- *   lrc.lyric   原文，标准 LRC
+ * 歌词：原行 + 翻译 + 逐字，一条明文请求全拿。
+ * GET /api/song/lyric/v1?id=&lv=-1&kv=-1&tv=-1&yv=-1 直接可用（匿名、无需 weapi）。
+ *
+ * 参数是**必带的版本选择器**（2026-11-01 PC 匿名对照实测，id=1875436617 有逐字）：
+ *   - 只带 id → code=200 但响应里一个歌词字段都没有；
+ *   - lv/kv/tv 选原文/卡拉OK/翻译组，yv 选逐字组（yrc/ytlrc/yromalrc），-1 = 最新版；
+ *   - lv/kv/tv 带上后 yrc 无论 yv=-1/0/1 都会返回（yv 只影响「只带 id+yv」时的行为）；
+ *   - pureMusic 标记 v1 同样返回（实测克罗地亚狂想曲 id=1696373，v1 与经典接口一致）。
+ *
+ *   lrc.lyric    原文，标准 LRC
  *   tlyric.lyric 翻译，时间戳与原文逐行对齐
- *   pureMusic   true = 纯音乐（实测克罗地亚狂想曲返回此标记，lrc 只有元信息行）
- * 返回 {lrc, tlyric, pureMusic}
+ *   yrc.lyric    逐字原文（[行开始,时长](字开始,时长,0)文本）；没有逐字的曲目该字段缺省
+ *   pureMusic    true = 纯音乐（lrc 只有元信息行）
+ * 返回 {lrc, tlyric, yrc, pureMusic}
+ *
+ * 勘误：早先（31c8d9c）注释称「明文接口无论怎么带 yv 都没有 yrc，逐字必须走 weapi」——
+ * 实测不成立，明文 v1 就有 yrc；当时应是把逐字请求打在了经典 /api/song/lyric 上。
  */
 export async function fetchLyric(songId) {
-  const url = BASE + '/api/song/lyric?id=' + songId + '&lv=-1&kv=-1&tv=-1'
+  const url = BASE + '/api/song/lyric/v1?id=' + songId + '&lv=-1&kv=-1&tv=-1&yv=-1'
   const j = await getJson(url)
   return {
     lrc: (j.lrc && j.lrc.lyric) || '',
     tlyric: (j.tlyric && j.tlyric.lyric) || '',
+    yrc: (j.yrc && j.yrc.lyric) || '',
     pureMusic: j.pureMusic === true
   }
 }

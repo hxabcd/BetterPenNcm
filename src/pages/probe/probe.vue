@@ -23,6 +23,16 @@
       <p-noslot v-if="showB"></p-noslot>
       <view v-else :style="styleF"></view>
     </view>
+
+    <!-- CSS 能力探针（2026-11-01）：四种过渡/动画写法各占一个方块，同时右移 80px，
+         监听 transitionend / animationend 判定是否真的在插值。结果看日志 `[probe] css ...`。 -->
+    <view class="pcss">
+      <view class="pcss-a" :style="cssA" @transitionend="cssEnd('a')"></view>
+      <view class="pcss-b" :style="cssB" @transitionend="cssEnd('b')"></view>
+      <view class="pcss-c" :style="cssC" @transitionend="cssEnd('c')"></view>
+      <view class="pcss-d" :style="cssD" @animationend="cssEnd('d')"></view>
+      <text class="pcss-t">{{ cssText }}</text>
+    </view>
   </view>
 </template>
 
@@ -67,6 +77,53 @@
   position: absolute;
   top: 110px;
   left: 620px;
+}
+/* ---- CSS 能力探针：底部一排方块（从左往右移 80px） ---- */
+.pcss {
+  position: absolute;
+  left: 4px;
+  top: 212px;
+  height: 24px;
+  flex-direction: row;
+  align-items: center;
+}
+.pcss-a {
+  width: 18px;
+  height: 18px;
+  margin-right: 10px;
+  background-color: #3366ff;
+}
+.pcss-b {
+  width: 18px;
+  height: 18px;
+  margin-right: 10px;
+  background-color: #33ff99;
+}
+/* 第三种：transition 写在 class 里（不在内联样式），内联只改 transform */
+.pcss-c {
+  width: 18px;
+  height: 18px;
+  margin-right: 10px;
+  background-color: #ffaa33;
+  transition: transform 300ms linear;
+}
+.pcss-d {
+  width: 18px;
+  height: 18px;
+  margin-right: 10px;
+  background-color: #cc66ff;
+}
+.pcss-t {
+  font-size: 14px;
+  color: @text;
+}
+@keyframes pcss-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 </style>
 
@@ -120,7 +177,14 @@ export default {
         'position:absolute;bottom:0px;left:0px;right:0px;height:12px;background-color:#3388ff;',
       styleD: 'width:16px;height:16px;background-color:#ff00ff;',
       styleE: 'width:16px;height:16px;background-color:#00ffff;',
-      styleF: 'width:16px;height:16px;background-color:#ffff00;'
+      styleF: 'width:16px;height:16px;background-color:#ffff00;',
+      // CSS 能力探针：四种写法的内联样式（初始 transform 0，稍后改成 80px）
+      cssA: '',
+      cssB: '',
+      cssC: '',
+      cssD: '',
+      cssText: '',
+      cssCounts: { a: 0, b: 0, c: 0, d: 0 }
     }
   },
   mounted() {
@@ -139,12 +203,100 @@ export default {
         vm.showB = !vm.showB
       }, 3000)
       runTests(vm)
+      runCssProbe(vm)
       // 导航层自测与本页原有探针流程并行：原有流程耗时较长（FLAC 播放），
       // 自测只依赖 mounted 后能调 $falcon.navTo，尽早开始以便在原有流程
       // 「DONE 后 10 秒 closeApp」之前跑完（步骤见 runNavSelfTest）。
       startNavSelfTest()
+    },
+    /** 过渡/动画结束事件（平台若不支持这些事件，计数会一直是 0） */
+    cssEnd(k) {
+      this.cssCounts[k] = (this.cssCounts[k] || 0) + 1
+      this.cssText =
+        'a=' + this.cssCounts.a + ' b=' + this.cssCounts.b +
+        ' c=' + this.cssCounts.c + ' d=' + this.cssCounts.d
     }
   }
+}
+
+/* ==================== CSS 能力探针（2026-11-01 加） ==================== */
+
+const BOX = 'width:18px;height:18px;background-color:#3366ff;'
+
+/** rAF：500ms 内回调几次。0 = 完全不调度（歌词面板拖动/换行卡住就是这个原因） */
+function probeRaf() {
+  return new Promise(function (done) {
+    if (typeof requestAnimationFrame !== 'function') {
+      log('probe', 'css rAF 不存在')
+      return done()
+    }
+    const t0 = Date.now()
+    let n = 0
+    let shown = false
+    const finish = function () {
+      if (shown) return
+      shown = true
+      log('probe', 'css rAF 500ms 帧数=' + n)
+      done()
+    }
+    const loop = function () {
+      n++
+      if (Date.now() - t0 < 500) requestAnimationFrame(loop)
+      else finish()
+    }
+    requestAnimationFrame(loop)
+    setTimeout(finish, 900) // 一帧都不来也要收尾
+  })
+}
+
+/** setTimeout 链：8 次 16ms 的真实间隔（判断定时器精度够不够做帧驱动） */
+function probeTimers() {
+  return new Promise(function (done) {
+    const gaps = []
+    let last = Date.now()
+    let i = 0
+    const step = function () {
+      const now = Date.now()
+      gaps.push(now - last)
+      last = now
+      if (++i < 8) setTimeout(step, 16)
+      else {
+        log('probe', 'css setTimeout16 间隔=' + gaps.join('/'))
+        done()
+      }
+    }
+    setTimeout(step, 16)
+  })
+}
+
+/** 过渡/动画：把四个方块右移 80px，看 transitionend / animationend 是否在 700ms 内到达 */
+function probeTransitions(vm) {
+  return new Promise(function (done) {
+    vm.cssA = BOX + 'transform:translateX(0px);transition:transform 300ms linear;'
+    vm.cssB = BOX + 'transform:translateX(0px);transition-property:transform;transition-duration:300ms;transition-timing-function:linear;'
+    vm.cssC = BOX + 'transform:translateX(0px);'
+    vm.cssD = BOX + 'animation:pcss-spin 400ms linear;'
+    setTimeout(function () {
+      vm.cssA = BOX + 'transform:translateX(80px);transition:transform 300ms linear;'
+      vm.cssB = BOX + 'transform:translateX(80px);transition-property:transform;transition-duration:300ms;transition-timing-function:linear;'
+      vm.cssC = BOX + 'transform:translateX(80px);'
+      setTimeout(function () {
+        const c = vm.cssCounts
+        log('probe', 'css 过渡事件 简写=' + c.a + ' 分开三属性=' + c.b +
+          ' class内=' + c.c + ' 动画=' + c.d)
+        done()
+      }, 700)
+    }, 120)
+  })
+}
+
+async function runCssProbe(vm) {
+  await new Promise(function (r) { setTimeout(r, 900) }) // 等首帧
+  log('probe', 'css 探针开始')
+  await probeRaf()
+  await probeTimers()
+  await probeTransitions(vm)
+  log('probe', 'css 探针结束')
 }
 
 /* ==================== 测试流程 ==================== */

@@ -8,7 +8,7 @@
  *   - 索引：文件 `$dataDir/store/local_index.json`，songId →
  *     { n, alia:[], ars:[{i,n}], al:{i,n,c}, d, pub, no, cd, pop, fee }
  *     （整表读写：每条约 300B；326 首 = 62KB）
- *   - 歌词：**每首一个文件** `$dataDir/lrc/<id>.json` → {l, t, pm}
+ *   - 歌词：**每首一个文件** `$dataDir/lrc/<id>.json` → {l, t, pm, y}（y 为可选 YRC 逐字原文）
  *     （均值 4.8KB/首；storage 是单文件 KV、写一次重写整库，所以歌词不进它 —— 见 utils/filestore.js）
  *
  * 覆盖时机：
@@ -119,7 +119,7 @@ async function clearIndex() {
 
 /* ---------------- 歌词（每首一个文件 `lrc/<id>.json`） ---------------- */
 
-/** 取本地歌词；返回 {l, t, pm} 或 null（没有/坏了都算 null） */
+/** 取本地歌词；返回 {l, t, pm, y} 或 null（没有/坏了都算 null；y 是可选 YRC 原文） */
 export async function lyricOf(id) {
   if (!id) return null
   const raw = await readTextFile(lrcPath(id))
@@ -127,17 +127,17 @@ export async function lyricOf(id) {
   try {
     const j = JSON.parse(raw)
     if (!j || (!j.l && !j.pm)) return null
-    return { l: j.l || '', t: j.t || '', pm: j.pm ? 1 : 0 }
+    return { l: j.l || '', t: j.t || '', pm: j.pm ? 1 : 0, y: j.y || '' }
   } catch (e) {
     return null
   }
 }
 
-export async function putLyric(id, l, t, pm) {
+export async function putLyric(id, l, t, pm, y) {
   if (!id) return
   if (!l && !pm) return // 没词又不是纯音乐：没有可存的
   try {
-    await writeJsonAt(lrcPath(id), { l: l || '', t: t || '', pm: pm ? 1 : 0 })
+    await writeJsonAt(lrcPath(id), { l: l || '', t: t || '', pm: pm ? 1 : 0, y: y || '' })
   } catch (e) {}
 }
 
@@ -212,7 +212,7 @@ export async function saveSongExtras(songId) {
   }
   if (lyr && (lyr.lrc || lyr.pureMusic)) {
     try {
-      await raceTimeout(putLyric(id, lyr.lrc || '', lyr.tlyric || '', lyr.pureMusic ? 1 : 0), 8000, null)
+      await raceTimeout(putLyric(id, lyr.lrc || '', lyr.tlyric || '', lyr.pureMusic ? 1 : 0, lyr.yrc || ''), 8000, null)
       out.lyric = true
     } catch (e) {}
   }

@@ -24,11 +24,12 @@
         <lyric-board
           v-if="sub === 'lyric' && lyricOn"
           :lines="lines"
-          :active="activeIdx"
           :show-trans="showTrans"
           :full="lyricFull"
           :follow="lyricFollow"
           :dbl-tap="lyricDbl"
+          :word-on="lyricWord"
+          :anim="lyricAnim"
           :empty-text="lyricHint"
           @seekline="onSeekLine"
         />
@@ -87,7 +88,7 @@ import { ICON } from '../../assets/icons.js'
 import { railBack, railBtn } from '../../utils/rail.js'
 import { go } from '../../utils/nav.js'
 import { player } from '../../utils/player/player.js'
-import { loadLyrics, findLyricIndex } from '../../utils/player/lyric.js'
+import { loadLyrics } from '../../utils/player/lyric.js'
 import { sleepTimer } from '../../utils/player/sleeptimer.js'
 import { ensureCover, BIG_COVER } from '../../utils/cover.js'
 import { checkLiked, setLiked, cachedLiked } from '../../utils/ncm/like.js'
@@ -124,8 +125,10 @@ export default {
       lyricFull: true, // 歌词可拖动翻看（false = 省性能：禁用拖动、位置恒跟当前行）
       lyricFollow: true, // 歌词自动跟歌（活动行更新时平滑滚动；false = 只换高亮，见 LyricBoard 的 follow）
       lyricDbl: true, // 双击歌词跳转到该行
+      lyricWord: true, // 逐字歌词（无 YRC 自动回退逐行）
+      lyricAnim: true, // 歌词动画（滚动/高亮/逐字过渡；关闭 = 全部瞬时）
       likeOn: false, // 当前曲目是否已喜欢（收藏到「我喜欢的音乐」）
-      sub: '', // 子面板：''（空面板，默认）/ lyric / comment / seek
+      sub: 'lyric', // 子面板：默认直接打开歌词面板 / lyric / comment / seek（'' = 空面板）
       seekView: 'seek', // seek 面板内部页面：seek（进度控制）/ timer（定时播放三态）
       timerOn: false // 定时播放是否在跑（只用于到点提示的边沿判定）
     }
@@ -137,11 +140,6 @@ export default {
     /** 曲目 id + 封面 url：搜索结果的封面是详情接口后补的，两个都要跟 */
     coverKey() {
       return this.curId + '|' + ((this.st.cur && this.st.cur.cover) || '')
-    },
-    /** 当前歌词行（-1 = 还没到第一行） */
-    activeIdx() {
-      if (!this.lines.length) return -1
-      return findLyricIndex(this.lines, this.st.positionMs)
     },
     /**
      * 左栏槽位（全局 NavRail）：返回固定第一，其余贴底。
@@ -239,6 +237,8 @@ export default {
       this.lyricFull = config.get('lyricFull') !== false
       this.lyricFollow = config.get('lyricFollow') !== false
       this.lyricDbl = config.get('lyricDbl') !== false
+      this.lyricWord = config.get('lyricWord') !== false
+      this.lyricAnim = config.get('lyricAnim') !== false
     },
     /* ---- 歌词 ---- */
     async loadLyric(id) {

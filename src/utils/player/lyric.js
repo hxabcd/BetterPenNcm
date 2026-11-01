@@ -1,5 +1,5 @@
 /**
- * 歌词：LRC 解析 / 翻译合并 / 当前行二分查找 / 按曲目取回并缓存
+ * 歌词：LRC / YRC 解析、翻译合并、当前行二分查找、按曲目取回并缓存
  *
  * 解析规则移植自社区应用 PenMusic（`player-81152a95.js` 的 parseLrc，实测可用）：
  *   - 时间标签 `[mm:ss]` / `[mm:ss.xx]` / `[mm:ss.xxx]` / `[mm:ss:xx]`，一行可多个
@@ -18,6 +18,9 @@ import { log } from '../log.js'
 
 const TIME_TAG = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g
 const META_TAG = /^\[(ti|ar|al|by|offset|length|re|ve):(.*)\]$/i
+const YRC_LINE = /^\[(\d+),(\d+)\]/
+const YRC_WORD = /\((\d+),(\d+),0\)/g
+const WORD_TRANS_TOL = 1500 // 逐字行与翻译行允许的最大时间差（ms；实测偏差可达 600+）
 
 /**
  * 制作信息行过滤：网易云 LRC 开头会带一串「作词 : xxx / 作曲 : xxx / 录音助理 : xxx」，
@@ -83,13 +86,130 @@ export function parseLrc(raw) {
 }
 
 /**
+ * YRC 文本 → [{time, end, text, words:[{time, end, text}]}]。
+ * 行首是 [开始,时长]，随后每个 (开始,时长,0) 标记管到下一个标记前的文本；
+ * 文本里允许出现普通括号，所以不能用「非贪婪匹配到 )」的方式切字。
+ * 时间戳是媒体时间（毫秒），倍速只影响面板墙钟推算，不改这里的数据。
+ */
+export function parseYrc(raw) {
+  const out = []
+  if (!raw) return out
+  let offset = 0
+  const rows = String(raw).split(/\r?\n/)
+  for (let i = 0; i < rows.length; i++) {
+    const line = rows[i].trim()
+    if (!line) continue
+    const meta = META_TAG.exec(line)
+    if (meta) {
+      if (meta[1].toLowerCase() === 'offset') offset = parseInt(meta[2], 10) || 0
+      continue
+    }
+    const head = YRC_LINE.exec(line)
+    if (!head) continue
+    const body = line.slice(head[0].length)
+    const marks = []
+    YRC_WORD.lastIndex = 0 // 复用模块级 /g 正则，免得每行 new RegExp
+    let m
+    while ((m = YRC_WORD.exec(body)) !== null) {
+      marks.push({ at: m.index, end: YRC_WORD.lastIndex, time: Number(m[1]), dur: Number(m[2]) })
+    }
+    if (!marks.length) continue
+    const words = []
+    let text = ''
+    for (let k = 0; k < marks.length; k++) {
+      const a = marks[k]
+      const b = marks[k + 1]
+      const value = body.slice(a.end, b ? b.at : body.length)
+      if (!value) continue
+      const start = a.time
+      const end = Math.max(start, start + a.dur)
+      words.push({ time: start, end: end, text: value })
+      text += value
+    }
+    if (!text.trim() || !words.length) continue
+    if (isCredit(text, Number(head[1]))) continue
+    out.push({
+      time: Number(head[1]),
+      end: Number(head[1]) + Number(head[2]),
+      text: text,
+      words: words
+    })
+  }
+  if (offset) {
+    for (let i = 0; i < out.length; i++) {
+      out[i].time -= offset
+      out[i].end -= offset
+      for (let k = 0; k < out[i].words.length; k++) {
+        out[i].words[k].time -= offset
+        out[i].words[k].end -= offset
+      }
+    }
+  }
+  out.sort(function (a, b) { return a.time - b.time })
+  return out
+}
+
+/**
  * 把翻译合并进原文行（就地改 lines[i].trans）。
  * 两条都是时间升序，用双指针走一遍，容差 ±50ms。
  * 译文与原文完全相同（中文歌的 tlyric 常这样）则视为没有翻译。
  */
+/**
+ * tr 里与 t 最接近的一条（时间差绝对值最小），超出 tol 视为没有。返回下标或 -1。
+ * 为什么需要它：逐字行（YRC）的时间是**第一个字的开始**，而 LRC / 翻译行是行起始时间，
+ * 两者可能差几百毫秒（实测「きゅうくらりん」首句差 664ms），严格等时间戳会整首丢翻译。
+ */
+function nearestTrans(tr, t, tol) {
+  let lo = 0
+  let hi = tr.length - 1
+  let p = -1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (tr[mid].time <= t) {
+      p = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  let best = -1
+  let diff = tol + 1
+  if (p >= 0 && t - tr[p].time <= tol) {
+    best = p
+    diff = t - tr[p].time
+  }
+  const q = p + 1
+  if (q < tr.length && tr[q].time - t < diff) best = q
+  return best
+}
+
+/**
+ * 把翻译合并进原文行（就地改 lines[i].trans）。
+ *
+ * 纯 LRC 行：时间戳本来就对齐（±50ms 内单调推进，O(n)）。
+ * 逐字行：改走最近匹配 + 每条翻译只用一次 —— 时间偏差见 nearestTrans 的说明。
+ */
 export function mergeTranslation(lines, transRaw) {
   const tr = parseLrc(transRaw)
   if (!tr.length || !lines.length) return lines
+  let worded = false
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].words && lines[i].words.length) {
+      worded = true
+      break
+    }
+  }
+  if (worded) {
+    const used = {}
+    for (let i = 0; i < lines.length; i++) {
+      const idx = nearestTrans(tr, lines[i].time, WORD_TRANS_TOL)
+      if (idx < 0 || used[idx]) continue
+      used[idx] = 1
+      const v = tr[idx].text
+      if (v && v !== lines[i].text) lines[i].trans = v
+    }
+    return lines
+  }
   let j = 0
   for (let i = 0; i < lines.length; i++) {
     const t = lines[i].time
@@ -126,12 +246,21 @@ export function findLyricIndex(lines, ms) {
 
 const cache = {} // songId -> {lines, pureMusic, empty}
 
-/** 原文 + 翻译 → 结果对象（本地词与网络词共用这一条解析链） */
-function buildRes(lrc, tlyric, pureMusic) {
-  const lines = parseLrc(lrc)
+/** 原文 + 翻译 → 结果对象（本地词与网络词共用这一条解析链；有效 YRC 优先，LRC 兜底） */
+function buildRes(lrc, tlyric, pureMusic, yrc) {
+  let lines = parseYrc(yrc)
+  if (!lines.length) lines = parseLrc(lrc)
   mergeTranslation(lines, tlyric)
+  let worded = false
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].words && lines[i].words.length) {
+      worded = true
+      break
+    }
+  }
   return {
     lines: lines,
+    worded: worded,
     pureMusic: !!pureMusic,
     empty: lines.length === 0
   }
@@ -146,7 +275,7 @@ async function maybePersist(songId, r) {
     if (await lyricOf(songId)) return
     const hit = await dlPath(songId)
     if (!hit) return
-    await putLyric(songId, r.lrc || '', r.tlyric || '', r.pureMusic ? 1 : 0)
+    await putLyric(songId, r.lrc || '', r.tlyric || '', r.pureMusic ? 1 : 0, r.yrc || '')
     log('lyric', 'id=' + songId + ' 已下载，歌词自愈落盘')
   } catch (e) {}
 }
@@ -158,7 +287,7 @@ async function useLocal(songId) {
     local = await lyricOf(songId)
   } catch (e) {}
   if (!local) return null
-  const res = buildRes(local.l, local.t, local.pm)
+  const res = buildRes(local.l, local.t, local.pm, local.y)
   cache[songId] = res
   log('lyric', 'id=' + songId + ' 本地词 行数=' + res.lines.length)
   return res
@@ -194,14 +323,14 @@ export async function loadLyrics(songId) {
     return res || { lines: [], pureMusic: false, empty: true }
   }
 
-  const res = buildRes(r.lrc, r.tlyric, r.pureMusic)
+  const res = buildRes(r.lrc, r.tlyric, r.pureMusic, r.yrc)
   // 只缓存成功结果，失败下次重试
   if (!res.empty || res.pureMusic) {
     cache[songId] = res
     maybePersist(songId, r) // 已下载的老歌顺手落盘（不 await，别拖慢出词）
   }
   log('lyric', 'id=' + songId + ' 行数=' + res.lines.length +
-    ' 纯音乐=' + res.pureMusic + ' 译文=' + countTrans(res.lines))
+    ' 纯音乐=' + res.pureMusic + ' 译文=' + countTrans(res.lines) + ' 逐字=' + res.worded)
   return res
 }
 

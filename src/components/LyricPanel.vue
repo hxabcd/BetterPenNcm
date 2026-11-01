@@ -492,6 +492,8 @@ export default {
 .lp-row {
   flex-direction: row;
   align-items: center;
+  /* 左内边距 1.4 → 4.4vh（歌词往右挪一点，避免与左侧控制行按钮重叠）：控制行按钮放大后其右缘逼近歌词文字左缘，把歌词内容
+     （含高亮竖条）整体右移；标题行不动，这样只拉开歌词与按钮的距离。 */
   padding-left: 4.4vh;
 }
 .lp-mark {

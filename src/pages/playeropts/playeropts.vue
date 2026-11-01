@@ -21,6 +21,22 @@
       </div>
       <text class="po-note" v-if="!lyricOn">歌词已关闭，翻译不生效</text>
 
+      <!-- 逐字歌词（config.lyricWord，默认开）：服务端有 YRC 时活动行按字点亮/扫亮；
+           无 YRC 自动回退逐行。关闭 = 活动行也保持单文本节点，不建逐字动画。 -->
+      <div class="po-row">
+        <text class="po-label">逐字歌词</text>
+        <opt-toggle :on="lyricWord" @change="setWord" />
+      </div>
+      <text class="po-note" v-if="!lyricWord">无逐字数据时自动回退逐行</text>
+
+      <!-- 歌词动画（config.lyricAnim，默认开）：滚动/字号高亮/逐字扫亮的过渡总开关；
+           关闭 = 定位与逐字进度照常更新，但全部瞬时完成。 -->
+      <div class="po-row">
+        <text class="po-label">歌词动画</text>
+        <opt-toggle :on="lyricAnim" @change="setAnim" />
+      </div>
+      <text class="po-note" v-if="!lyricAnim">滚动与高亮瞬时完成</text>
+
       <div class="po-row">
         <text class="po-label">歌词渲染</text>
         <div class="po-chips">
@@ -64,7 +80,7 @@
  *
  * 落点有两个（同一份页面，别再拆成两份）：
  *   ① 设置页「播放」分组；② 播放页左栏的「选项」键（go('playeropts')）。
- * 内容：倍速 / 歌词开关 / 歌词翻译 / 歌词渲染（整首 ↔ 省性能）/ 自动跟歌 / 双击跳转 / 退出时暂停音乐。
+ * 内容：倍速 / 歌词开关 / 歌词翻译 / 逐字歌词 / 歌词动画 / 歌词渲染（整首 ↔ 省性能）/ 自动跟歌 / 双击跳转 / 退出时暂停音乐。
  * **音质不在这里**：播放音质 + 下载音质 + 缓存上限 + 存储管理
  *   统一归「音质与存储」（pages/setdl）—— 本页只留「怎么放」的开关。
  * 改动即时生效并持久化（config），播放页/歌词组件订阅 `bpncm:playeropts` 事件刷新自身开关。
@@ -93,6 +109,8 @@ export default {
       rate: 1,
       lyricOn: true,
       showTrans: true,
+      lyricWord: true,
+      lyricAnim: true,
       lyricFull: true,
       lyricFollow: true,
       lyricDbl: true,
@@ -108,11 +126,14 @@ export default {
     this.rate = st.rate || config.get('rate') || 1
     this.lyricOn = config.get('lyricOn') !== false
     this.showTrans = config.get('showTrans') !== false
+    this.lyricWord = config.get('lyricWord') !== false
+    this.lyricAnim = config.get('lyricAnim') !== false
     this.lyricFull = config.get('lyricFull') !== false
     this.lyricFollow = config.get('lyricFollow') !== false
     this.lyricDbl = config.get('lyricDbl') !== false
     this.pauseOnExit = !!config.get('pauseOnExit')
     log('playeropts', '播放设置挂载 rate=' + this.rate + ' 歌词=' + this.lyricOn + ' 翻译=' + this.showTrans +
+      ' 逐字=' + this.lyricWord + ' 动画=' + this.lyricAnim +
       ' 渲染=' + (this.lyricFull ? '整首' : '省性能') + ' 跟歌=' + this.lyricFollow +
       ' 双击=' + this.lyricDbl + ' 退出暂停=' + this.pauseOnExit)
   },
@@ -143,6 +164,25 @@ export default {
       await config.set('showTrans', on)
       this.hint = on ? '翻译已打开' : '翻译已关闭'
       log('playeropts', '翻译 -> ' + on)
+      this.notify()
+    },
+    /**
+     * 逐字歌词（config.lyricWord）：开启后有 YRC 的曲目会按字点亮/扫亮；
+     * 无逐字数据自动回退逐行。关闭 = 不建逐字节点，省一点渲染与样式开销。
+     */
+    async setWord(on) {
+      this.lyricWord = on
+      await config.set('lyricWord', on)
+      this.hint = on ? '逐字歌词已打开' : '逐字歌词已关闭'
+      log('playeropts', '逐字歌词 -> ' + on)
+      this.notify()
+    },
+    /** 歌词动画（config.lyricAnim）：滚动 / 字号高亮 / 逐字扫亮的过渡总开关 */
+    async setAnim(on) {
+      this.lyricAnim = on
+      await config.set('lyricAnim', on)
+      this.hint = on ? '歌词动画已打开' : '歌词动画已关闭'
+      log('playeropts', '歌词动画 -> ' + on)
       this.notify()
     },
     /** 歌词渲染：可拖动翻看整首 / 省性能（禁用拖动，只跟随当前行） */

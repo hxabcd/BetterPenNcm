@@ -128,7 +128,7 @@ export default {
       lyricWord: true, // 逐字歌词（无 YRC 自动回退逐行）
       lyricAnim: true, // 歌词动画（滚动/高亮/逐字过渡；关闭 = 全部瞬时）
       likeOn: false, // 当前曲目是否已喜欢（收藏到「我喜欢的音乐」）
-      sub: '', // 子面板：''（空面板，默认）/ lyric / comment / seek
+      sub: 'lyric', // 子面板：默认直接打开歌词面板 / lyric / comment / seek（'' = 空面板）
       seekView: 'seek', // seek 面板内部页面：seek（进度控制）/ timer（定时播放三态）
       timerOn: false // 定时播放是否在跑（只用于到点提示的边沿判定）
     }

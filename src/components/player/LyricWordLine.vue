@@ -25,8 +25,9 @@
  *   - **已唱/当前字用主题色，未唱字用正文白**（内联，硬切：`color` 在本平台没有任何平滑路径，
  *     见 docs/平台约束与自检.md 的动画能力表）；
  *   - **上浮 + 微缩放**由 class 里的 `transition: transform 120ms` 负责（`transform` 可插值）：
- *     当前字 `w-cur` 抬起，字过去后切 `w-past` 平滑落回；
- *   - `anim=false` 时不给 `w-cur`（不抬起，也就没有过渡）。
+ *     当前字 `w-cur` 抬起，唱过的字**保持抬起不落下**（`w-past` 与 `w-cur` 同位移同缩放，
+ *     切类时 transform 没有差值 → 不产生回落动画，颜色仍由内联硬切）；
+ *   - `anim=false` 时全部字都用 `w-future`（不抬起，也就没有过渡，只有颜色的硬切）。
  *
  * 平台约束：样式单类名（每个状态一个完整类）；text 不嵌套；v-for key 稳定（字下标 + 段序）。
  */
@@ -75,11 +76,12 @@ export default {
       }
       if (idx !== this.wordIdx) this.wordIdx = idx
     },
-    /** 字的状态类：已唱 / 未唱 / 当前（当前才抬起） */
+    /** 字的状态类：未唱 / 当前（抬起） / 已唱（保持抬起不落下） */
     wordCls(seg) {
       if (seg.w > this.wordIdx) return 'w-future'
       if (seg.w === this.wordIdx && this.anim) return 'w-cur'
-      return 'w-past'
+      // 无动画时已唱/当前字也不抬起（纯颜色硬切），统一按未抬起渲染
+      return this.anim ? 'w-past' : 'w-future'
     },
     /** 颜色只能内联（主题色是运行时值），硬切 */
     wordStyle(seg) {
@@ -103,7 +105,8 @@ export default {
   flex-direction: row;
   align-items: flex-start;
 }
-/* 三种字状态各一个完整类（平台单类名；样式全在类里，内联只给颜色） */
+/* 三种字状态各一个完整类（平台单类名；样式全在类里，内联只给颜色）。
+   w-past 与 w-cur 同位移同缩放：唱过的字保持抬起不落下，切类时 transform 无差值 */
 .w-future {
   font-size: 10.83vh;
   line-height: 31.2px;
@@ -115,7 +118,7 @@ export default {
   font-size: 10.83vh;
   line-height: 31.2px;
   font-weight: bold;
-  transform: translateY(0px) scale(1);
+  transform: translateY(-1.5px) scale(1.02);
   transition: transform 120ms ease-out;
 }
 .w-cur {

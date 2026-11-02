@@ -1,76 +1,108 @@
 /**
- * 封面缓存：网络封面用缩略图下载到 $dataDir/covers/<id>.jpg，再交给 <image> 显示
+ * 封面缓存 —— **两路落点，一条读取路径**（契约见 docs/存储重构.md §0.1 / §0.1.1）。
  *
- * 为什么落地再显示：
- *   1) 运行时 <image> 对网络 URL 的支持未经验证；社区应用（PenMusic）用的就是本地文件路径
- *   2) 带宽：网易云 CDN 支持 ?param=60y60 缩略图（实测 216KB 原图 → 1.8KB 缩略图）
+ *   ① 已下载 / 已缓存曲目的封面 → `<downloads|cache>/<id>/cover.jpg`，**单尺寸 200px**
+ *      跟随曲目文件同生共死（删目录即删封面），走 utils/media.js 的 coverPath。
+ *   ② 浏览时的列表缩略图（搜索、在线歌单、歌手头像、专辑卡……没有对应本地曲目的那些）
+ *      → `cache/thumbs/<key>_<size>.jpg`，可整体清空、不属于任何曲目。
  *
- * 流畅性设计（列表滚动优先）：
- *   - 全程异步：页面渲染绝不等待网络；下载完成后由回调 $set 更新对应行
+ * 为什么不再「同一张图按尺寸各存一份」：
+ *   设备只有 240px 高，全应用最大的封面盒是播放页 152px，200px 已覆盖并有余量；
+ *   而旧布局把「我拥有的这首曲目的封面」和「浏览时临时看的缩略图」塞进同一个目录，
+ *   才需要多尺寸。拆开以后，曲目封面一把键（`memTrack[id]`）、一份文件，缩略图仍按
+ *   `<id>_<size>.jpg` 各存一份（那份收益是列表行的网络带宽，不是曲目属性）。
+ *
+ * 流畅性设计（列表滚动优先，与重构前一致）：
+ *   - 全程异步：页面渲染绝不等待网络；下载完成后由回调更新对应行
  *   - 全局限流队列（并发 2）+ 去重（mem/inflight）：慢网络下不抢占带宽
  *   - 磁盘缓存跨页面/重启复用；切页不取消下载（等于后台预热缓存，下次进列表直接命中）
  *
- * 页面用法：
+ * 页面用法不变：
  *   import { cachedCover, enqueueCovers } from '…/utils/cover.js'
- *   // 数据到位后：
  *   const init = {}; songs.forEach(s => { const p = cachedCover(s.id); if (p) init[s.id] = p })
  *   this.covers = init
  *   enqueueCovers(songs, (id, path) => { if (!this._destroyed) this.$set(this.covers, id, path) })
  */
 import { download } from './net/request.js'
 import { log } from './log.js'
-import { ensureDir, fileExists, fileSize, readNames, rmQuiet } from './fsutil.js'
+import { fileExists, fileSize, readNames, rmQuiet, getFs } from './fsutil.js'
 import { sleep } from './util.js'
-import { coversDir as coversDirPath } from './paths.js'
+import { thumbsDir, trackDir } from './paths.js'
+import * as media from './media.js'
 
 const CONC = 2 // 并发下载上限
-const THUMB_DEFAULT = 60 // 默认缩略图边长（列表行足够）
+/** 浏览缩略图默认边长（列表行 17vh = 40.8px，60 够用且网络成本 1.8KB） */
+export const THUMB = 60
 /**
- * 大封面边长：播放页/歌曲信息/歌手/专辑页用。
+ * 大封面边长：播放页/歌曲信息/歌手/专辑页用。**也是曲目封面（cover.jpg）的唯一尺寸**。
  * 本设备 1020×240 就是原生分辨率（帧缓冲解码出来一比一），封面盒 139~158px，
  * 所以 200px 已经点对点有余；实测同一张图 param=300y300 要 204KB、
  * 200y200 只要 100KB（网易云这个尺寸的 JPEG 压得差），没必要取大。
  */
 export const BIG_COVER = 200
+
+/** 曲目封面的固定尺寸：cover.jpg 只有这一档（见 docs/存储重构.md §0.1） */
+const TRACK_SIZE = BIG_COVER
+
 // 网易云 CDN 标准缩略图参数：?param=<边长>y<边长>（实测 216KB 原图 → 60y60 约 1.8KB）
 function thumbFor(size) {
-  const s = size || THUMB_DEFAULT
+  const s = size || THUMB
   return '?param=' + s + 'y' + s
 }
 
-/** 内存/磁盘的键都带尺寸：同一首歌在列表页要 60、播放页要 300，不能互相顶掉 */
-function keyOf(id, size) {
-  return id + '@' + (size || THUMB_DEFAULT)
+/** 浏览缩略图的键：同一张图在列表要 60、播放页要 200，不能互相顶掉 */
+function thumbKey(id, size) {
+  return String(id) + '@' + (size || THUMB)
 }
 
-const mem = {} // key -> 本地路径（本次会话已就绪）
-const inflight = {} // key -> [回调, ...]（下载中，防重复入队）
+/** 歌曲 id 是纯数字；带前缀的键（al<albumId> / arp<artistId> / ac<userId> / pl<playlistId>）不是 */
+function isSongId(id) {
+  return /^\d+$/.test(String(id))
+}
+
+const mem = {} // 缩略图：'id@size' -> file url
+const memTrack = {} // 曲目封面：'id' -> file url（**单尺寸，一把键**，见文件头）
+const inflight = {} // 缩略图：'id@size' -> [回调, ...]
+const trackJobs = {} // 曲目封面：'id' -> Promise（同一首的 cover.jpg 只下一次）
 const queue = [] // [{key, id, url, size}]
 let workers = 0
 
-/** 封面缓存目录（实现收敛到 utils/paths.js；这里保持历史导出名） */
+/** 封面缩略图目录（实现收敛到 utils/paths.js；这里保持历史导出名） */
 export function coversDir() {
-  return coversDirPath()
+  return thumbsDir()
 }
 
 /**
- * 清空封面磁盘缓存 + 内存缓存（存储管理页「清空封面缓存」用）。
- * **必须同时清 mem**：否则本会话内的 <image> 仍拿着已删文件的 file:// 路径（黑图）。
+ * 清空封面缓存（存储管理页「清空封面缓存」用）=
+ *   缩略图目录整体清掉 + **已缓存曲目**（cache/）的 cover.jpg 一起清。
+ * 下载目录（downloads/）的 cover.jpg 不动：那是用户资产的离线视图，删了要联网才回得来。
+ * **必须同时清内存**：否则本会话内的 <image> 仍拿着已删文件的 file:// 路径（黑图）。
  * 返回尽力删掉的文件数。
  */
 export async function clearCovers() {
   let n = 0
   try {
-    const dir = coversDirPath()
+    // ① 浏览缩略图
+    const dir = thumbsDir()
     const names = await readNames(dir)
     for (let i = 0; i < names.length; i++) {
-      if (await fileExists(dir + '/' + names[i])) {
-        await rmQuiet(dir + '/' + names[i])
-        if (!(await fileExists(dir + '/' + names[i]))) n++
-      }
+      const p = dir + '/' + names[i]
+      if (!(await fileExists(p))) continue
+      await rmQuiet(p)
+      if (!(await fileExists(p))) n++
+    }
+    // ② 已缓存曲目的 cover.jpg（随缓存目录再生，删掉是安全的）
+    const cached = await media.listTracks('cache')
+    for (let i = 0; i < cached.length; i++) {
+      const p = media.coverPath(cached[i].id, 'cache')
+      if (!(await fileExists(p))) continue
+      await rmQuiet(p)
+      if (!(await fileExists(p))) n++
     }
     const keys = Object.keys(mem)
     for (let i = 0; i < keys.length; i++) delete mem[keys[i]]
+    const tk = Object.keys(memTrack)
+    for (let i = 0; i < tk.length; i++) delete memTrack[tk[i]]
     log('cover', '已清空封面缓存 ' + n + ' 个文件')
   } catch (e) {}
   return n
@@ -86,13 +118,86 @@ function fileUrl(path) {
   return 'file://' + path
 }
 
-async function ensureCoverDir() {
-  return ensureDir(coversDirPath())
+/** 确保目录存在（原生 exists + mkdir，不 fork；不复用 fsutil 的进程内缓存，见下） */
+async function ensureNativeDir(dir) {
+  try {
+    const fs = await getFs()
+    if (await fs.exists(dir)) return true
+    await fs.mkdir(dir)
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+/** 缩略图文件路径 */
+function thumbPath(id, size) {
+  return thumbsDir() + '/' + String(id) + '_' + (size || THUMB) + '.jpg'
 }
 
 /** 同步取已就绪的封面（file:// URL，可直接给 image src）；未就绪返回 '' */
 export function cachedCover(id, size) {
-  return mem[keyOf(id, size)] || ''
+  if (!id) return ''
+  if (memTrack[id]) return memTrack[id]
+  return mem[thumbKey(id, size)] || ''
+}
+
+/**
+ * 这个 id 对应哪条本地通道（'download' | 'cache' | ''）。
+ * 只看目录在不在 —— 目录里已经有音频/封面/残片都算「这首在本机有落点」，
+ * 封面就该跟着它走（目录删掉时一起走）。
+ */
+async function trackKindOf(id) {
+  if (!isSongId(id)) return ''
+  if (await media.hasTrackDir(id, 'download')) return 'download'
+  if (await media.hasTrackDir(id, 'cache')) return 'cache'
+  return ''
+}
+
+/**
+ * 确保某首本地曲目的 cover.jpg 在盘上并返回 file:// URL（失败给 ''）。
+ * **单尺寸**：不管调用方要 60 还是 200，盘上就这一份 200px 的图。
+ * 同一首并发请求合并到一次下载（trackJobs）。
+ */
+function ensureTrackCover(id, url) {
+  const running = trackJobs[id]
+  if (running) return running
+  const p = (async function () {
+    try {
+      const kind = await trackKindOf(id)
+      if (!kind) return ''
+      const path = media.coverPath(id, kind)
+      // 磁盘已有（跨会话缓存）
+      if ((await fileSize(path)) > 0) return fileUrl(path)
+      await ensureNativeDir(trackDir(id, kind))
+      const full = url + (url.indexOf('?') >= 0 ? '' : thumbFor(TRACK_SIZE))
+      try {
+        await download({ url: full, outPath: path, timeout: 20000 })
+      } catch (e) {
+        await rmQuiet(path) // 清残留，本次不重试（避免重试风暴）
+        return ''
+      }
+      // http.download 返回时最后一块可能还没落盘（实测 1KB 首次 stat=0、100ms 后才完整）。
+      // 交给 <image> 前做短暂等待，避免把 0 字节文件写进 mem 并显示成黑图。
+      let size = await fileSize(path)
+      for (let i = 0; i < 2 && !size; i++) {
+        await sleep(50)
+        size = await fileSize(path)
+      }
+      if (!size) {
+        await rmQuiet(path)
+        return ''
+      }
+      return fileUrl(path)
+    } catch (e) {
+      log('cover', '曲目封面失败 id=' + id + ': ' + ((e && e.message) || e))
+      return ''
+    } finally {
+      delete trackJobs[id]
+    }
+  })()
+  trackJobs[id] = p
+  return p
 }
 
 /**
@@ -101,10 +206,23 @@ export function cachedCover(id, size) {
  * 但断网时未知的图会走一次注定失败的传输；这里先分开判断。
  */
 export async function cachedCoverOnDisk(id, size) {
-  const key = keyOf(id, size)
+  if (!id) return ''
+  const tk = memTrack[id]
+  if (tk) return tk
+  const key = thumbKey(id, size)
   if (mem[key]) return mem[key]
-  const path = coversDirPath() + '/' + id + '_' + (size || THUMB_DEFAULT) + '.jpg'
   try {
+    // ① 本地曲目：cover.jpg（单尺寸）
+    const kind = await trackKindOf(id)
+    if (kind) {
+      const p = media.coverPath(id, kind)
+      if ((await fileSize(p)) > 0) {
+        memTrack[id] = fileUrl(p)
+        return memTrack[id]
+      }
+    }
+    // ② 浏览缩略图
+    const path = thumbPath(id, size)
     if (await fileExists(path)) {
       mem[key] = fileUrl(path)
       return mem[key]
@@ -114,18 +232,29 @@ export async function cachedCoverOnDisk(id, size) {
 }
 
 /**
- * 丢弃某个缓存键的指定尺寸（默认只丢 60）。
+ * 丢弃某个缓存键的指定尺寸。
  * runJob 只判断文件是否存在就直接复用，URL 变了不删旧文件就永远拿不到新图；
  * 歌手换头像时由 artistavatar 调用。
+ * 歌曲 id 额外把它在各通道里的 cover.jpg 一并清掉（换封面同理）。
  */
 export async function dropCover(id, sizes) {
-  const list = sizes && sizes.length ? sizes : [THUMB_DEFAULT]
+  if (!id) return
+  const list = sizes && sizes.length ? sizes : [THUMB]
   for (let i = 0; i < list.length; i++) {
-    const sz = list[i] || THUMB_DEFAULT
-    delete mem[keyOf(id, sz)]
+    const sz = list[i] || THUMB
+    delete mem[thumbKey(id, sz)]
     try {
-      await rmQuiet(coversDirPath() + '/' + id + '_' + sz + '.jpg')
+      await rmQuiet(thumbPath(id, sz))
     } catch (e) {}
+  }
+  if (isSongId(id)) {
+    delete memTrack[id]
+    const kinds = ['download', 'cache']
+    for (let i = 0; i < kinds.length; i++) {
+      try {
+        if (await media.hasTrackDir(id, kinds[i])) await rmQuiet(media.coverPath(id, kinds[i]))
+      } catch (e) {}
+    }
   }
 }
 
@@ -139,15 +268,30 @@ function fire(key, id, path) {
   }
 }
 
+async function ensureCoverDir() {
+  return ensureNativeDir(thumbsDir())
+}
+
 async function runJob(job) {
   const key = job.key
-  const path = coversDirPath() + '/' + job.id + '_' + job.size + '.jpg'
+  const id = job.id
   try {
+    // ① 已下载/已缓存曲目：单尺寸 cover.jpg（跟着曲目目录走）
+    if (isSongId(id)) {
+      const url = await ensureTrackCover(id, job.url)
+      if (url) {
+        memTrack[id] = url
+        fire(key, id, url)
+        return
+      }
+    }
+    // ② 浏览缩略图：cache/thumbs/<id>_<size>.jpg（按尺寸各一份，收益是列表行带宽）
+    const path = thumbPath(id, job.size)
     await ensureCoverDir()
     // 磁盘已有（跨会话缓存）
     if (await fileExists(path)) {
       mem[key] = fileUrl(path)
-      fire(key, job.id, mem[key])
+      fire(key, id, mem[key])
       return
     }
     // 下载缩略图（已在 URL 上带参数的不重复加）
@@ -156,11 +300,10 @@ async function runJob(job) {
       await download({ url: url, outPath: path, timeout: 20000 })
     } catch (e) {
       await rmQuiet(path) // 清残留，本次不重试（避免重试风暴）
-      fire(key, job.id, '')
+      fire(key, id, '')
       return
     }
-    // http.download 返回时最后一块可能还没落盘（实测 1KB 首次 stat=0、100ms 后才完整）。
-    // 交给 <image> 前做短暂等待，避免把 0 字节文件写进 mem 并显示成黑图。
+    // 同 ensureTrackCover：等最后一两块落盘再交给 <image>，否则会显示成黑图
     let size = await fileSize(path)
     for (let i = 0; i < 2 && !size; i++) {
       await sleep(50)
@@ -168,14 +311,14 @@ async function runJob(job) {
     }
     if (!size) {
       await rmQuiet(path)
-      fire(key, job.id, '')
+      fire(key, id, '')
       return
     }
     mem[key] = fileUrl(path)
-    fire(key, job.id, mem[key])
+    fire(key, id, mem[key])
   } catch (e) {
-    fire(key, job.id, '')
-    log('cover', '封面失败 id=' + job.id + ': ' + ((e && e.message) || e))
+    fire(key, id, '')
+    log('cover', '封面失败 id=' + id + ': ' + ((e && e.message) || e))
   }
 }
 
@@ -195,7 +338,8 @@ function pump() {
  * 行组件在 mounted 里调，回调里给自己组件的普通属性赋值 —— 绕开
  * 「页面 data 动态 key + $set」在 falcon 渲染器上不触发重渲染的问题（实测）。
  * cb: (id, fileUrl) => void（失败时 fileUrl 为空串）
- * size: 缩略图边长，默认 60（列表行）；播放页/歌手页用 300
+ * size: 缩略图边长，默认 60（列表行）；播放页/歌手页用 200。
+ *       **歌曲 id 命中本地曲目时忽略它**：曲目封面只有 200 这一档（cover.jpg）。
  */
 export function ensureCover(item, cb, size) {
   if (!item || !item.id || !item.cover) return
@@ -211,12 +355,17 @@ export function ensureCover(item, cb, size) {
  */
 export function enqueueCovers(items, onReady, size) {
   if (!items || !items.length) return
-  const sz = size || THUMB_DEFAULT
+  const sz = size || THUMB
   let n = 0
   for (let i = 0; i < items.length; i++) {
     const it = items[i]
     if (!it || !it.id || !it.cover) continue
-    const key = keyOf(it.id, sz)
+    // 曲目封面（单尺寸）优先：同一首不管要多大都只有一份文件
+    if (memTrack[it.id]) {
+      onReady(it.id, memTrack[it.id])
+      continue
+    }
+    const key = thumbKey(it.id, sz)
     if (mem[key]) {
       onReady(it.id, mem[key])
       continue

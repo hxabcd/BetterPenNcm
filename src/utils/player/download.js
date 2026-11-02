@@ -15,13 +15,15 @@
  *   - **batch 通道**（downloadSongs）：用户主动下载（播放器页「下载」/ 列表多选下载），
  *     FIFO 不淘汰、重试不丢；播放通道优先调度，整体仍是单并发（不跟流播抢带宽）
  *
- * **「缓存」与「下载」分家**（两个目录两张元数据表）：
+ * **「缓存」与「下载」分家**（两条通道，同一套「每 track 一个目录」布局，见 docs/存储重构.md §2）：
  *   | kind | 谁产生 | 音质 | 目录 | LRU | 出现在「本地下载」 |
  *   |---|---|---|---|---|---|
- *   | `cache`    | 播放时自动（play 通道） | **播放音质** | `$dataDir/cache` | 受「缓存上限」滚动 | **否** |
- *   | `download` | 用户主动（batch 通道）  | **下载音质** | `$dataDir/music` | 永久 | **是** |
- *   - 队列项的 `kind` 决定落到哪个目录、用哪张元数据表、完成后如何收尾
- *     （download 完成 → 删掉同 id 的 cache 副本，避免同一首占两份空间）；
+ *   | `cache`    | 播放时自动（play 通道） | **播放音质** | `data/cache/<id>/` | 受「缓存上限」滚动 | **否** |
+ *   | `download` | 用户主动（batch 通道）  | **下载音质** | `data/downloads/<id>/` | 永久 | **是** |
+ *   - 每个曲目目录里固定是 `track.<ext>`（+ `.part` 残片）/ `cover.jpg` / `metadata.json`，
+ *     下载目录另有 `lyrics.json`（路径全部来自 utils/paths.js，读写封装在 utils/media.js）；
+ *   - 队列项的 `kind` 决定落到哪个目录、完成时写哪份 metadata.json、如何收尾
+ *     （download 完成 → 删掉同 id 的 cache **目录**，避免同一首占两份空间）；
  *   - 播放请求（ensureCached）也可以**提权**批量项：提权只改调度通道（lane），
  *     **不改编排队列项的 kind** —— 用户点下的下载不会因为被提权就变成缓存；
  *   - 缓存完成 → 触发 cache.enforceCacheLimit()（按播放顺序 LRU 滚动）。
@@ -33,14 +35,14 @@
  *   - ensureCached(song)  播放通道：确保本地有完整文件（没有就缓存到 cache/）；单并发、最新请求优先
  *   - downloadSongs(ss)   用户通道：批量下载 → {total, ok, failed, skipped, cancelled, error}
  *   - estimateBytes(ss)   粗估一批歌按当前下载档的体积（列表页空间预检用）
- *   - deleteCached(id)    删单条**下载**（文件 + 元数据）
+ *   - deleteCached(id)    删单条**下载**（整个 `downloads/<id>/` 目录 + 归属/本地库挂点）
  *   - cancelDownload()    取消批量下载（当前片下完即停，.part 保留可续传）
  */
 import { fetchToFile, promotePart, transportMode } from './fetcher.js'
 import {
-  musicDir, playCacheDir,
-  putMeta, metaOf, loadMeta, dropMeta, markPending,
-  putPlayMeta, playMetaOf, loadPlayMeta, dropPlayMeta, markPlayPending,
+  musicDir,
+  putMeta, warmMeta, dropMeta, markPending,
+  putPlayMeta, warmPlayMeta, dropPlayMeta, markPlayPending,
   touchPlayMeta, enforceCacheLimit
 } from './cache.js'
 import { currentQuality, qualityRank, nominalBr } from './quality.js'
@@ -48,9 +50,11 @@ import { saveSongExtras, dropLocalSong } from './localmeta.js'
 import { markUser, markPlaylist, markSkippedExisting, clearOrigin } from './dlorigin.js'
 import { log } from '../log.js'
 import { raceTimeout } from '../util.js'
-import { ensureDir, fileSize, rmQuiet } from '../fsutil.js'
+import { fileSize, rmQuiet } from '../fsutil.js'
 import { resolveUrl } from './source.js'
-import { altPath, dirOf, purgeInDir, songPath, cachedPath, dlPath, playCachePath } from './files.js'
+import {
+  altPath, purgeInDir, songPath, prepareTrackDir, cachedPath, dlPath, playCachePath
+} from './files.js'
 import { addProgressHook } from './progress.js'
 import * as sched from './scheduler.js'
 import * as tasks from './tasks.js'
@@ -136,10 +140,9 @@ function metaSatisfies(meta, key) {
  * ⚠ 只有播放缓存（cache/）不算已下载 —— 那是「听过」，不是「下过」。
  */
 export async function isDownloaded(songId) {
-  await loadMeta()
   const hit = await dlPath(songId)
   if (!hit) return false
-  return metaSatisfies(metaOf(songId), currentQuality('down'))
+  return metaSatisfies(await warmMeta(songId), currentQuality('down'))
 }
 
 /**
@@ -168,7 +171,6 @@ export async function downloadSongs(songs, opts) {
   }
   const res = { total: list.length, ok: 0, failed: 0, skipped: 0, cancelled: 0, error: '', results: [] }
   if (!list.length) return res
-  await loadMeta()
   const qk = currentQuality('down')
   const jobs = []
   for (let i = 0; i < list.length; i++) {
@@ -176,7 +178,7 @@ export async function downloadSongs(songs, opts) {
     // ⚠ 只看**下载目录**：只有播放缓存（cache/）不算已下载，照样要走一趟正式下载
     // （下载档通常更高，且下载完成后会清掉 cache 里的副本，不留两份）
     const hit = await dlPath(song.id)
-    if (hit && metaSatisfies(metaOf(song.id), qk)) {
+    if (hit && metaSatisfies(await warmMeta(song.id), qk)) {
       res.skipped++
       res.results.push({ id: song.id, status: 'skipped', existed: true })
       continue
@@ -248,9 +250,9 @@ export function estimateBytes(songs, qualityKey) {
  * 校验：文件 ≥30KB，且不小于接口报告尺寸的 90%。
  * 不完整时：curl 通道保留 .part 供下次续传；回退通道删掉半截避免被当成缓存。
  * @param {string} qk   解析直链用的档位 key（也写进元数据的 q：升级判定的依据）
- * @param {string} kind 'cache'（边听边存 → cache/ + 播放缓存元数据表）|
- *                      'download'（用户下载 → music/ + 下载元数据表）；缺省按 cache
- * 收尾差异：download 完成 → 清掉同 id 的**缓存副本**（同一首不留两份）；
+ * @param {string} kind 'cache'（边听边存 → cache/<id>/）|
+ *                      'download'（用户下载 → downloads/<id>/）；缺省按 cache
+ * 收尾差异：download 完成 → 清掉同 id 的**缓存目录**（同一首不留两份）；
  *          cache 完成 → 触发「缓存上限」LRU 滚动。
  * 返回 {ok, path, size, replaced?, aborted?, error}
  */
@@ -258,8 +260,8 @@ async function downloadOne(song, info, opts, qk, kind) {
   const id = String(song.id)
   const kd = kind === 'download' ? 'download' : 'cache'
   const store = kd === 'download'
-    ? { put: putMeta, of: metaOf, mark: markPending }
-    : { put: putPlayMeta, of: playMetaOf, mark: markPlayPending }
+    ? { put: putMeta, of: warmMeta, mark: markPending }
+    : { put: putPlayMeta, of: warmPlayMeta, mark: markPlayPending }
   const t0 = Date.now()
   const since = function () {
     return Date.now() - t0
@@ -267,8 +269,9 @@ async function downloadOne(song, info, opts, qk, kind) {
   // 阶段日志（排查用，一次下载 4~5 行）：挂死时「最后一条」就是卡住的那一步
   log('dl', '取源 ' + id + ' ' + (song.name || '') + '[' + kd + ']' +
     (info && info.url ? '（复用播放直链）' : '（按' + qk + '解析）'))
+  // 目录准备：通道根 + `<root>/<id>/`（原生 fs，不 fork）。下载与元数据写入都要求它在
   try {
-    await ensureDir(dirOf(kd))
+    await prepareTrackDir(id, kd)
   } catch (e) {}
 
   let meta = info
@@ -286,8 +289,11 @@ async function downloadOne(song, info, opts, qk, kind) {
   const partPath = finalPath + '.part'
   // 续传残片只认同档位：用户中途改过音质的话，旧档的 .part 接上新档字节会写出
   // 「长度对、内容是垃圾」的文件（校验只查长度，拦不住）→ 档位对不上就丢弃重下。
-  // 残片标记按目录分表：cache 用播放档、download 用下载档，互不干扰。
-  const pv = (store.of(id) && store.of(id).p) || ''
+  // 残片标记随目录走：cache 记播放档、download 记下载档，互不干扰。
+  // **从盘上读**（metadata.json 的 p）：进程重启后内存快照是空的，
+  // 只看内存会把上次中断留下的 .part 当跨档残片丢掉，白丢已下载的进度。
+  const prev = await raceTimeout(store.of(id), 8000, null)
+  const pv = (prev && prev.p) || ''
   if ((await fileSize(partPath)) > 0 && pv !== qk) {
     log('dl', '丢弃跨档位的续传残片 ' + id + '[' + kd + ']（残片档=' + (pv || '未知') + ' 本次=' + qk + '）')
     await rmQuiet(partPath)
@@ -364,13 +370,14 @@ async function downloadOne(song, info, opts, qk, kind) {
   } catch (e) {}
 
   if (kd === 'download') {
-    // 用户已正式下载这首 → 清掉 cache/ 里的副本（同一首占两份空间没意义；
-    // 缓存那份只是「听过的痕迹」，使命到此结束）。顺手清残留的 .part。
+    // 用户已正式下载这首 → 删掉 cache/<id>/ **整个目录**（同一首占两份空间没意义；
+    // 缓存那份只是「听过的痕迹」，使命到此结束）—— 音频 + 封面 + 元数据一次走。
+    // 走 scheduler 的统一入口（它内部 = purgeInDir(playCacheDir(), id)，即 rm -rf 目录）
     const purged = await sched.purgePlayCache(id)
     if (purged.files > 0) {
       await dropPlayMeta(id)
       notifyFileChanged(id) // player 的 localPath 可能正指着刚被删的缓存文件
-      log('dl', '下载完成，清掉播放缓存副本 ' + id + '：' + purged.files + ' 个 / ' +
+      log('dl', '下载完成，清掉播放缓存目录 ' + id + '：' + purged.files + ' 个文件 / ' +
         Math.round(purged.bytes / 1024) + 'KB')
     }
     // 元数据（歌手/专辑 id 等）+ 歌词落本地库（离线详情页/歌词用，见 localmeta.js）。
@@ -460,10 +467,12 @@ export function ensureCached(song, info, opts) {
 /* ================= 删除与失效 ================= */
 
 /**
- * 删单条**下载**（本地下载页的多选删除，逐首调用）：文件（含 .part/.part.cur 续传残留）+ 元数据。
- * **只动 music/ 目录** —— 播放缓存不在这里出现，也不该被这个入口删掉
+ * 删单条**下载**（本地下载页的多选删除，逐首调用）：删掉整个 `downloads/<id>/` 目录
+ * （音频 + .part/.part.cur 残片 + cover.jpg + lyrics.json + metadata.json 一次走），
+ * 再清归属标记与本地库挂点。
+ * **只动 downloads/** —— 播放缓存不在这里出现，也不该被这个入口删掉
  * （缓存由「缓存上限」LRU 与存储管理页统一回收）。
- * 返回 {ok, files, bytes}（bytes = 实际删掉的字节，UI 提示「释放 X」用）。
+ * 返回 {ok, files, bytes}（bytes = 删掉的字节，UI 提示「释放 X」用）。
  * 边下边删的竞态不做处理（同一首正在下载时删，文件会在下载完成后重新出现）。
  */
 export async function deleteCached(songId) {
@@ -474,12 +483,12 @@ export async function deleteCached(songId) {
     await clearOrigin(id) // 文件没了，归属标记一起清（dlorigin.js）
   } catch (e) {}
   try {
-    await dropLocalSong(id) // 本地库的索引 + 歌词随文件一起走（localmeta.js）
+    await dropLocalSong(id) // 本地库的索引挂点随文件一起走（localmeta.js）
   } catch (e) {}
   sched.delDone(id)
   sched.clearWait(id, sched.getWait(id))
   notifyFileChanged(id)
-  log('dl', '删除下载 ' + id + '：文件 ' + r.files + ' 个 / ' + Math.round(r.bytes / 1024) + 'KB')
+  log('dl', '删除下载 ' + id + '：整个目录 ' + r.files + ' 个文件 / ' + Math.round(r.bytes / 1024) + 'KB')
   return { ok: r.files > 0, files: r.files, bytes: r.bytes }
 }
 

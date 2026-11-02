@@ -27,7 +27,7 @@
 import { download as httpDownload } from '../net/request.js'
 import { log } from '../log.js'
 import { sleep } from '../util.js'
-import { fileExists, fileSize, rmQuiet } from '../fsutil.js'
+import { fileExists, fileSize, getFs, rmQuiet } from '../fsutil.js'
 import { has, run as shRun } from '../exec.js'
 
 /* ---- 参数 ---- */
@@ -62,6 +62,27 @@ const POLL_TICK_MAX = 2400 // 轮询空转上限（2400 × 300ms = 12 分钟，�
 /* ---- 能力探测：统一走 utils/exec.js（curl 一次探测、进程内缓存） ----
  * 原 detect()/execFn 的本地实现已删；`fileSize` / `fileExists` / `sleep` 也用公共版
  * （fsutil.js / util.js）。文件是否存在的轮询约束（native 调用、不 fork）见 fsutil.fileExists。 */
+
+/**
+ * 落盘前确保 `.part` 的**父目录**在盘上。
+ *
+ * 新布局里 outPath = `<downloads|cache>/<track_id>/track.<ext>.part`，中间那层曲目目录
+ * 是下载前才建的；curl 的 `-o` 不会建父目录，目录缺失时它会直接失败（rc=23）。
+ * 这里用原生 fs（exists + mkdir，零 fork）补一次，幂等。
+ */
+async function ensureParentDir(path) {
+  try {
+    const i = String(path).lastIndexOf('/')
+    if (i <= 0) return false
+    const dir = String(path).slice(0, i)
+    const fs = await getFs()
+    if (await fs.exists(dir)) return true
+    await fs.mkdir(dir)
+    return true
+  } catch (e) {
+    return false
+  }
+}
 
 /** 当前通道：'curl' | 'builtin'（上层据此决定能否用 mv 提升 .part） */
 export async function transportMode() {
@@ -362,6 +383,7 @@ async function wholeFetch(opts) {
 async function builtinFetch(opts) {
   const path = opts.outPath
   try {
+    await ensureParentDir(path)
     await httpDownload({ url: opts.url, outPath: path })
     let size = await fileSize(path)
     // http.download 返回时最后 4KB 可能还没 flush（实测 1KB 首查 0、1MB 少 4096，100ms 后完整）。
@@ -383,14 +405,18 @@ async function builtinFetch(opts) {
 
 /**
  * 把下满的 .part 提升为正式缓存文件（curl 通道用 mv，原子生效；
- * 没有 exec 时返回 false，由上层决定怎么办）
+ * 没有 exec 时返回 false，由上层决定怎么办）。
+ * 两个路径都在同一个曲目目录里（`<root>/<id>/track.ext.part` → `track.ext`），
+ * 目录必然已经存在（下载时建的），mv 不需要额外准备。
  */
 export async function promotePart(partPath, finalPath) {
   const okCurl = await has('curl')
   if (!okCurl) return false
   try {
     const r = await shRun('mv -f "' + partPath + '" "' + finalPath + '"', 10000)
-    return !!(r && r.code === 0)
+    if (!(r && r.code === 0)) return false
+    // mv 成功后再确认一次：正式路径必须是完整文件（cmpxchg 式的最后一道）
+    return (await fileSize(finalPath)) > 0
   } catch (e) {
     return false
   }
@@ -399,9 +425,11 @@ export async function promotePart(partPath, finalPath) {
 /** 统一下载入口。
  * opts: {url, outPath(.part 路径), total, onProgress(done,total,speed), onResolveUrl(), shouldAbort()}
  *   shouldAbort —— 用户取消（协作式，片间检查；curl 通道保留 .part 可续传）
+ *   新布局下 outPath 形如 `<root>/<id>/track.<ext>.part`，父目录（曲目目录）在这里统一补齐
  * 返回 {ok, size, mode, error[, aborted]}
  */
 export async function fetchToFile(opts) {
+  await ensureParentDir(opts && opts.outPath)
   const okCurl = await has('curl')
   if (!okCurl) return await builtinFetch(opts)
   try {

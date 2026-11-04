@@ -1,9 +1,10 @@
 /**
- * 应用设置（storage 持久化，字符串 KV）
+ * 应用设置（顶层 config.json，字符串 KV 的封装）
  * 用法：await cfg.load(); cfg.get('rate'); await cfg.set('rate', 1.25)
  *
- * storage 走 utils/store.js 的封装：那边会先确保 <appdata>/data/storage 目录存在，
- * 否则框架的 setStorage 一律失败（见 store.js 顶部说明）。
+ * 落点：`$dataDir/config.json`（见 utils/paths.js 的 configFile）。
+ * 旧实现在平台 storage 的单个 preferences.json 里，一次 setStorage 要重写整库；
+ * 现在一个 key 一个文件，写代价只与这份配置本身有关（store.js 是文件实现）。
  *
  * 用户已存配置里的残留键会在 load()
  * 里被忽略（只认 DEFAULTS 里出现的键），无需迁移。
@@ -12,7 +13,13 @@ import { getStorage, setStorage } from './store.js'
 
 const KEY = 'ncm_settings'
 
+/** 当前数据布局版本（迁移判据，见 utils/migrate.js 与 docs/存储重构.md §4） */
+export const LAYOUT_VERSION = 2
+
 const DEFAULTS = {
+  // 数据布局版本：缺失/小于 LAYOUT_VERSION 时 boot 会跑一次迁移，迁完写回。
+  // 不是 UI 可见的设置项，只作为迁移幂等标记（0 = 从没迁过）。
+  layoutVersion: 0,
   // 是否自动演示（开发用）
   demo: false,
   // 登录资料缓存（cookie 本体在 utils/net/cookies.js 里单独持久化）

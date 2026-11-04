@@ -23,7 +23,9 @@ const PROBES = {
   awk: 'command -v awk',
   stat: 'command -v stat',
   df: 'command -v df',
-  ffmpeg: 'command -v ffmpeg'
+  ffmpeg: 'command -v ffmpeg',
+  // 索引库通道（utils/db.js）：平台只有 CLI、没有原生模块，导出还要求 ≥3.33 的 -json 选项
+  sqlite3: 'command -v sqlite3'
 }
 
 const PROBE_TIMEOUT = 8000 // 各探针统一上限（原 6000~8000，命令都是常驻二进制、无副作用）
@@ -66,7 +68,7 @@ async function probe(cap) {
 }
 
 /**
- * 能力是否可用：has('curl') / has('du') / has('awk') / has('stat') / has('df') / has('ffmpeg')。
+ * 能力是否可用：has('curl') / has('du') / has('awk') / has('stat') / has('df') / has('ffmpeg') / has('sqlite3')。
  * 未知 key 返回 false。**首次调用会同步等待一次探测**（一次 fork，~50ms）。
  */
 export async function has(cap) {

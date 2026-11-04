@@ -7,7 +7,8 @@
  *   - **平台 fs 模块没有写入接口**（只有 exists/stat/statfs/readdir/readFile/mkdir/rm），
  *     `global` 的 createFile 也只建空文件 —— 写内容只能 `/bin/sh` 重定向，
  *     所以 writeTextFile 每次写 = 一次 fork（真机裸 fork 48~52ms）。
- *     ⇒ 只有「低频、按需」的写入才走它；高频小块留给原生 storage（见 utils/filestore.js 的取舍表）。
+ *     ⇒ 只有「低频、按需」的写入才走它；高频小块另有去处（缓存元数据随曲目目录、
+ *       索引走 utils/db.js 的批量 upsert，见 docs/存储重构.md §1.2）。
  */
 import { run } from './exec.js'
 import { log } from './log.js'
@@ -167,6 +168,24 @@ export async function readTextFile(path) {
   }
 }
 /**
+ * printf 用的**双引号**转义：把内容包进 "..."，转义 bash 会解释的四类字符。
+ *
+ * 为什么不能用原来的「单引号 + '\''」写法：`printf '%s'` 的格式串已经用掉了单引号，
+ * 拼出来的 `'It'\''s a test'` 在 sh 里虽然语法合法，但实测**单引号被吞掉**
+ * （`'It''s a test'` → `Itsatest`），写进文件的是坏数据。JSON/歌词/SQL 里都有 `'`，
+ * 这条会静默损坏内容，所以改成双引号转义。
+ *
+ * 双引号内只有 $ ` \ " 四个字符需要转义；换行与其它字符原样保留。
+ */
+function dq(s) {
+  return '"' + String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\$/g, '\\$')
+    .replace(/`/g, '\\`') + '"'
+}
+
+/**
  * 写文本文件（**原子替换**：先写 `<path>.tmp` 再 `mv -f`，读到的永远是完整一版）。
  * 内容超过 60KB 自动分片：**每片一条命令、各一次 exec**（整串命令本身就是一个 argv，
  * 把多片拼进同一条命令不会绕过 128KB 上限），最后一片带上 `mv`。
@@ -180,7 +199,7 @@ export async function writeTextFile(path, text) {
   const parts = chunk(s, CHUNK_BYTES)
   for (let k = 0; k < parts.length; k++) {
     const last = k === parts.length - 1
-    let cmd = 'printf \'%s\' ' + shq(parts[k]) + (k === 0 ? ' > ' : ' >> ') + shq(tmp)
+    let cmd = 'printf %s ' + dq(parts[k]) + (k === 0 ? ' > ' : ' >> ') + shq(tmp)
     if (last) cmd += ' && mv -f ' + shq(tmp) + ' ' + shq(path)
     let r = null
     try {

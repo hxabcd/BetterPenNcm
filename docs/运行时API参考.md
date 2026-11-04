@@ -15,13 +15,13 @@
 
 ## 2. 存储：裸模块 `storage`
 
-`$falcon.jsapi` 是点号展平的 API 表，不是模块注册表；编译器把 `import x from '$jsapi/x'` 替换成 `$falcon.jsapi['x']`。**本项目不用它做存储**——storage 走裸模块 `import('storage')`（构建时外部化，运行时由模块加载器提供），封装在 [`src/utils/store.js`](../src/utils/store.js)：
+`$falcon.jsapi` 是点号展平的 API 表，不是模块注册表；编译器把 `import x from '$jsapi/x'` 替换成 `$falcon.jsapi['x']`。**本项目不用它做存储**——旧实现曾走裸模块 `import('storage')`（构建时外部化，运行时由模块加载器提供）。
 
-- `store.js` 封装并暴露 `getStorage / setStorage / removeStorage`；裸模块**没有 `getStorageInfo`**（见 §14），`getStorageKeys` / `clearStorage` 未在项目中使用。
-- 首次使用前要确保 `<appdata>/data/storage` 目录存在，否则 `setStorage` 会失败（`store.js` 顶部有自愈逻辑）。
-- 大值写入可用：512KB 写入+回读成功（约 90~270ms）；**但全部 key 落在同一个 `preferences.json`，
-  每次 `setStorage` 都重写整份** —— 所以大表不放这里，走文件（`store/` 与 `lrc/`），
-  落点与取舍见 [存储层.md](存储层.md)，封装在 [`src/utils/filestore.js`](../src/utils/filestore.js)。
+- 平台 `storage` 的全部 key 落在同一个 `preferences.json`，**每次 `setStorage` 都重写整份**（512KB 写入+回读约 90~270ms）。所以大表不放这里，改落文件与索引库，落点见 [存储层.md](存储层.md)。
+- 裸模块**没有 `getStorageInfo`**（见 §14），`getStorageKeys` / `clearStorage` 未在项目中使用。
+- 当前持久化全部走文件：[`src/utils/store.js`](../src/utils/store.js)（顶层 JSON 键值，原名同签名替代 storage）、
+  [`src/utils/db.js`](../src/utils/db.js)（SQLite 索引库）、[`src/utils/media.js`](../src/utils/media.js)（每曲一目录）。
+  只有迁移脚本仍读旧的 `storage/preferences.json`，见 [`src/utils/migrate.js`](../src/utils/migrate.js)。
 
 音频/传感器同样走裸模块导入（`soundPlayer` / `global` 等）。
 

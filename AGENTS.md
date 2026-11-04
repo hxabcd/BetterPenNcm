@@ -52,7 +52,7 @@ This file provides guidance to AI Agent when working with code in this repositor
 - **构建必须用便携 Node 18**（`tools/aiot-build/`，已在 build.sh 封装）；系统 Node 26 会让 aiot-cli 崩溃。
   该 exe 可能被安全软件拦成「无输出直接退出 1」——此时用 `BPNCM_NODE=<node.exe>` 指定替代（18 或 22 可用，26 不行）
 - **构建/装机互斥**：已有实例在跑时第二个直接报错退出、不排队。确认无人运行时 `rm -rf .build.lock/`（或 `.install.lock/`）或加 `--force`
-- **`miniapp_cli uninstall` 会清空整个 data 目录**：install.sh 在设备内暂存并恢复 `cookie.txt`、`storage/preferences.json`、`music/`、`covers/`、`store/`、`lrc/`；`cache/` 可再生，故意不备份（`store/` 与 `lrc/` 是拆分后的索引与歌词库，漏了会「有文件没索引」）
+- **`miniapp_cli uninstall` 会清空整个 data 目录**：`install.sh` 默认（`--backup`）在设备内把**整个 data 目录** `mv` 到暂存位、装完再 `mv` 回来（整目录 rename，不存在按子目录挑选的漏项）；`--no-backup` 会丢登录态与全部下载。数据布局见 [`docs/存储重构.md`](docs/存储重构.md) §2
 - 改版必须先 uninstall 再 install，否则跑的是旧实例
 - **设备临时文件默认写 `/tmp`**（tmpfs，重启自清），不要在 `/userdisk` 根目录下建临时文件；`/tmp` 放不下的大文件才落 `/userdisk`；持久文件只进 `/userdisk/path/` 等既有子目录
 - 构建号写入生成物 `src/utils/buildInfo.js`（build.sh 生成，勿手改）并显示在首页顶栏，供核对设备版本
@@ -70,7 +70,7 @@ This file provides guidance to AI Agent when working with code in this repositor
 | `src/utils/player/` | 播放器与媒体：播放单例、下载引擎（**download.js 是门面**，内部拆为 source/files/progress/scheduler/tasks/fetcher，对外 API 不变）、curl 传输、下载/缓存两个目录与元数据、音质档位、历史、会话快照、歌词、本地库（localmeta.js）、**本地歌单索引/拉取同步（locallists.js）、下载归属标记（dlorigin.js）**、播放页几何常量、**定时播放单例（sleeptimer.js，跨页面存活、不持久化）** |
 | `src/utils/ncm/` | 网易云：接口归一化、歌单、喜欢、每日推荐、**歌曲评论（comments.js：读明文匿名可用的 `/api/v1/resource/comments/R_SO_4_<id>`，点赞/发评论走 weapi）**、weapi 加密与登录（二维码 / 验证码 / 密码） |
 | `src/utils/net/` | API 请求的唯一入口 + Cookie 维护；`src/utils/log.js` 为日志直连内建 http，是刻意例外（避免 request→cookies→log 递归、日志不带业务 Cookie） |
-| `src/utils/`（其余） | boot（启动序列）、cover（封面缓存）、**artistavatar / artistmeta（歌手头像唯一来源与预热）**、**nav（导航层：逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）**、rail、theme、config、format、touch、multidl、**util（raceTimeout/sleep）、fsutil（fs 句柄、读写文本文件走 shell）、exec（process.exec 能力探测）、paths（可写目录单一来源）、filestore（大表落文件 + 合并写）** |
+| `src/utils/`（其余） | boot（启动序列：建目录 → 一次性迁移 → 开索引库）、cover（封面缓存：曲目单尺寸 + 浏览缩略图）、**artistavatar / artistmeta（歌手头像唯一来源与预热）**、**nav（导航层：逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）**、rail、theme、config、format、touch、multidl、**util（raceTimeout/sleep）、fsutil（fs 句柄、读写文本文件走 shell）、exec（process.exec 能力探测）、paths（可写路径唯一真源）、db（SQLite 索引库通道）、media（每 track 目录的读写）、migrate（旧布局一次性迁移）、store（顶层 JSON 文件 KV）** |
 | `src/assets/` + `scripts/gen_icons.py` | 图标 = Lucide SVG → PNG（平台不能给 `<image>` 染色，颜色必须生成进 PNG）；**`icons.js` 注册表是纯生成物**（`gen_icons.py --emit-js` 生成、`--check` 逐字节校验——别手改） |
 | `src/styles/common.less` | 设计 token：颜色 / 字号阶梯 / 结构尺寸（1vh = 2.4px）；**令牌段是生成物**（源头 = `src/utils/ui/tokens.js`，生成/校验走 `scripts/gen_tokens.py`） |
 
@@ -155,11 +155,11 @@ This file provides guidance to AI Agent when working with code in this repositor
 - **下载慢先查 WiFi 链路速率**（`iw dev wlan0 link` 的 rx bitrate）：这台笔须钉在 2.4GHz BSS，改配置走 `wpa_cli` + `save_config`，别直接编辑 `wpa_supplicant.conf`（会被回写覆盖）
 - **自动化探针**：用 `bash scripts/build_probe.sh` 构建**独立 appid** 的探针版（入口 = `pages/probe`；脚本临时改 appid 后自动还原源码），安装/启动用产物的探针 appid，不会卸载或清空正式应用数据；用完 `miniapp_cli uninstall <探针appid>` 清理。探针日志同样走 logserver（构建时注入 `BPNCM_LOG_SRV`）；安装命令见脚本头部注释
 - **导航层排查**：`[nav]` 日志（`go … (push|reuse|degrade)`、`page-load/unload`、`page-options`）走 logserver；返回落错层 / 页面被意外销毁时先看槽位与栈顺序；`bash scripts/nav_selftest.sh` 可在探针版上跑 push/pop 自测（不动正式应用数据）。详见 [`docs/页面导航.md`](docs/页面导航.md)
-- 设备保持已登录；`$dataDir/cookie.txt` 与 storage 里有会话凭据，**日志/汇报中不要回显**
+- 设备保持已登录；`$dataDir/cookie.txt` 与 `cookie.json` 里有会话凭据，**日志/汇报中不要回显**
 
 ## 边界
 
-- **下载**（用户主动）→ `music/`，永久保留，计入「本地下载」；**缓存**（边听边存）→ `cache/`，受缓存上限 LRU 滚动，不计入本地下载
+- **下载**（用户主动）→ `$dataDir/downloads/<id>/`，永久保留，计入「本地下载」；**缓存**（边听边存）→ `$dataDir/cache/<id>/`，受缓存上限 LRU 滚动，不计入本地下载。每 track 一个目录，目录内固定 `track.mp3|flac`、`cover.jpg`、`lyrics.json`（仅 downloads）、`metadata.json`；路径一律从 `src/utils/paths.js` 取，布局与不变式见 [`docs/存储重构.md`](docs/存储重构.md) §2
 - **后台 JS 会冻结**：切后台时下载跑完当前片就停，别承诺「后台继续下载」；应用退出后无后台，会直接关闭
 - 退出登录会**删掉 `$dataDir/cookie.txt`**（否则 boot 会把会话灌回来）
 - 歌曲列表的浏览方案：已用「加载更多」分页（渲染每批 50 首，网络游标见 `list.vue`）；列表内搜索仍待定

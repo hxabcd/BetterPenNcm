@@ -1,17 +1,28 @@
 /**
- * 本地歌单索引 —— 把「已添加到本地索引」的歌单及其远端/本地快照落盘。
+ * 本地歌单索引 —— 把「已添加到本地索引」的歌单及其远端/本地快照落 SQLite 索引库。
  *
- * 数据模型（文件 `$dataDir/store/local_playlists.json`，整表 63KB；storage 是单文件 KV、
- * 写一次重写整库，所以大表落文件 —— 见 utils/filestore.js）：
+ * 落点：`local_index.db` 的 `playlist` + `playlist_track` 两张表（结构见 docs/存储重构.md §1.3）。
+ * 旧实现是 `store/local_playlists.json` 整表 63KB、写一次重写整份；现在是单条 upsert，
+ * 写代价与库规模无关（读写模型见 utils/db.js）。
+ *
+ * 数据模型（对外记录形状不变，页面/调用点无需改）：
  *   {
- *     "<playlistId>": {
- *       id, name, cover, creator, trackCount, updateTime,
- *       baseIds:   [曲目 id],   // 曾见过的远端曲目集合（含旧快照；D 判定用）
- *       remoteIds: [曲目 id],   // 最近一次拉取的远端快照
- *       lastPullAt, addedAt, lastSyncAt,
- *       meta: { "<id>": {n,a,al,c,d} }  // 仅给「远端有、本地还没下」的 A 条目做显示/下载用
- *     }
+ *     id, name, cover, creator, trackCount, updateTime,
+ *     baseIds:   [曲目 id],   // 曾见过的远端曲目集合（含旧快照；D 判定用）
+ *     remoteIds: [曲目 id],   // 最近一次拉取的远端快照
+ *     lastPullAt, addedAt, lastSyncAt,
+ *     meta: { "<id>": {n,a,al,c,d,fee} }  // 仅给「远端有、本地还没下」的 A 条目做显示/下载用
  *   }
+ *
+ * 列映射与取舍（playlist 表只有契约里的八列）：
+ *   - `base_ids` / `remote_ids` 列存 JSON 数组文本，与旧记录字段一一对应；
+ *   - `lastPullAt` → `pulled_at`，`trackCount` → `track_cnt`；
+ *   - `addedAt` 没有列：**重启后按 `pulled_at` 回填**（仍是「越新越前」，只是拉取也会刷新它）；
+ *   - `updateTime` / `lastSyncAt` / `meta` 没有列：只在内存里存活。
+ *     `meta` 丢了不阻断任何流程 —— 拉取/打开歌单视图时在线会自动补齐（见 fetchMeta），
+ *     只有「离线 + 重启后第一次看 A 行」会显示占位名 `歌曲 <id>`。
+ *   - `playlist_track` 是「本歌单引用的曲目」的关系视图（base ∪ remote，ord = 并集里的位置），
+ *     每次写 playlist 行时一并重建，供迁移/脚本按关系查询。
  *
  * 拉取 / 同步（对齐 git fetch / pull）：
  *   - **A / D 一律相对本地文件计算，不相对 baseIds**：
@@ -27,7 +38,7 @@
  *       **未索引**时按用户单曲下载（origin=manual），不会制造「没有索引却有遗留」。
  *
  * 分类不在这里维护孤儿表：由 dlorigin.js 的归属标记 + 本模块的「是否被任一索引歌单引用」
- * 动态派生（见 classify / splitDownloads）：
+ * 动态派生（见 classifyWithRefs / splitDownloads）：
  *   - referenced → 歌单内
  *   - !referenced && playlistOwned → 遗留歌曲
  *   - !referenced && (userOwned/无标记) → 单曲下载
@@ -40,7 +51,7 @@
  *     否则「从未下载过的远端曲目」永远无法成为 A。
  *   - 下载动作统一走 download.js 的 downloadSongs，归属标记由它写 dlorigin。
  */
-import { loadTable, saveTable } from '../filestore.js'
+import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, deleteSql, num } from '../db.js'
 import { fetchPlaylistInfo, fetchPlaylistAllSongs, fetchTracksMore } from '../ncm/playlist.js'
 import { downloadSongs, deleteCached } from './download.js'
 import { listSongs } from './cache.js'
@@ -48,10 +59,118 @@ import { isOffline } from '../net/status.js'
 import { log } from '../log.js'
 import { isPlaylistOwned, isUser, loadOrigin } from './dlorigin.js'
 
-const FILE = 'local_playlists' // $dataDir/store/local_playlists.json
+const T_PL = 'playlist'
+const T_PT = 'playlist_track'
+
+/**
+ * 一条 sqlite3 命令的体积预算（**转义后的字节数**）。
+ *
+ * db.js 把整批 SQL 拼成**一个** `/bin/sh -c <整串>` 参数，而单参数上限环境相关：
+ * 设备（Linux）128KB，开发机 Git Bash 实测 ~6KB 就开始报 `unexpected EOF`。
+ * 所以按**字节**装箱，取两边都安全的值 —— 大歌单（几千首）只是多 fork 几次，
+ * 而「整批超限 → 整批静默失败」是不可接受的（索引会凭空丢歌单曲目）。
+ */
+const SQL_BATCH_BYTES = 6000
+
+/** 一条语句在 shell 单引号里占的字节数（db.js 的 shq：外层一对 '，内部每个 ' 转成 4 字符） */
+function escapedLen(sql) {
+  let n = sql.length + 2
+  for (let i = 0; i < sql.length; i++) if (sql.charAt(i) === "'") n += 3
+  return n
+}
+
+/** 顺序提交一批 SQL，按字节装箱（每箱一次 fork）。单条超限时自己成批，不连带整批。 */
+async function runStmts(stmts) {
+  let batch = []
+  let bytes = 0
+  for (let i = 0; i < stmts.length; i++) {
+    const b = escapedLen(stmts[i])
+    if (batch.length && bytes + b > SQL_BATCH_BYTES) {
+      await dbExec(batch)
+      batch = []
+      bytes = 0
+    }
+    batch.push(stmts[i])
+    bytes += b
+  }
+  if (batch.length) await dbExec(batch)
+}
+
+/**
+ * 多对多关系的整组替换：`INSERT OR REPLACE` 多行 VALUES。
+ * 一行 ~20B（逐条 upsert 要 ~90B，因为每条都重复列名与 ON CONFLICT 子句），
+ * 大歌单下这决定了要 fork 几次。
+ */
+function replaceRowsSql(table, cols, rows) {
+  if (!rows.length) return []
+  const head = 'INSERT OR REPLACE INTO ' + table + ' (' + cols.join(',') + ') VALUES '
+  const out = []
+  let tuples = []
+  let bytes = escapedLen(head) + 8 // 末尾的 ;
+  for (let i = 0; i < rows.length; i++) {
+    const vals = []
+    for (let k = 0; k < rows[i].length; k++) {
+      vals.push(typeof rows[i][k] === 'number' ? num(rows[i][k]) : qv(rows[i][k]))
+    }
+    const t = '(' + vals.join(',') + ')'
+    const cost = t.length + 1
+    if (tuples.length && bytes + cost > SQL_BATCH_BYTES) {
+      out.push(head + tuples.join(',') + ';')
+      tuples = []
+      bytes = escapedLen(head) + 8
+    }
+    tuples.push(t)
+    bytes += cost
+  }
+  if (tuples.length) out.push(head + tuples.join(',') + ';')
+  return out
+}
+
+/** SQL 字符串字面量（与 utils/db.js 的 q 同语义：单引号包裹、内部 ' 翻倍） */
+function qv(v) {
+  if (v === undefined || v === null) return 'NULL'
+  return "'" + String(v).replace(/'/g, "''") + "'"
+}
+
+/**
+ * 把一个大文本列写进某一行的 SQL 片段：先清空再分片 `col = col || '<片段>'`。
+ *
+ * 为什么要分片：`base_ids` / `remote_ids` 是 JSON 数组文本，跟歌单曲目数成正比
+ * （10000 首 ≈ 70KB）。db.js 把整批拼成**一个** `/bin/sh -c` 参数，
+ * 10k 首歌单的两列合起来会顶到设备 128KB 单参数上限 —— 那样整条歌单记录静默写不进去。
+ * 拆成多片追加就与歌单大小无关了。
+ */
+function appendTextColSql(table, idCol, id, col, text) {
+  const s = text === undefined || text === null ? '' : String(text)
+  const out = ['UPDATE ' + table + ' SET ' + col + " = '' WHERE " + idCol + ' = ' + num(id) + ';']
+  // 片段按转义后的字节算：单引号在 SQL 里翻倍、在 shell 里再翻，这里留一半余量
+  const CHUNK = 2000
+  let i = 0
+  while (i < s.length) {
+    let end = Math.min(i + CHUNK, s.length)
+    // 别把代理对劈开
+    const code = s.charCodeAt(end - 1)
+    if (end < s.length && code >= 0xd800 && code <= 0xdbff) end -= 1
+    out.push('UPDATE ' + table + ' SET ' + col + ' = ' + col + ' || ' + qv(s.slice(i, end)) +
+      ' WHERE ' + idCol + ' = ' + num(id) + ';')
+    i = end
+  }
+  return out
+}
 
 let mem = null
 let loading = null
+
+/** JSON 数组列 → 数组（坏了按空数组） */
+function parseIds(s) {
+  if (!s) return []
+  try {
+    const a = JSON.parse(s)
+    return Array.isArray(a) ? a : []
+  } catch (e) {
+    return []
+  }
+}
 
 function normalizeRecord(rec) {
   const r = rec || {}
@@ -73,20 +192,38 @@ function normalizeRecord(rec) {
   }
 }
 
+/** DB 行 → 记录（没有列的字段按文档降级：addedAt 用 pulled_at 回填，meta 为空等在线补齐） */
+function rowToRecord(row) {
+  const pulled = Number(row.pulled_at) || 0
+  return normalizeRecord({
+    id: row.id,
+    name: row.name,
+    cover: row.cover,
+    creator: row.creator,
+    trackCount: row.track_cnt,
+    baseIds: parseIds(row.base_ids),
+    remoteIds: parseIds(row.remote_ids),
+    lastPullAt: pulled,
+    addedAt: pulled,
+    updateTime: 0,
+    lastSyncAt: 0,
+    meta: {}
+  })
+}
+
 async function load() {
   if (mem) return mem
   if (loading) return loading
   loading = (async function () {
-    let obj = {}
     try {
-      obj = (await loadTable(FILE)) || {}
-    } catch (e) {
-      obj = {}
-    }
+      await dbOpen()
+    } catch (e) {}
     const out = {}
-    const keys = Object.keys(obj || {})
+    const d = dbData()
+    const rows = (d && d.playlist) || {}
+    const keys = Object.keys(rows)
     for (let i = 0; i < keys.length; i++) {
-      const rec = normalizeRecord(obj[keys[i]])
+      const rec = rowToRecord(rows[keys[i]])
       if (rec.id) out[String(rec.id)] = rec
     }
     mem = out
@@ -96,11 +233,104 @@ async function load() {
   return loading
 }
 
-async function save() {
-  if (!mem) return
-  try {
-    await saveTable(FILE, mem)
-  } catch (e) {}
+/**
+ * 落一条歌单记录：playlist 行 + playlist_track 关系行（一次事务、一批 fork）。
+ * 先改内存（读的真相），再拼 SQL —— 与 localmeta 同一套「内存 + 写穿」模式。
+ */
+async function persist(rec) {
+  if (!rec || !rec.id) return
+  const k = String(rec.id)
+  if (!mem) mem = {}
+  mem[k] = rec
+  const d = dbData()
+  const base = rec.baseIds || []
+  const remote = rec.remoteIds || []
+  // 1) playlist 行：小字段一次 upsert；两个 JSON 数组列随后分片追加（可能很长）
+  const stmts = [
+    upsertSql(T_PL, [
+      { name: 'id', v: rec.id, raw: true },
+      { name: 'name', v: rec.name || '' },
+      { name: 'cover', v: rec.cover || '' },
+      { name: 'creator', v: rec.creator || '' },
+      { name: 'track_cnt', v: Number(rec.trackCount) || 0, raw: true },
+      { name: 'base_ids', v: '' },
+      { name: 'remote_ids', v: '' },
+      { name: 'pulled_at', v: Number(rec.lastPullAt) || 0, raw: true }
+    ], 'id'),
+    deleteSql(T_PT, 'playlist_id = ' + num(rec.id))
+  ]
+  const baseText = JSON.stringify(base)
+  const remoteText = JSON.stringify(remote)
+  const baseChunks = appendTextColSql(T_PL, 'id', rec.id, 'base_ids', baseText)
+  const remoteChunks = appendTextColSql(T_PL, 'id', rec.id, 'remote_ids', remoteText)
+  // 2) 关系表 = base ∪ remote（引用集合），ord = 并集里的位置
+  const union = []
+  const seen = {}
+  for (let i = 0; i < base.length; i++) {
+    const id = Number(base[i]) || 0
+    if (id && !seen[id]) {
+      seen[id] = 1
+      union.push(id)
+    }
+  }
+  for (let i = 0; i < remote.length; i++) {
+    const id = Number(remote[i]) || 0
+    if (id && !seen[id]) {
+      seen[id] = 1
+      union.push(id)
+    }
+  }
+  const rows = []
+  for (let i = 0; i < union.length; i++) rows.push([rec.id, union[i], i])
+  const rowStmts = replaceRowsSql(T_PT, ['playlist_id', 'track_id', 'ord'], rows)
+
+  if (d) {
+    d.playlist[k] = {
+      id: rec.id,
+      name: rec.name || '',
+      cover: rec.cover || '',
+      creator: rec.creator || '',
+      track_cnt: Number(rec.trackCount) || 0,
+      base_ids: baseText,
+      remote_ids: remoteText,
+      pulled_at: Number(rec.lastPullAt) || 0
+    }
+    const keep = []
+    const all = d.playlist_track || []
+    for (let i = 0; i < all.length; i++) {
+      if (Number(all[i].playlist_id) !== Number(rec.id)) keep.push(all[i])
+    }
+    for (let i = 0; i < union.length; i++) {
+      keep.push({ playlist_id: rec.id, track_id: union[i], ord: i })
+    }
+    d.playlist_track = keep
+  }
+  // 顺序：行 → 两个大列 → 关系行（每步都可能跨多批，runStmts 按字节装箱）
+  await runStmts(stmts)
+  await runStmts(baseChunks.concat(remoteChunks))
+  await runStmts(rowStmts)
+}
+
+/** 删一条歌单记录（playlist 行 + 关系行；不碰任何文件） */
+async function forget(id) {
+  const k = String(id)
+  const pid = Number(id) || 0
+  if (mem) delete mem[k]
+  const d = dbData()
+  if (d) {
+    delete d.playlist[k]
+    const keep = []
+    const all = d.playlist_track || []
+    for (let i = 0; i < all.length; i++) {
+      if (Number(all[i].playlist_id) !== pid) keep.push(all[i])
+    }
+    d.playlist_track = keep
+  }
+  if (!pid) return
+  await dbExec([
+    deleteSql(T_PT, 'playlist_id = ' + num(pid)),
+    deleteSql(T_PL, 'id = ' + num(pid))
+  ])
 }
 
 /** 确保载入（导出函数内部会等它；页面要同步读缓存时可先 await loadLists()） */
@@ -154,6 +384,7 @@ export async function addList(pid) {
   try {
     const info = await fetchPlaylistInfo(id)
     const ids = info.trackIds || []
+    const now = Date.now()
     const rec = normalizeRecord({
       id: id,
       name: info.name,
@@ -163,13 +394,12 @@ export async function addList(pid) {
       updateTime: info.updateTime || 0,
       baseIds: ids,
       remoteIds: ids,
-      lastPullAt: Date.now(),
-      addedAt: Date.now(),
-      lastSyncAt: Date.now(),
+      lastPullAt: now,
+      addedAt: now,
+      lastSyncAt: now,
       meta: {}
     })
-    mem[String(id)] = rec
-    await save()
+    await persist(rec)
     log('locallists', '添加本地索引 ' + id + ' ' + info.name + ' 曲目=' + ids.length)
     return { ok: true, list: rec, count: ids.length }
   } catch (e) {
@@ -188,8 +418,7 @@ export async function removeList(pid) {
   await load()
   if (!id || !mem[String(id)]) return { ok: false }
   const rec = mem[String(id)]
-  delete mem[String(id)]
-  await save()
+  await forget(id)
   log('locallists', '移出本地索引 ' + id + ' ' + rec.name + '（文件保留）')
   return { ok: true, list: rec }
 }
@@ -237,8 +466,7 @@ export async function removeListLocal(pid) {
     doomed.push(s)
   }
   // 先移除索引：之后即使删除文件失败，这些歌也已经是「无引用」状态，不会指回已移出的歌单
-  delete mem[String(id)]
-  await save()
+  await forget(id)
   let files = 0
   let bytes = 0
   const deleted = []
@@ -405,7 +633,7 @@ export async function pullList(pid, localIds) {
     rec.trackCount = info.trackCount || remote.length
     rec.updateTime = info.updateTime || rec.updateTime
     rec.lastPullAt = Date.now()
-    await save()
+    await persist(rec)
     log('locallists', '拉取 ' + id + ' ' + rec.name + ' 远端=' + remote.length +
       ' 本地=' + Object.keys(local).length + ' 新增=' + added.length + ' 移除=' + removed.length)
     return { ok: true, list: rec, added: added, removed: removed }
@@ -495,7 +723,7 @@ export async function syncList(pid, localIds) {
     if (rec.meta[k]) keepMeta[k] = rec.meta[k]
   }
   rec.meta = keepMeta
-  await save()
+  await persist(rec)
   log('locallists', '同步 ' + id + ' ' + rec.name + ' 新增=' + aIds.length +
     ' 下载成功=' + dl.ok + ' 跳过=' + dl.skipped + ' 失败=' + dl.failed +
     ' 移除=' + dIds.length + '（文件保留）')
@@ -548,7 +776,7 @@ export async function downloadAll(pid, onProgress) {
       rec.baseIds = remote.slice()
       rec.lastSyncAt = Date.now()
       rec.meta = meta
-      await save()
+      await persist(rec)
     }
     return {
       ok: true,
@@ -685,7 +913,7 @@ export async function playlistView(pid, downloadedSongs) {
     }
   }
   if (baseChanged) rec.baseIds = base
-  if (baseChanged || metaChanged || metaFetched) await save()
+  if (baseChanged || metaChanged || metaFetched) await persist(rec)
 
   const addedRows = []
   for (let i = 0; i < addedIds.length; i++) {

@@ -278,14 +278,18 @@ export default {
   mounted() {
     const self = this
     this._dead = false
+    /* 页内播放器快照也只在**可见**时消费：被上层页盖住（或播放页的歌词子面板没开）时，
+       onState 会写 active / 推送时钟给每个 LyricWordLine，整块歌词随之重渲染 ——
+       看不见的歌词没有任何东西需要刷新。露出时用最新快照重锚（下面 bindPageVis 的 on 分支），
+       所以隐藏期间丢掉的 tick 不会让画面停在旧位置。 */
+    this._visible = true
     this._ph = player.on(function (s) {
+      if (!self._visible) return
       self.onState(s)
     })
     this.startClock()
-    /* 页面被上层页盖住时停掉本地时钟（33ms 一拍 = 每秒 30 次推进 + 逐字状态推送）：
-       看不见的歌词面板没有任何东西需要刷新，重新露出时按快照重锚并拉起时钟。
-       注意这里只停**时钟**，player 订阅保留 —— 快照还要用来重锚。 */
-    this._visible = true
+    /* 面板不可见时连**时钟**一起停（33ms 一拍 = 每秒 30 次推进 + 逐字状态推送），
+       重新露出时按快照重锚并拉起时钟。player 订阅本身保留，用来在露出时重锚。 */
     this._visOff = bindPageVis(this, function (on) {
       self._visible = on
       if (on) {

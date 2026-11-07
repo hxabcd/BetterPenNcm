@@ -279,6 +279,46 @@ const DL_ALLOW = {
   eq('容器: 未引入未验证的 WeakMap/Map/Set', banned.join(', ') || 'none', 'none')
 }
 
+/* ---------- 3f. 播放页子面板：订阅回调入口必须自己判可见 ---------- */
+// 播放单例每 500ms 发一次快照、定时模块每 1000ms 发一次倒计时。子面板被「播放页隐藏」或
+// 「子面板没开」时，这些 tick 只是白写 data 触发重渲染 —— 回调第一行必须 early return。
+// 这里按「订阅那一行后 4 行内出现 _visible 判定」做静态断言，防止后续改回去。
+{
+  const SUBS = [
+    ['components/player/LyricBoard.vue', 'player.on'],
+    ['components/player/TimerPanel.vue', 'sleepTimer.on']
+  ]
+  const bad = []
+  for (const [file, call] of SUBS) {
+    const p = allFiles.find((x) => rel(x) === file)
+    if (!p) { bad.push(file + '(缺失)'); continue }
+    const lines = read(p).split('\n')
+    const at = lines.findIndex((l) => l.includes(call + '('))
+    if (at < 0) { bad.push(file + '(无 ' + call + ')'); continue }
+    // 订阅点在回调函数体之前：取订阅行往前 6 行（回调体声明）与往后 4 行的并集
+    const win = lines.slice(Math.max(0, at - 6), at + 5).join('\n')
+    if (!/_visible/.test(win)) bad.push(file)
+  }
+  eq('子面板门控: 订阅回调入口判可见', bad.join(', ') || 'none', 'none')
+}
+
+// 3g. sleepTimer 的裸订阅同样要登记（新增调用点会在这里露出来）
+const SLEEP_ALLOW = {
+  'utils/player/sleeptimer.js': '发射端自己',
+  'components/player/TimerPanel.vue': '已门控（_sub 内判可见）',
+  'pages/player/player.vue': '只写 timerOn 布尔（值不变时 Vue 的 setter 直接返回，不重渲染），且要驱动定时结束 toast'
+}
+{
+  const bare = []
+  for (const p of allFiles) {
+    if (!/\bsleepTimer\.on\s*\(/.test(read(p))) continue
+    const r = rel(p)
+    if (SLEEP_ALLOW[r]) continue
+    bare.push(r)
+  }
+  eq('订阅门控: sleepTimer.on 调用点都在白名单内', bare.join(', ') || 'none', 'none')
+}
+
 /* ---------- 收尾 ---------- */
 fs.rmSync(sandbox, { recursive: true, force: true })
 

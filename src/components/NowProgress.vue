@@ -23,6 +23,7 @@
  */
 import { player } from '../utils/player/player.js'
 import { accentMixin } from '../utils/theme.js'
+import { bindPageVis } from '../utils/ui/vis.js'
 
 export default {
   name: 'NowProgress',
@@ -41,15 +42,25 @@ export default {
   },
   mounted() {
     const self = this
+    this._vis = true
     this._handler = function (s) {
       self.onPlayer(s)
     }
     player.on(this._handler)
+    // 主页被上层页盖住时这条线看不见：不落 data（省掉卡片的重渲染）。
+    // 重新露出时补一次 —— onPlayer 自带判重（0.2% 一档），重复调无副作用。
+    this._visOff = bindPageVis(this, function (on) {
+      const was = self._vis
+      self._vis = on
+      if (on && !was) self.onPlayer(player.state())
+    })
     this.onPlayer(player.state())
   },
   beforeDestroy() {
     if (this._handler) player.off(this._handler)
     this._handler = null
+    if (this._visOff) this._visOff()
+    this._visOff = null
   },
   methods: {
     /**

@@ -84,7 +84,7 @@ import {
 } from '../../utils/ncm/playlist.js'
 import { addList, removeList, removeListLocal, isIndexed, downloadAll } from '../../utils/player/locallists.js'
 import { player } from '../../utils/player/player.js'
-import { dlState, onDl, offDl } from '../../utils/player/download.js'
+import { bindDl } from '../../utils/player/dlvis.js'
 import { dlText } from '../../utils/multidl.js'
 import { fmtSize } from '../../utils/format.js'
 import { ensureCover, BIG_COVER } from '../../utils/cover.js'
@@ -236,17 +236,17 @@ export default {
     this.dlEntry = p.entry === 'dl'
     if (p.name) this.name = p.name
     const self = this
-    this._dlOff = onDl(function (s) {
+    // 下载活动订阅（可见性门控 + 首帧快照，见 utils/player/dlvis.js）
+    this._dlOff = bindDl(this, function (s) {
       self.syncDl(s)
     })
-    this.syncDl(dlState())
     log('plinfo', 'onLoad id=' + this.pid + ' name=' + this.name + ' entry=' + (this.dlEntry ? 'dl' : 'list'))
     this.load()
     this.loadIndexed()
   },
   beforeDestroy() {
     this._dead = true
-    if (this._dlOff) offDl(this._dlOff)
+    if (this._dlOff) this._dlOff()
     this._dlOff = null
   },
   methods: {

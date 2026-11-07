@@ -46,6 +46,7 @@ import { touchAxis } from '../../utils/touch.js'
 import { log } from '../../utils/log.js'
 import { accentMixin } from '../../utils/theme.js'
 import { TOK } from '../../utils/ui/tokens.js'
+import { bindPageVis } from '../../utils/ui/vis.js'
 import { player } from '../../utils/player/player.js'
 import { findLyricIndex } from '../../utils/player/lyric.js'
 import { buildLyricRows, LYRIC_GEO } from '../../utils/player/lyriclayout.js'
@@ -281,6 +282,19 @@ export default {
       self.onState(s)
     })
     this.startClock()
+    /* 页面被上层页盖住时停掉本地时钟（33ms 一拍 = 每秒 30 次推进 + 逐字状态推送）：
+       看不见的歌词面板没有任何东西需要刷新，重新露出时按快照重锚并拉起时钟。
+       注意这里只停**时钟**，player 订阅保留 —— 快照还要用来重锚。 */
+    this._visible = true
+    this._visOff = bindPageVis(this, function (on) {
+      self._visible = on
+      if (on) {
+        self.onState(player.state())
+        if (self._playing) self.startClock()
+      } else {
+        self.stopClock()
+      }
+    })
     this.applyJump(this.geo.auto) // 幂等对齐（页面会挂两遍）
     log('lyric', '歌词面板挂载 行数=' + this.rowsAll.length +
       ' 渲染=' + this.rowsView.length + ' 行（窗口 ' + this.winStart + '..' + this.winEnd + '）')
@@ -298,6 +312,8 @@ export default {
     this._dead = true
     if (this._ph) player.off(this._ph)
     this._ph = null
+    if (this._visOff) this._visOff()
+    this._visOff = null
     if (this._diagT) clearTimeout(this._diagT)
     this._diagT = 0
     this.stopClock()

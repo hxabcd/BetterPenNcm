@@ -88,6 +88,7 @@ import { ICON } from '../../assets/icons.js'
 import { railBack, railBtn } from '../../utils/rail.js'
 import { go } from '../../utils/nav.js'
 import { player } from '../../utils/player/player.js'
+import { viewSig, sigFeed } from '../../utils/player/sig.js'
 import { loadLyrics } from '../../utils/player/lyric.js'
 import { sleepTimer } from '../../utils/player/sleeptimer.js'
 import { ensureCover, BIG_COVER } from '../../utils/cover.js'
@@ -97,6 +98,7 @@ import config from '../../utils/config.js'
 import { evtData } from '../../utils/events.js'
 import { toastMixin } from '../../utils/ui/toast.js'
 import { pageFrameMixin } from '../../utils/ui/frame.js'
+import { bindPageVis } from '../../utils/ui/vis.js'
 import { log } from '../../utils/log.js'
 
 const LONG_SWALLOW_MS = 3000 // 长按后吞掉 click 的窗口（防御性，见 toggleLike 注释）
@@ -171,9 +173,22 @@ export default {
   mounted() {
     const self = this
     this._dead = false
-    // 播放状态订阅：每 tick（约 500ms）推一次快照 —— 整页依赖它更新
+    // 播放状态订阅：每 tick（约 500ms）推一次快照 —— 整页依赖它更新。
+    // 两层门控（都是「省渲染」而不是「省数据」，重新可见/数值真变了时一定会追平）：
+    //   ① 页面被上层页盖住时不赋 data（平台不会卸载被压住的页，订阅一直在跑）；
+    //   ② 赋 data 前按 viewSig 判重 —— 500ms 快照里时间文本与进度条经常与上一帧完全相同
+    //      （时间按秒显示、进度按 0.1% 量化），那种 tick 不需要整页重渲染。
+    //      ⚠ 签名包含 status / 已播时间 / 总时长 / 进度百分比，所以不会有「停在旧值」。
+    this._feed = sigFeed(viewSig)
+    this._visible = true
     this._off = player.on(function (s) {
-      self.st = s
+      self.onTick(s)
+    })
+    // 可见性跟随页面：重新露出时补一次快照（隐藏期间的 tick 被丢掉了，数据已过期）
+    this._visOff = bindPageVis(this, function (on) {
+      const was = self._visible
+      self._visible = on
+      if (on && !was) self.onTick(player.state())
     })
     this.readOpts()
     // 定时播放状态（模块级单例，跨页面存活）：每秒广播一次，页面只关心 active。
@@ -217,6 +232,8 @@ export default {
     this._dead = true
     if (this._off) player.off(this._off)
     this._off = null
+    if (this._visOff) this._visOff()
+    this._visOff = null
     if (this._timerFn) sleepTimer.off(this._timerFn)
     this._timerFn = null
     try {
@@ -231,6 +248,15 @@ export default {
     this._toastEvt = null
   },
   methods: {
+    /**
+     * 播放器 tick 的落点：**隐藏时直接丢、可见时先判重**再赋 data（见 mounted 的注释）。
+     * 判重键覆盖了模板会用到的一切：换歌 / 播放态 / 循环模式 / 状态文案 / 时间 / 进度。
+     */
+    onTick(s) {
+      if (!this._visible) return
+      if (!this._feed(s)) return
+      this.st = s
+    },
     readOpts() {
       this.lyricOn = config.get('lyricOn') !== false
       this.showTrans = config.get('showTrans') !== false

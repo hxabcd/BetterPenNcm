@@ -66,7 +66,8 @@ import { localAlbumView } from '../../utils/player/localmeta.js'
 import { isOffline } from '../../utils/net/status.js'
 import { ensureCover, BIG_COVER } from '../../utils/cover.js'
 import { fmtDate, fmtSize, clipText } from '../../utils/format.js'
-import { downloadSongs, dlState, onDl, offDl } from '../../utils/player/download.js'
+import { downloadSongs } from '../../utils/player/download.js'
+import { bindDl } from '../../utils/player/dlvis.js'
 import { selPicked, dlText, startText, resultText, spaceCheck } from '../../utils/multidl.js'
 import { log } from '../../utils/log.js'
 import { accentMixin } from '../../utils/theme.js'
@@ -99,7 +100,7 @@ export default {
       hint: '加载中...',
       /* ---- 多选下载（：专辑页也是「所有曲目列表」之一）---- */
       estText: '', // 估算体积文案（仅 isArmed('dl') 时被读；armed/toast 由 mixin 提供）
-      dl: null, // 下载活动快照（订阅 onDl，签名判重后赋值）
+      dl: null, // 下载活动快照（bindDl 订阅，签名判重后赋值）
       /* ---- 收藏（CSV「专辑详情」行的底键）----
          subscribed：true/false；null = 不知道（未登录 / 离线 / 状态接口失败），按未收藏显示。 */
       subscribed: null,
@@ -174,18 +175,18 @@ export default {
     this.id = p.id || 0
     this.localOnly = !!p.local
     if (p.name) this.album.name = p.name
-    // 下载活动订阅（顶栏副题显示进度）；页面会挂两遍 → 每实例各订各退
-    this._dlOff = onDl(function (s) {
+    // 下载活动订阅（顶栏副题显示进度）；页面会挂两遍 → 每实例各订各退。
+    // bindDl = 订阅 + 可见性门控 + 首帧快照（见 utils/player/dlvis.js）
+    this._dlOff = bindDl(this, function (s) {
       self.syncDl(s)
     })
-    this.syncDl(dlState())
     log('album', 'onLoad id=' + this.id + ' name=' + p.name)
     this.load()
   },
   beforeDestroy() {
     // armed / toast 的计时器由 ui/arm.js、ui/toast.js 的 beforeDestroy 自动清
     this._dead = true
-    if (this._dlOff) offDl(this._dlOff)
+    if (this._dlOff) this._dlOff()
     this._dlOff = null
   },
   methods: {

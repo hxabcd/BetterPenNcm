@@ -74,7 +74,8 @@ import { railBack, railBtn, ICON } from '../../utils/rail.js'
 import { go, paramsFor } from '../../utils/nav.js'
 import { player } from '../../utils/player/player.js'
 import { listSongs } from '../../utils/player/cache.js'
-import { deleteCached, dlState, onDl, offDl } from '../../utils/player/download.js'
+import { deleteCached } from '../../utils/player/download.js'
+import { bindDl } from '../../utils/player/dlvis.js'
 import { markUser } from '../../utils/player/dlorigin.js'
 import { playlistView, pullList, syncList, splitDownloads } from '../../utils/player/locallists.js'
 import { isOffline } from '../../utils/net/status.js'
@@ -208,10 +209,10 @@ export default {
   mounted() {
     this._dead = false
     const self = this
-    this._dlOff = onDl(function (s) {
+    // 下载活动订阅（可见性门控 + 首帧快照，见 utils/player/dlvis.js）
+    this._dlOff = bindDl(this, function (s) {
       self.syncDl(s)
     })
-    this.syncDl(dlState())
     this._onShow = function () {
       self.loadView()
     }
@@ -226,7 +227,7 @@ export default {
   },
   beforeDestroy() {
     this._dead = true
-    if (this._dlOff) offDl(this._dlOff)
+    if (this._dlOff) this._dlOff()
     this._dlOff = null
     try {
       if (this._onShow) this.$page.off('show', this._onShow)

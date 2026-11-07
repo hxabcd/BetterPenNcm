@@ -118,7 +118,8 @@ import {
 import { markUnliked } from "../../utils/ncm/like.js";
 import { loadDailyRecommend } from "../../utils/ncm/recommend.js";
 import { searchByType, SEARCH_TYPES, fetchArtistSongs } from "../../utils/ncm/api.js";
-import { downloadSongs, dlState, onDl, offDl } from "../../utils/player/download.js";
+import { downloadSongs } from "../../utils/player/download.js";
+import { bindDl } from "../../utils/player/dlvis.js";
 import { downloadAll, isIndexed, addList, removeList } from "../../utils/player/locallists.js";
 import { toPlaylist, playNext, playNextText } from "../../utils/songact.js";
 import config from "../../utils/config.js";
@@ -278,7 +279,7 @@ export default {
       subscribed: false, // 这张歌单是否已在「收藏」里（只读列表的收藏键状态）
       indexed: false, // 是否已加入本地索引（只读列表「更多」面板的索引项）
       estText: "", // 空间预检估算的体积文案（仅 isArmed('dl') 的提示里显示）
-      dl: null, // 下载活动快照（订阅 onDl，签名判重后赋值；顶栏副题显示进度）
+      dl: null, // 下载活动快照（bindDl 订阅，签名判重后赋值；顶栏副题显示进度）
       loadingAll: false, // 「播放全部」正在拉全量曲目（左栏播放键高亮 + 防重入）
     };
   },
@@ -524,11 +525,11 @@ export default {
     } catch (e) {
       log("list", "$page.on(show) 订阅失败 " + ((e && e.message) || e));
     }
-    // 下载活动订阅（多选批量下载的进度显示在顶栏副题；页面会挂两遍 → 每实例各订各退）
-    this._dlOff = onDl(function (s) {
+    // 下载活动订阅（多选批量下载的进度显示在顶栏副题；页面会挂两遍 → 每实例各订各退）。
+    // bindDl = 订阅 + 可见性门控 + 首帧快照（被上层页盖住时不落 data，见 utils/player/dlvis.js）
+    this._dlOff = bindDl(this, function (s) {
       self.syncDl(s);
     });
-    this.syncDl(dlState());
     // 参数通道按实例槽位 key 记账，取参必须用真实页名（写死逻辑页名只在兜底时命中）
     const p = paramsFor((this.$page && this.$page.$pageName) || "list", this.$page ? this.$page.options : null);
     this.openList(p);
@@ -541,7 +542,7 @@ export default {
       if (this._onShow) this.$page.off("show", this._onShow);
     } catch (e) {}
     this._onShow = null;
-    if (this._dlOff) offDl(this._dlOff);
+    if (this._dlOff) this._dlOff()
     this._dlOff = null;
     // armed / toast 的计时器由 ui/arm.js、ui/toast.js 的 beforeDestroy 自动清
   },

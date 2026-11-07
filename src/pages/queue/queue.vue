@@ -75,6 +75,7 @@ import EmptyHint from "../../components/EmptyHint.vue";
 import HintToast from "../../components/HintToast.vue";
 import { railBack, railBtn, ICON } from "../../utils/rail.js";
 import { player } from "../../utils/player/player.js";
+import { queueViewSig, sigFeed } from "../../utils/player/sig.js";
 import { downloadSongs } from "../../utils/player/download.js";
 import { toPlaylist } from "../../utils/songact.js";
 import { selPicked, startText, resultText } from "../../utils/multidl.js";
@@ -86,6 +87,7 @@ import { toastMixin } from "../../utils/ui/toast.js";
 import { armMixin } from "../../utils/ui/arm.js";
 import { multiSelectMixin } from "../../utils/ui/multi.js";
 import { pageFrameMixin } from "../../utils/ui/frame.js";
+import { bindPageVis } from "../../utils/ui/vis.js";
 import { PAGE_QUEUE, moreText } from "../../utils/ui/paging.js";
 import { VH } from "../../utils/player/layout.js";
 
@@ -187,8 +189,17 @@ export default {
   mounted() {
     const self = this;
     this._scrollY = 0; // 滚动位置只用于锚定计算，不进 data（高频更新不需要重渲染）
+    // 播放态订阅：**先判重、再判可见**（队列页只需要「列表 / 当前曲 / 播放态」三样，
+    // 500ms 快照里的 positionMs 它一个都不用 —— 整页每 tick 重渲染纯属白费，见 sig.js）
+    this._feed = sigFeed(queueViewSig);
+    this._visible = true;
     this._off = player.on(function (s) {
-      self.st = s;
+      self.onTick(s);
+    });
+    this._visOff = bindPageVis(this, function (on) {
+      const was = self._visible;
+      self._visible = on;
+      if (on && !was) self.onTick(player.state());
     });
     log("queue", "播放列表页挂载，队列 " + this.songs.length + " 首");
     // 整列渲染（≤50 首）时窗口覆盖全部，当前曲可能在首屏之外 → 进来先滚到当前曲附近
@@ -199,8 +210,16 @@ export default {
     this._destroyed = true; // 延迟的滚动锚定回调不要再碰已退出的页面
     if (this._off) player.off(this._off);
     this._off = null;
+    if (this._visOff) this._visOff();
+    this._visOff = null;
   },
   methods: {
+    /** 播放器 tick：隐藏时不落 data；可见时按队列视角签名判重 */
+    onTick(s) {
+      if (!this._visible) return;
+      if (!this._feed(s)) return;
+      this.st = s;
+    },
     dur(s) {
       return fmtDur(s.durationMs);
     },

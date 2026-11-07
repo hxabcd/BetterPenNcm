@@ -1,0 +1,291 @@
+#!/usr/bin/env node
+/**
+ * 渲染性能自检 —— 纯逻辑，不需要设备。
+ *
+ * 覆盖三块「改了就会悄悄退化、但看代码看不出来」的约定：
+ *   1. 签名判重（utils/player/sig.js）：同一快照必须判为「没变」，
+ *      任何界面可见字段变化必须判为「变了」。漏判 = 界面停在旧值，误判 = 白渲染。
+ *   2. 页面可见性（utils/ui/vis.js）：默认可见、hide/show 切换、unload 摘除、
+ *      退栈把栈顶救回可见（fail-open 兜底）。
+ *   3. 静态扫描：易退化的调用点是否都走了门控（裸 player.on / 裸 onDl 的清单比对）。
+ *
+ * 为什么要有这个脚本：这些优化本身的产物是「少渲染」，跑不出可见差异，
+ * 所以在没有真机的环境里只能靠**约束测试**守住语义。
+ *
+ * 用法：node scripts/perf_selftest.mjs        （全绿 exit 0，有失败 exit 1）
+ */
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const SRC = path.join(ROOT, 'src')
+
+let pass = 0
+const fail = []
+function ok(name) {
+  pass++
+}
+function bad(name, detail) {
+  fail.push(name + (detail ? '  → ' + detail : ''))
+}
+function eq(name, got, want) {
+  if (String(got) === String(want)) ok(name)
+  else bad(name, 'got ' + JSON.stringify(got) + ', want ' + JSON.stringify(want))
+}
+function truthy(name, v) {
+  if (v) ok(name)
+  else bad(name, 'expected truthy, got ' + JSON.stringify(v))
+}
+
+/* ---------- 0. 把源码模块搬进 Node 能跑的沙箱 ---------- */
+/**
+ * src 里的模块是 .js 且带 import 说明符，但都直接吃 Node 语义（无第三方依赖）。
+ * 唯一麻烦是 fmtDur / log 之类会牵出平台模块，所以 sig.js 只依赖 format.js（纯函数）。
+ * vis.js 依赖 log.js（会去 POST），这里打桩掉。
+ */
+const sandbox = path.join(ROOT, '.perf_selftest_tmp')
+fs.rmSync(sandbox, { recursive: true, force: true })
+fs.mkdirSync(sandbox, { recursive: true })
+// 沙箱里的模块是 ESM：声明 type=module 免得 Node 走「先按 CJS 解析再重解析」并打警告
+fs.writeFileSync(path.join(sandbox, 'package.json'), '{ "type": "module" }\n')
+
+function stage(relSrc, relDst /*, patch */) {
+  const from = path.join(SRC, relSrc)
+  let code = fs.readFileSync(from, 'utf8')
+  const out = path.join(sandbox, relDst)
+  fs.mkdirSync(path.dirname(out), { recursive: true })
+  fs.writeFileSync(out, code)
+  return out
+}
+
+// format.js 原样搬（纯函数）
+stage('utils/format.js', 'format.js')
+// sig.js：把 '../format.js' 改成同目录，其余原样
+{
+  const code = fs
+    .readFileSync(path.join(SRC, 'utils/player/sig.js'), 'utf8')
+    .replace(/from '\.\.\/format\.js'/g, "from './format.js'")
+  fs.writeFileSync(path.join(sandbox, 'sig.js'), code)
+}
+// vis.js：log.js 打桩
+fs.writeFileSync(path.join(sandbox, 'log.js'), 'export function log() {}\n')
+{
+  const code = fs
+    .readFileSync(path.join(SRC, 'utils/ui/vis.js'), 'utf8')
+    .replace(/from '\.\.\/log\.js'/g, "from './log.js'")
+  fs.writeFileSync(path.join(sandbox, 'vis.js'), code)
+}
+
+const sig = await import('file://' + path.join(sandbox, 'sig.js').replace(/\\/g, '/'))
+const vis = await import('file://' + path.join(sandbox, 'vis.js').replace(/\\/g, '/'))
+
+/* ---------- 1. 签名判重 ---------- */
+const base = {
+  cur: { id: 42, name: '歌名', artist: '歌手', album: '专辑', cover: 'file:///c.jpg', durationMs: 200000 },
+  isPlaying: true,
+  paused: false,
+  loopMode: 'list',
+  rate: 1,
+  cached: false,
+  positionMs: 1000,
+  durationMs: 200000,
+  status: '',
+  index: 3,
+  queue: [{ id: 1 }, { id: 2 }, { id: 42 }, { id: 7 }]
+}
+
+const f = sig.sigFeed(sig.viewSig)
+truthy('viewSig: 首帧判为变化', f(base))
+truthy('viewSig: 同一快照判为未变', !f(JSON.parse(JSON.stringify(base))))
+// 进度按 0.1% 一档量化（与播放页进度条的显示精度对齐）：
+//   1000/200000 = 0.50%   vs   1020/200000 = 0.51% → 同一档 → 不该重渲染
+//   1000/200000 = 0.50%   vs   3000/200000 = 1.50% → 跨档 → 该重渲染
+truthy('viewSig: 0.1% 以内的进度差判为未变', !f({ ...base, positionMs: 1020 }))
+truthy('viewSig: 进度跨 0.1% 档判为变化', f({ ...base, positionMs: 3000 }))
+truthy('viewSig: 时间文本跨秒但进度档未变 → 仍判变化', f({ ...base, positionMs: 2100 }))
+truthy('viewSig: 换歌判为变化', f({ ...base, cur: { ...base.cur, id: 43 } }))
+truthy('viewSig: 换歌名判为变化', f({ ...base, cur: { ...base.cur, name: '新歌名' } }))
+truthy('viewSig: 换歌手判为变化', f({ ...base, cur: { ...base.cur, artist: '新歌手' } }))
+truthy('viewSig: 换封面判为变化', f({ ...base, cur: { ...base.cur, cover: 'file:///d.jpg' } }))
+truthy('viewSig: 暂停态变化判为变化', f({ ...base, paused: true }))
+truthy('viewSig: 循环模式变化判为变化', f({ ...base, loopMode: 'single' }))
+truthy('viewSig: 状态文案变化判为变化', f({ ...base, status: '缓冲中' }))
+
+// 进度量化：0.1% 一档 → 199999/200000 与 200000/200000 都应当落到 100.0
+{
+  const a = sig.viewSig({ ...base, positionMs: 199950 })
+  const b = sig.viewSig({ ...base, positionMs: 199990 })
+  eq('viewSig: 0.1% 以内的进度差视作同一档', a === b, true)
+}
+
+const qf = sig.sigFeed(sig.queueViewSig)
+truthy('queueViewSig: 首帧判为变化', qf(base))
+truthy('queueViewSig: 同一快照判为未变', !qf(JSON.parse(JSON.stringify(base))))
+truthy('queueViewSig: 队列变长判为变化', qf({ ...base, queue: base.queue.concat([{ id: 9 }]) }))
+truthy('queueViewSig: 队首换歌判为变化', qf({ ...base, queue: [{ id: 99 }].concat(base.queue.slice(1)) }))
+truthy('queueViewSig: 当前索引变化判为变化', qf({ ...base, index: 4 }))
+
+// queueSig：大列表不能逐首拼（这里只验证语义：长度或采样变了要能发现）
+eq('queueSig: 空队列', sig.queueSig([]), '0')
+eq('queueSig: 长度计入签名', sig.queueSig([{ id: 1 }]).split(':')[0], '1')
+{
+  const big = []
+  for (let i = 0; i < 2000; i++) big.push({ id: i })
+  const s = sig.queueSig(big)
+  truthy('queueSig: 2000 首签名长度可控（<400 字符）', s.length < 400)
+  truthy('queueSig: 2000 首签名含长度', s.indexOf('2000:') === 0)
+}
+
+/* ---------- 2. 页面可见性 ---------- */
+const p1 = { $pageName: 'index' }
+const calls = []
+vis.markVisible(p1, true, 'test')
+eq('vis: 未知页面默认可见', vis.isVisible(p1), true)
+const off = vis.onVisChange(p1, (on) => calls.push(on))
+vis.markVisible(p1, false, 'hide')
+vis.markVisible(p1, true, 'show')
+vis.markVisible(p1, true, 'show') // 重复同值：不应再回调
+eq('vis: hide→show 回调序列', calls.join(','), 'false,true')
+off()
+vis.markVisible(p1, false, 'hide')
+eq('vis: 取消订阅后不再回调', calls.join(','), 'false,true')
+
+// bindPageVis：组件从 $root 找页面
+{
+  const got = []
+  const vm = { $root: { $page: p1 } }
+  const off2 = vis.bindPageVis(vm, (on) => got.push(on))
+  eq('bindPageVis: 立即回调当前真值', got.join(','), 'false')
+  vis.markVisible(p1, true, 'show')
+  eq('bindPageVis: 变化时回调', got.join(','), 'false,true')
+  off2()
+}
+// 取不到页面：fail-open（回调一次 true，不订阅）
+{
+  const got = []
+  const off3 = vis.bindPageVis({ $root: {} }, (on) => got.push(on))
+  eq('bindPageVis: 无页面对象时按可见回调一次', got.join(','), 'true')
+  off3()
+}
+// dropPage：退栈后条目被摘掉 → 回到默认可见
+{
+  const p2 = { $pageName: 'queue' }
+  vis.markVisible(p2, false, 'hide')
+  eq('vis: 隐藏生效', vis.isVisible(p2), false)
+  vis.dropPage(p2)
+  eq('vis: dropPage 后回到默认可见', vis.isVisible(p2), true)
+}
+
+/* ---------- 3. 静态扫描：高频订阅是否都走了门控 ---------- */
+function walk(dir, out) {
+  for (const name of fs.readdirSync(dir)) {
+    const p = path.join(dir, name)
+    const st = fs.statSync(p)
+    if (st.isDirectory()) walk(p, out)
+    else if (/\.(vue|js)$/.test(name)) out.push(p)
+  }
+  return out
+}
+const allFiles = walk(SRC, [])
+const rel = (p) => path.relative(SRC, p).replace(/\\/g, '/')
+const read = (p) => fs.readFileSync(p, 'utf8')
+
+// 3a. vis.js 与 sig.js 必须被真实引用（防止「写了没人用」）
+{
+  const users = allFiles.filter((p) => {
+    const t = read(p)
+    return /ui\/vis\.js|player\/dlvis\.js/.test(t) && !/utils\/(ui\/vis|player\/dlvis)\.js$/.test(p)
+  })
+  truthy('vis: 至少有 5 个文件接入可见性通道（实际 ' + users.length + '）', users.length >= 5)
+  const sigUsers = allFiles.filter((p) => /player\/sig\.js/.test(read(p)) && !/player\/sig\.js$/.test(rel(p)))
+  truthy('sig: 至少有 2 个文件接入签名判重（实际 ' + sigUsers.length + '）', sigUsers.length >= 2)
+}
+
+// 3b. 播放器订阅 / 下载订阅的「裸订阅」清单必须与白名单一致
+//     （新增裸订阅会在这里露出来 —— 位置要么加门控，要么在下面登记理由）
+const PLAYER_ALLOW = {
+  'utils/player/player.js': '发射端自己',
+  'utils/player/sleeptimer.js': '跨页存活的单例：模块加载时注册一次、永不注销（设计如此）',
+  'pages/player/player.vue': '已门控（onTick 内判可见 + 判重）',
+  'pages/queue/queue.vue': '已门控（onTick 内判可见 + 判重）',
+  'pages/index/index.vue': '已门控（onPlayer 内判可见）',
+  'components/NowLyric.vue': '已门控（onPlayer 内判可见）',
+  'components/NowProgress.vue': '已门控（onPlayer 内判可见）',
+  'components/player/LyricBoard.vue': '已门控（时钟随可见性起停）'
+}
+{
+  const bare = []
+  for (const p of allFiles) {
+    const t = read(p)
+    const m = t.match(/\bplayer\.on\s*\(/g)
+    if (!m) continue
+    const r = rel(p)
+    if (r === 'utils/player/player.js') continue
+    if (!PLAYER_ALLOW[r]) bare.push(r + ' ×' + m.length)
+  }
+  eq('订阅门控: player.on 调用点都在白名单内', bare.join(', ') || 'none', 'none')
+}
+
+const DL_ALLOW = {
+  'utils/player/dlvis.js': '封装层自己',
+  'utils/player/tasks.js': '发射端自己',
+  'utils/player/download.js': '门面转出'
+}
+{
+  const bare = []
+  for (const p of allFiles) {
+    const t = read(p)
+    if (!/\bonDl\s*\(/.test(t)) continue
+    const r = rel(p)
+    if (DL_ALLOW[r]) continue
+    bare.push(r)
+  }
+  eq('订阅门控: onDl 调用点都在白名单内', bare.join(', ') || 'none', 'none')
+}
+
+// 3c. 每个 bindDl 的返回值都要被调用（否则订阅泄漏 + 可见性订阅泄漏）
+{
+  const users = allFiles.filter((p) => /\bbindDl\s*\(/.test(read(p)))
+  let loose = []
+  for (const p of users) {
+    if (rel(p) === 'utils/player/dlvis.js') continue // 定义处自己
+    const t = read(p)
+    if (!/this\._dlOff\s*\(\)/.test(t)) loose.push(rel(p))
+  }
+  eq('bindDl: 每个调用点都释放了订阅', loose.join(', ') || 'none', 'none')
+}
+
+// 3d. bindPageVis 的返回值同样必须释放
+{
+  const users = allFiles.filter((p) => /\bbindPageVis\s*\(/.test(read(p)) &&
+    !/utils\/ui\/vis\.js$/.test(rel(p)) &&
+    rel(p) !== 'utils/player/dlvis.js') // 封装层自己负责释放
+  const loose = []
+  for (const p of users) {
+    const t = read(p)
+    if (!/this\._visOff\s*\(\)/.test(t)) loose.push(rel(p))
+  }
+  eq('bindPageVis: 每个调用点都释放了订阅', loose.join(', ') || 'none', 'none')
+}
+
+// 3e. 不能写 WeakMap / Map / Set（QuickJS 上未验证；vis.js 用的是数组）
+{
+  const banned = []
+  for (const p of allFiles) {
+    const t = read(p)
+    if (/new\s+(WeakMap|Map|Set)\s*\(/.test(t)) banned.push(rel(p))
+  }
+  eq('容器: 未引入未验证的 WeakMap/Map/Set', banned.join(', ') || 'none', 'none')
+}
+
+/* ---------- 收尾 ---------- */
+fs.rmSync(sandbox, { recursive: true, force: true })
+
+const total = pass + fail.length
+if (fail.length) {
+  console.log('渲染性能自检：' + fail.length + ' 项失败 / 共 ' + total + ' 项\n')
+  for (const f2 of fail) console.log('  ✗ ' + f2)
+  process.exit(1)
+}
+console.log('渲染性能自检：全部通过（' + pass + ' 项）')

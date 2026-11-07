@@ -58,7 +58,8 @@ import PageTopbar from '../../components/PageTopbar.vue'
 import EmptyHint from '../../components/EmptyHint.vue'
 import HintToast from '../../components/HintToast.vue'
 import { ICON } from '../../utils/rail.js'
-import { dlTasks, ackFinished, cancelTask, onDl, offDl } from '../../utils/player/download.js'
+import { dlTasks, ackFinished, cancelTask } from '../../utils/player/download.js'
+import { bindDl } from '../../utils/player/dlvis.js'
 import { log } from '../../utils/log.js'
 import { accentMixin } from '../../utils/theme.js'
 import { TOK } from '../../utils/ui/tokens.js'
@@ -120,16 +121,16 @@ export default {
   mounted() {
     this._dead = false
     const self = this
-    this._dlOff = onDl(function () {
+    // 下载活动订阅（可见性门控，见 utils/player/dlvis.js；回调体是整页刷新，门控收益最大）
+    this._dlOff = bindDl(this, function () {
       self.refresh()
     })
-    this.refresh()
     log('dlqueue', '下载队列页挂载')
   },
   beforeDestroy() {
     // armed / toast 的计时器由 ui/arm.js、ui/toast.js 的 beforeDestroy 自动清
     this._dead = true
-    if (this._dlOff) offDl(this._dlOff)
+    if (this._dlOff) this._dlOff()
     this._dlOff = null
     // 「已完成的任务在展示一次后从队列中移除」：本页已展示过 → 离开时出列
     ackFinished()

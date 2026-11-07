@@ -38,6 +38,43 @@ function truthy(name, v) {
   else bad(name, 'expected truthy, got ' + JSON.stringify(v))
 }
 
+/**
+ * 去掉注释再做静态扫描：注释里出现的 `player.on(...)` / `onDl(...)` 只是文档示例
+ * （player.js 头部用法说明、dlvis.js 背景说明），算进调用条数会让断言误报。
+ * 不追求完整 JS 词法，只处理块注释、行注释和字符串字面量这三类会把代码「藏起来」的情况。
+ */
+function stripComments(src) {
+  let out = ''
+  let i = 0
+  const n = src.length
+  while (i < n) {
+    const c = src[i]
+    const d = src[i + 1]
+    if (c === '/' && d === '*') {
+      const end = src.indexOf('*/', i + 2)
+      i = end < 0 ? n : end + 2
+      out += ' '
+    } else if (c === '/' && d === '/') {
+      const end = src.indexOf('\n', i)
+      i = end < 0 ? n : end
+      out += ' '
+    } else if (c === '"' || c === "'" || c === '`') {
+      const quote = c
+      let j = i + 1
+      while (j < n && src[j] !== quote) {
+        if (src[j] === '\\') j++
+        j++
+      }
+      out += src.slice(i, Math.min(j + 1, n))
+      i = j + 1
+    } else {
+      out += c
+      i++
+    }
+  }
+  return out
+}
+
 /* ---------- 0. 把源码模块搬进 Node 能跑的沙箱 ---------- */
 /**
  * src 里的模块是 .js 且带 import 说明符，但都直接吃 Node 语义（无第三方依赖）。
@@ -204,44 +241,49 @@ const read = (p) => fs.readFileSync(p, 'utf8')
 
 // 3b. 播放器订阅 / 下载订阅的「裸订阅」清单必须与白名单一致
 //     （新增裸订阅会在这里露出来 —— 位置要么加门控，要么在下面登记理由）
+//    白名单按「文件 + 该文件允许的订阅条数」登记：只认文件名的话，往已白名单的文件里
+//    再塞一条未门控的裸订阅不会有任何断言失败（变异测试实证过）。
 const PLAYER_ALLOW = {
-  'utils/player/player.js': '发射端自己',
-  'utils/player/sleeptimer.js': '跨页存活的单例：模块加载时注册一次、永不注销（设计如此）',
-  'pages/player/player.vue': '已门控（onTick 内判可见 + 判重）',
-  'pages/queue/queue.vue': '已门控（onTick 内判可见 + 判重）',
-  'pages/index/index.vue': '已门控（onPlayer 内判可见）',
-  'components/NowLyric.vue': '已门控（onPlayer 内判可见）',
-  'components/NowProgress.vue': '已门控（onPlayer 内判可见）',
-  'components/player/LyricBoard.vue': '已门控（时钟随可见性起停）'
+  'utils/player/player.js': ['发射端自己', 0],
+  'utils/player/sleeptimer.js': ['跨页存活的单例：模块加载时注册一次、永不注销（设计如此）', 1],
+  'pages/player/player.vue': ['已门控（onTick 内判可见 + 判重）', 1],
+  'pages/queue/queue.vue': ['已门控（onTick 内判可见 + 判重）', 1],
+  'pages/index/index.vue': ['已门控（onPlayer 内判可见）', 1],
+  'components/NowLyric.vue': ['已门控（onPlayer 内判可见）', 1],
+  'components/NowProgress.vue': ['已门控（onPlayer 内判可见）', 1],
+  'components/player/LyricBoard.vue': ['已门控（时钟随可见性起停）', 1]
 }
 {
   const bare = []
   for (const p of allFiles) {
     const t = read(p)
-    const m = t.match(/\bplayer\.on\s*\(/g)
+    const m = stripComments(t).match(/\bplayer\.on\s*\(/g)
     if (!m) continue
     const r = rel(p)
-    if (r === 'utils/player/player.js') continue
-    if (!PLAYER_ALLOW[r]) bare.push(r + ' ×' + m.length)
+    const allow = PLAYER_ALLOW[r]
+    if (!allow) { bare.push(r + ' 未登记'); continue }
+    if (m.length !== allow[1]) bare.push(r + ' 期望 ' + allow[1] + ' 实际 ' + m.length)
   }
-  eq('订阅门控: player.on 调用点都在白名单内', bare.join(', ') || 'none', 'none')
+  eq('订阅门控: player.on 调用点都在白名单内（含条数）', bare.join(', ') || 'none', 'none')
 }
 
 const DL_ALLOW = {
-  'utils/player/dlvis.js': '封装层自己',
-  'utils/player/tasks.js': '发射端自己',
-  'utils/player/download.js': '门面转出'
+  'utils/player/dlvis.js': ['封装层自己', 1],
+  'utils/player/tasks.js': ['发射端自己', 1],
+  'utils/player/download.js': ['门面转出', 0]
 }
 {
   const bare = []
   for (const p of allFiles) {
     const t = read(p)
-    if (!/\bonDl\s*\(/.test(t)) continue
+    const m = stripComments(t).match(/\bonDl\s*\(/g)
+    if (!m) continue
     const r = rel(p)
-    if (DL_ALLOW[r]) continue
-    bare.push(r)
+    const allow = DL_ALLOW[r]
+    if (!allow) { bare.push(r + ' 未登记'); continue }
+    if (m.length !== allow[1]) bare.push(r + ' 期望 ' + allow[1] + ' 实际 ' + m.length)
   }
-  eq('订阅门控: onDl 调用点都在白名单内', bare.join(', ') || 'none', 'none')
+  eq('订阅门控: onDl 调用点都在白名单内（含条数）', bare.join(', ') || 'none', 'none')
 }
 
 // 3c. 每个 bindDl 的返回值都要被调用（否则订阅泄漏 + 可见性订阅泄漏）

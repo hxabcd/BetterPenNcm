@@ -8,10 +8,10 @@
   >
     <text class="lp-empty" v-if="!lines.length">{{ emptyText }}</text>
     <div class="lp-track" v-else :style="trackStyle">
-      <div class="lp-row" v-for="r in rowsView" :key="r.i" :style="rowStyle(r)">
-        <div class="lp-mark" :style="markStyle(r)"></div>
+      <div class="lp-row" v-for="r in rowsView" :key="r.i" :style="r.rowStyle">
+        <div class="lp-mark" :style="r.markStyle"></div>
         <div class="lp-text">
-          <text class="lp-main" :style="mainStyle(r)">{{ r.text }}</text>
+          <text class="lp-main" :style="r.mainStyle">{{ r.text }}</text>
           <text class="lp-trans" v-if="showTrans && r.trans" :style="transStyle">{{ r.trans }}</text>
         </div>
       </div>
@@ -151,10 +151,36 @@ export default {
       }
       return out
     },
-    /** 实际参与渲染的行（full 时就是整首；省性能时恒为 WIN_N 行，末端会短一点） */
+    /** 实际参与渲染的行（full 时就是整首；省性能时恒为 WIN_N 行，末端会短一点）
+        样式在这里一次算好挂到行上，模板只读字段 —— 不要改回模板里逐行调方法：
+        hlIndex 随播放进度频繁变化，每次都要重渲染整屏歌词，逐行方法就是「每行新建 3 个对象」。
+        行盒本身（rowsAll）**只跟歌词与翻译开关有关**，与高亮无关，所以样式必须叠在这一层。 */
     rowsView() {
-      if (!this.locked) return this.rowsAll
-      return this.rowsAll.slice(this.winStart, this.winStart + WIN_N)
+      const src = this.locked ? this.rowsAll.slice(this.winStart, this.winStart + WIN_N) : this.rowsAll
+      const hl = this.hlIndex
+      const out = []
+      for (let k = 0; k < src.length; k++) {
+        const r = src[k]
+        const on = r.i === hl
+        out.push({
+          i: r.i,
+          text: r.text,
+          trans: r.trans,
+          rowStyle: { height: r.h + 'px' },
+          markStyle: {
+            height: on ? Math.round(r.h * 0.5) + 'px' : '0px',
+            backgroundColor: on ? this.accent.c : 'transparent'
+          },
+          mainStyle: {
+            fontSize: on ? '10.5vh' : '8vh',
+            // 显式行高并压到约 1.1 倍字号（默认行高约 1.3 倍，原文与译文之间会凭空多出一截）
+            lineHeight: on ? '11.5vh' : '8.8vh',
+            fontWeight: on ? 'bold' : 'normal',
+            color: on ? TOK.text : '#c9c9d1' // 非高亮色是单例（#c9c9d1），待归类
+          }
+        })
+      }
+      return out
     },
     /** 轨道几何：自动跟随的位移目标 + 可拖动范围（px）——都是**内容坐标** */
     geo() {
@@ -448,27 +474,6 @@ export default {
         if (t < acc) return rows[k].i
       }
       return -1 // 落在轨道下方（短歌词尾部的留白）
-    },
-    /* ---- 行内样式（平台不支持 .a.b 复合选择器，状态一律内联） ---- */
-    rowStyle(r) {
-      return { height: r.h + 'px' }
-    },
-    markStyle(r) {
-      const on = r.i === this.hlIndex
-      return {
-        height: on ? Math.round(r.h * 0.5) + 'px' : '0px',
-        backgroundColor: on ? this.accent.c : 'transparent'
-      }
-    },
-    mainStyle(r) {
-      const on = r.i === this.hlIndex
-      return {
-        fontSize: on ? '10.5vh' : '8vh',
-        // 显式行高并压到约 1.1 倍字号（默认行高约 1.3 倍，原文与译文之间会凭空多出一截）
-        lineHeight: on ? '11.5vh' : '8.8vh',
-        fontWeight: on ? 'bold' : 'normal',
-        color: on ? TOK.text : '#c9c9d1' // 非高亮色是单例（#c9c9d1），待归类
-      }
     },
   }
 }

@@ -409,6 +409,41 @@ const SLEEP_ALLOW = {
   eq('订阅判重: 高频广播的回调自己不重复写 data', bad.join(', ') || 'none', 'none')
 }
 
+// 3j. 列表行不得在模板里现算样式对象
+//     `:style="rowStyle(i)"` 走 methods 时，Vue **不缓存**返回值：每次渲染、每行都重新调一遍并
+//     新建一个对象。一窗 50 行 × 4 个样式方法 = 200 次调用 + 200 个 object，全部是同一份派生数据。
+//     正确写法是 computed 里算好整窗（见 queue.vue 的 rows），模板只读字段；或者像 LyricTrack 那样
+//     方法体只 `return r.sRow`（读事先算好的字段，不新建对象）。
+//     这条断言只盯「方法体只做防御性读取」的白名单，其余一律要求走 computed。
+{
+  const ALLOW = {
+    // 方法体只有一句 return <参数>.<字段>（不新建对象），等价于直接绑字段
+    'components/player/LyricTrack.vue': 'rowStyle',
+    // 下面几处都是**固定小规模**选项，不是 50 行量级的长列表：
+    // 分类/排序 key、弹出菜单项、数字键盘（3 行 × 3 键）
+    'pages/list/list.vue': 'catStyle',
+    'components/ContextSheet.vue': 'optStyle',
+    'components/player/TimerPanel.vue': 'keyStyle'
+  }
+  const bad = []
+  for (const p of allFiles) {
+    if (!p.endsWith('.vue')) continue
+    const r = rel(p)
+    const src = read(p)
+    // 同一行里既有 v-for 又有 :style="xxx(" —— 就是「v-for 内逐行调方法算样式」
+    const hits = src.split('\n').filter((l) => /v-for=/.test(l) && /:style="\s*[A-Za-z_$][\w$]*\(/.test(l))
+    if (!hits.length) continue
+    const allow = ALLOW[r]
+    if (!allow) bad.push(r + '(' + (hits[0].match(/:style="\s*([A-Za-z_$][\w$]*)\(/) || [])[1] + ')')
+  }
+  // 白名单本身也要在：文件被删/改编要提醒同步这张表
+  const stale = []
+  for (const f of Object.keys(ALLOW)) {
+    if (!allFiles.some((x) => rel(x) === f)) stale.push(f + '(缺失)')
+  }
+  eq('列表行样式: v-for 内不逐行现算样式对象', bad.concat(stale).join(', ') || 'none', 'none')
+}
+
 /* ---------- 收尾 ---------- */
 fs.rmSync(sandbox, { recursive: true, force: true })
 

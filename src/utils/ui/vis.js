@@ -124,6 +124,15 @@ export function pageOf(vm) {
  * 解析不到页面时不订阅、只回调一次 true —— 功能不因可见性通道缺失而失效。
  */
 export function bindPageVis(vm, fn) {
+  /* 页面会挂两遍（平台坑 6）：mounted 再跑一次时 `this._visOff = bindPageVis(...)` 只会覆盖字段，
+     上一组订阅就成了没人释放的孤儿 —— 每次可见性变化都还在调旧回调。这里先释放同一 vm 上的
+     上一组，让 bindPageVis 自己幂等，不依赖每个调用点去写守卫（漏一个就泄漏一份）。 */
+  if (vm && typeof vm._visOff === 'function') {
+    try {
+      vm._visOff()
+    } catch (e) {}
+    vm._visOff = null
+  }
   const page = pageOf(vm)
   if (!page) {
     diag('取不到页面对象（按可见处理）：' +

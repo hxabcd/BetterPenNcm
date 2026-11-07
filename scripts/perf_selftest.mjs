@@ -319,6 +319,25 @@ const SLEEP_ALLOW = {
   eq('订阅门控: sleepTimer.on 调用点都在白名单内', bare.join(', ') || 'none', 'none')
 }
 
+// 3h. 页面会挂两遍（平台坑 6）：bindDl / bindPageVis 必须自己幂等
+//     —— 第二次 mounted 覆盖 this._dlOff / this._visOff 时，先释放上一组，
+//        否则旧订阅成为孤儿（每次广播还在往旧回调灌数据，且再也没人释放）。
+{
+  const targets = [
+    ['utils/player/dlvis.js', '_dlOff'],
+    ['utils/ui/vis.js', '_visOff']
+  ]
+  const bad = []
+  for (const [file, field] of targets) {
+    const p = allFiles.find((x) => rel(x) === file)
+    if (!p) { bad.push(file + '(缺失)'); continue }
+    const t = read(p)
+    // 必须是「先判已有、再调用、再清空」这段，而不是靠调用点各自写守卫
+    if (!new RegExp('vm\\.' + field + '\\s*\\(\\)').test(t)) bad.push(file)
+  }
+  eq('重复挂载: 订阅封装自己幂等（先释放上一组）', bad.join(', ') || 'none', 'none')
+}
+
 /* ---------- 收尾 ---------- */
 fs.rmSync(sandbox, { recursive: true, force: true })
 

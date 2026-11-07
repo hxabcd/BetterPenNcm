@@ -18,7 +18,18 @@ import { onDl, offDl, dlState } from './download.js'
 import { bindPageVis } from '../ui/vis.js'
 
 export function bindDl(vm, fn) {
+  /* 页面会挂两遍（平台坑 6）：mounted 再跑一次时，`this._dlOff = bindDl(...)` 只会覆盖字段，
+     上一组的 onDl 订阅与可见性订阅就成了没人释放的孤儿 —— 每次 400ms 广播都还在往这个
+     vm 的旧回调里灌数据。这里先释放同一 vm 上的上一组，让 bindDl 自己幂等，
+     不依赖每个调用点去写守卫（漏一个就泄漏一份）。 */
+  if (vm && typeof vm._dlOff === 'function') {
+    try {
+      vm._dlOff()
+    } catch (e) {}
+    vm._dlOff = null
+  }
   const call = function (s) {
+    if (!fn) return
     try {
       fn(s)
     } catch (e) {}

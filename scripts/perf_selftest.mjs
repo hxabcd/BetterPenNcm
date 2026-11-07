@@ -323,17 +323,17 @@ const SLEEP_ALLOW = {
 //     —— 第二次 mounted 覆盖 this._dlOff / this._visOff 时，先释放上一组，
 //        否则旧订阅成为孤儿（每次广播还在往旧回调灌数据，且再也没人释放）。
 {
+  // 每项 = [文件, 必须出现的「先释放上一组」片段]
   const targets = [
-    ['utils/player/dlvis.js', '_dlOff'],
-    ['utils/ui/vis.js', '_visOff']
+    ['utils/player/dlvis.js', 'vm._dlOff()'],
+    ['utils/ui/vis.js', 'vm._visOff()'],
+    ['utils/theme.js', 'unbindTheme(vm._accentOff)']
   ]
   const bad = []
-  for (const [file, field] of targets) {
+  for (const [file, needle] of targets) {
     const p = allFiles.find((x) => rel(x) === file)
     if (!p) { bad.push(file + '(缺失)'); continue }
-    const t = read(p)
-    // 必须是「先判已有、再调用、再清空」这段，而不是靠调用点各自写守卫
-    if (!new RegExp('vm\\.' + field + '\\s*\\(\\)').test(t)) bad.push(file)
+    if (read(p).indexOf(needle) < 0) bad.push(file)
   }
   eq('重复挂载: 订阅封装自己幂等（先释放上一组）', bad.join(', ') || 'none', 'none')
 }

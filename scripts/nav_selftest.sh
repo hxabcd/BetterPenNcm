@@ -14,10 +14,13 @@
 #
 # 用法（在仓库根/worktree 根执行；build_probe.sh 与 logserver.py 都在 scripts/ 下）：
 #   bash scripts/nav_selftest.sh
-#   BPNCM_DEVICE=<序列号> bash scripts/nav_selftest.sh        # 指定设备；不设时自动取 adb devices 唯一一台
-#   PROBE_APPID=<探针appid> bash scripts/nav_selftest.sh      # 覆盖探针 appid（默认 8002026100500004）
-#   BPNCM_TOOLS=<工作区>/tools bash scripts/nav_selftest.sh   # 覆盖工具链目录（worktree 默认用固定路径）
-#   NAVTEST_DONE_WAIT=<秒> bash scripts/nav_selftest.sh       # 等 [navtest] task4-done 的上限（默认 90）
+#   bash scripts/nav_selftest.sh --ssh pen                   # 走 Wi-Fi SSH（无需 USB）
+#   bash scripts/nav_selftest.sh --device <序列号>           # 指定 ADB 设备；不设时自动取 adb devices 唯一一台
+#   BPNCM_DEVICE=<序列号> bash scripts/nav_selftest.sh       # 同 --device（环境变量形式）
+#   BPNCM_TRANSPORT=ssh bash scripts/nav_selftest.sh         # 全局默认走 SSH（同 --ssh）
+#   PROBE_APPID=<探针appid> bash scripts/nav_selftest.sh     # 覆盖探针 appid（默认 8002026100500004）
+#   BPNCM_TOOLS=<工作区>/tools bash scripts/nav_selftest.sh  # 覆盖工具链目录（worktree 默认用固定路径）
+#   NAVTEST_DONE_WAIT=<秒> bash scripts/nav_selftest.sh      # 等 [navtest] task4-done 的上限（默认 90）
 #
 # 做的五件事：
 #   1) 取本机局域网 IPv4 → BPNCM_LOG_SRV=http://<PC_IP>:8888/log 构建**探针版**
@@ -45,6 +48,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib/common.sh"
 proj_init
 
+# 参数解析（设备连接：--ssh [目标] / --device <序列号>；环境变量仍生效）
+SEL_TRANSPORT=""
+SEL_SSH_TARGET=""
+SEL_DEVICE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ssh)    SEL_TRANSPORT=ssh
+              if [ $# -gt 1 ] && [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; then SEL_SSH_TARGET="$2"; shift; fi
+              shift ;;
+    --device) SEL_DEVICE="${2:-}"; shift 2 ;;
+    *)        die "未知参数：$1（支持 --ssh [目标] / --device <序列号>）" ;;
+  esac
+done
+
 PROBE_APPID="${PROBE_APPID:-8002026100500004}"
 export PROBE_APPID                       # build_probe.sh 也读这个变量，保持构建/装机一致
 LOG_FILE="$PROJ/device_log.txt"
@@ -68,9 +85,12 @@ trap cleanup EXIT INT TERM
 
 # die / warn / info 由 scripts/lib/common.sh 提供
 
-# 设备序列号与 ADB 变量由公共库解析：优先 BPNCM_DEVICE，
-# 未设置时要求 adb devices 里恰好一台（真机与 VM 同时在线时不要猜）
-resolve_device
+# 设备连接由传输层解析（lib/device.sh）：默认 ADB 自动选唯一设备，
+# --ssh / BPNCM_TRANSPORT=ssh 走 Wi-Fi。dev_select 自带连通校验。
+SEL_ARGS=()
+[ -n "$SEL_DEVICE" ] && SEL_ARGS+=(--device "$SEL_DEVICE")
+[ -n "$SEL_SSH_TARGET" ] && SEL_ARGS+=(--ssh "$SEL_SSH_TARGET")
+dev_select "${SEL_TRANSPORT:-${BPNCM_TRANSPORT:-adb}}" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
 
 PASS=0
 FAIL=0
@@ -129,7 +149,6 @@ echo "=== 导航层真机自测（基础 + 回退弹层 + 深度压力 + 连点�
 echo "设备: $DEVICE  探针 appid: $PROBE_APPID  工具链: $TOOLS"
 
 [ -f "$NODE" ] || die "找不到工具链 Node: $NODE（用 BPNCM_TOOLS=<工作区>/tools 指定）"
-$ADB get-state >/dev/null 2>&1 || die "设备未连接（$ADB get-state 失败）"
 command -v python >/dev/null 2>&1 || die "找不到 python（scripts/logserver.py 依赖）"
 command -v curl >/dev/null 2>&1 || die "找不到 curl（用于探测 logserver）"
 
@@ -201,12 +220,12 @@ echo "logserver pid=$LOGSRV_PID → $LOG_FILE"
 # ---------- 3) 装机并启动探针 ----------
 echo ""
 echo "--- [3/5] 装机并启动探针（先卸载旧实例保证可重复运行） ---"
-$ADB shell "miniapp_cli uninstall $PROBE_APPID" >/dev/null 2>&1 || true
-$ADB shell "echo 200 > /sys/class/backlight/backlight/brightness" >/dev/null 2>&1 || true
-$ADB push "$(cygpath -w "$PROJ/$AMR")" /userdisk/Favorite/ >/dev/null || die "adb push 失败"
-$ADB shell "miniapp_cli install /userdisk/Favorite/$AMRF" || die "miniapp_cli install 失败"
-$ADB shell "hal-screen on" >/dev/null 2>&1 || true
-$ADB shell "miniapp_cli start $PROBE_APPID" || die "miniapp_cli start 失败"
+dev_run "miniapp_cli uninstall $PROBE_APPID" >/dev/null 2>&1 || true
+dev_run "echo 200 > /sys/class/backlight/backlight/brightness" >/dev/null 2>&1 || true
+dev_put "$PROJ/$AMR" /userdisk/Favorite/ || die "推送探针 .amr 失败"
+dev_run "miniapp_cli install /userdisk/Favorite/$AMRF" || die "miniapp_cli install 失败"
+dev_run "hal-screen on" >/dev/null 2>&1 || true
+dev_run "miniapp_cli start $PROBE_APPID" || die "miniapp_cli start 失败"
 
 # ---------- 4) 采日志：12 层采样内存/截图 → 等 task4-done ----------
 echo ""
@@ -215,10 +234,10 @@ mkdir -p shots
 MEM_DONE=0
 
 capture() {
-  $ADB shell "hal-screen on" >/dev/null 2>&1 || true
-  $ADB shell "miniapp_cli capture /userdisk/nav_selftest.png" >/dev/null 2>&1 || true
+  dev_run "hal-screen on" >/dev/null 2>&1 || true
+  dev_run "miniapp_cli capture /userdisk/nav_selftest.png" >/dev/null 2>&1 || true
   rm -f "$SHOT"
-  $ADB pull /userdisk/nav_selftest.png "$(cygpath -w "$SHOT")" >/dev/null 2>&1 || true
+  dev_get /userdisk/nav_selftest.png "$SHOT" >/dev/null 2>&1 || true
   [ -f "$SHOT" ] && [ "$(stat -c %s "$SHOT" 2>/dev/null || echo 0)" -ge 2000 ]
 }
 
@@ -226,11 +245,10 @@ capture() {
 mem_app() {
   local raw pages probe_pages
   raw="$(mktemp)"
-  if command -v timeout >/dev/null 2>&1; then
-    timeout 20 $ADB shell "miniapp_cli memoryApp" > "$raw" 2>&1 || true
-  else
-    $ADB shell "miniapp_cli memoryApp" > "$raw" 2>&1 || true
-  fi
+  # ⚠ 不能用外部 timeout 包 dev_run：timeout 是外部 exe，执行不了 shell 函数，
+  #   内存采样会静默失败（被 || true 吞掉）。dev_run 走 SSH 后端自带
+  #   ConnectTimeout=8，连接挂死有兜底；命令执行超时由设备端 miniapp_cli 自行保证。
+  dev_run "miniapp_cli memoryApp" > "$raw" 2>&1 || true
   probe_pages=$(awk -v app="App($PROBE_APPID)" '
     /^App\(/ { inp = ($1 == app) ? 1 : 0 }
     inp && /^\tPage\(/ { n++ }

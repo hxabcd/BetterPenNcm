@@ -29,6 +29,8 @@ usage() {
   --page <name>      启动后直接进某个页面（miniapp_cli start --<name>）
   --wait <秒>        等待应用就绪的上限，默认 40；0 = 不等待
   --device <序列号>  多台设备时指定（也可用 BPNCM_DEVICE 环境变量）
+  --ssh [目标]       走 Wi-Fi SSH（目标 = ssh 别名或 user@host，单参数，默认别名 pen）；
+                     也可用 BPNCM_TRANSPORT=ssh / BPNCM_SSH 环境变量
   --appid <id>       覆盖 package.json 里的 appid（默认读 package.json）
   --vm               装进 dictpen-vm（走 dpctl，不备份数据）
   --force            清掉残留的装机/构建锁
@@ -41,6 +43,8 @@ EOF
 DO_BUILD=1
 DO_BACKUP=1
 VM=0
+TRANSPORT=""
+SSH_TARGET=""
 PAGE=""
 WAIT=40
 LOCK_FORCE=0
@@ -56,6 +60,9 @@ while [ $# -gt 0 ]; do
     --vm)        VM=1; shift ;;
     --page)      PAGE="${2:-}"; shift 2 ;;
     --device)    DEVICE="${2:-}"; shift 2 ;;
+    --ssh)       TRANSPORT=ssh
+                 if [ $# -gt 1 ] && [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; then SSH_TARGET="$2"; shift; fi
+                 shift ;;
     --wait)      WAIT="${2:-}"; shift 2 ;;
     --appid)     APPID_OVERRIDE="${2:-}"; shift 2 ;;
     --force)     LOCK_FORCE=1; shift ;;
@@ -71,34 +78,26 @@ case "$PAGE" in *[!0-9A-Za-z_]*) die "--page 只接受页面名（字母数字�
 proj_init
 APPID="${APPID_OVERRIDE:-$(appid_of)}"
 
-# ---------- 目标执行器：真机 adb / 虚拟机 dpctl ----------
-# 两者只在"怎么执行一条远端命令、怎么传文件"上不同，主流程共用。
+# ---------- 目标执行器：真机 adb / 真机 ssh / 虚拟机 dpctl ----------
+# 三个后端统一走 lib/device.sh 的传输层（dev_run/dev_put/dev_get/dev_exists），
+# 本脚本不再自己拼 adb/ssh/dpctl 命令。
+# ⚠ 不能写 `[ -n "$X" ] && SEL_ARGS+=(...)`：set -e 下 X 为空会让整条 && 列表
+#   返回非 0，脚本静默退出。用 if 保持列表返回 0。
+SEL_ARGS=()
+if [ -n "$DEVICE" ]; then SEL_ARGS+=(--device "$DEVICE"); fi
+if [ -n "$SSH_TARGET" ]; then SEL_ARGS+=(--ssh "$SSH_TARGET"); fi
 if [ "$VM" = 1 ]; then
-  WS_ROOT="$(_workspace_root 2>/dev/null || printf '%s/../..' "$PROJ")"
-  DPCTL="$WS_ROOT/refs/dictpen-vm/scripts/dpctl.py"
-  [ -f "$DPCTL" ] || die "找不到 $DPCTL（dictpen-vm 没克隆？见 docs/dictpen-vm_使用与开发速查_2026-10-18.md）"
-  DPCTL="$(cygpath -w "$DPCTL")"
-  # dpctl 要 Python 3.11+（tomllib）：环境变量 > py -3.13 > python
-  if [ -n "${DICTPEN_VM_PY:-}" ]; then PY="$DICTPEN_VM_PY"
-  elif command -v py >/dev/null 2>&1 && py -3.13 -c "" >/dev/null 2>&1; then PY="py -3.13"
-  else PY="python"; fi
-  DEVICE="vm"
-  # dpctl 的 sh 会把远端命令的非 0 退出码换算成 ret=-1 之类的提示，语义不如 adb 干净，
-  # 所以 VM 分支不做失败回滚与就绪轮询（VM 是试验环境，装坏了重来即可）。
-  dev_run() { $PY "$DPCTL" sh -c "$1"; }
-  dev_put() { $PY "$DPCTL" put "$(cygpath -w "$1")" "$2"; }
+  # 旧环境变量名兼容：device.sh 只认 BPNCM_VM_PY
+  [ -n "${DICTPEN_VM_PY:-}" ] && [ -z "${BPNCM_VM_PY:-}" ] && export BPNCM_VM_PY="$DICTPEN_VM_PY"
+  dev_select vm
 else
-  resolve_device
-  dev_run() { $ADB shell "$1"; }
-  dev_put() { $ADB push "$(cygpath -w "$1")" "$2" >/dev/null; }
+  dev_select "${TRANSPORT:-adb}" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
 fi
 # ⚠ 这台设备的 adbd 不回传远程退出码（`adb shell "test -e 不存在的路径"` 本地 rc 也是 0，
 #   2026-11-01 实测），所以 dev_exists **不能**靠 dev_run 的退出码 —— 那会恒为真，
-#   残留检查就永远误报「两边都有数据」。改看输出：`ls -d` 只在存在时打印路径，
-#   设备端自己 2>/dev/null 抑制报错（写在远端命令串里，PC 侧的 2>/dev/null 管不到 adb shell）。
-dev_exists() { [ -n "$(dev_run "ls -d $1 2>/dev/null" | tr -d '\r')" ]; }
-# 同理，`dev_run "..." || die` 在这台设备上永远不触发（rc 恒 0）——
-# 关键的 mv 之后必须用 dev_exists 做事后校验，别只依赖退出码。
+#   残留检查就永远误报「两边都有数据」。dev_exists 已由 device.sh 按此契约实现
+#   （只看 `ls -d` 的输出）；SSH 后端能回传真实退出码，`|| die` 会真实触发（fail-fast），
+#   见 device.sh 头部契约。关键的 mv 之后仍必须用 dev_exists 做事后校验。
 
 PKG="/userdisk/secondary/miniapp/data/mini_app/pkg/$APPID"
 DATA="$PKG/data"
@@ -131,7 +130,7 @@ rollback_data() {
 lock_add_exit_hook rollback_data
 lock_acquire install
 
-info "应用: $APPID    目标: $([ "$VM" = 1 ] && echo 'dictpen-vm' || echo "真机 $DEVICE")"
+info "应用: $APPID    目标: $DEVICE_LABEL"
 
 # ---------- 1) 构建 ----------
 if [ "$DO_BUILD" = 1 ]; then
@@ -218,11 +217,14 @@ if [ "$BAK_ACTIVE" = 1 ]; then
 fi
 
 # ---------- 6) 启动 + 就绪 ----------
+# ⚠ 顶层 `[ -n "$X" ] && ...` 不能用：MSYS bash 5.3.20（DSH agent 执行环境）存在
+#   errexit 偏差——脚本 source 链里有 `.` 命令时，顶层 && 列表首命令失败（X 为空）
+#   即整脚本静默退出 rc=1；Git Bash 5.3.15 正常。全脚本统一 if 写法（2026-11-08 评审钉死）。
 stage "启动"
 START_ARGS=""
-[ -n "$PAGE" ] && START_ARGS="--$PAGE"
+if [ -n "$PAGE" ]; then START_ARGS="--$PAGE"; fi
 START_OUT="$(dev_run "miniapp_cli start $APPID $START_ARGS" 2>&1 | tr -d '\r')" || true
-[ -n "$START_OUT" ] && info "  $START_OUT"
+if [ -n "$START_OUT" ]; then info "  $START_OUT"; fi
 
 if [ "$WAIT" -gt 0 ]; then
   stage "等待应用就绪（memoryApp 里出现 App($APPID)，上限 ${WAIT}s）"

@@ -112,26 +112,12 @@ pick_amr() {  # pick_amr <appid> → 打印该 appid 最新的 .amr 绝对路径
 }
 
 # ---------- 设备 ----------
-# 优先 --device / BPNCM_DEVICE；否则要求 adb devices 里恰好一台 device。
-# 工作区规范要求所有 adb 操作显式带 -s，避免真机与 VM/多机同时在线时打错目标。
-resolve_device() {
-  local devs n
-  if [ -z "${DEVICE:-}" ]; then
-    if [ -n "${BPNCM_DEVICE:-}" ]; then
-      DEVICE="$BPNCM_DEVICE"
-    else
-      devs="$(adb devices 2>/dev/null | tr -d '\r' | awk 'NR > 1 && $2 == "device" { print $1 }')"
-      n="$(printf '%s' "$devs" | grep -c . || true)"
-      case "$n" in
-        1) DEVICE="$devs" ;;
-        0) die "没找到已连接设备（adb devices 没有 device 状态；插好 USB 或确认 adb 可用）" ;;
-        *) die "检测到 $n 台设备（$(printf '%s' "$devs" | tr '\n' ' ')），用 --device <序列号> 或 BPNCM_DEVICE 指定" ;;
-      esac
-    fi
-  fi
-  ADB="adb -s $DEVICE"
-  $ADB get-state >/dev/null 2>&1 || die "设备无响应：$ADB get-state 失败（序列号 $DEVICE）"
-}
+# 设备连接统一走 lib/device.sh 的传输层（dev_run/dev_put/dev_get/dev_exists）。
+# 这里加载它，让所有 source common.sh 的脚本都能用同一套原语。
+# 用 BASH_SOURCE 定位而不是 $PROJ：调用方可能先 source 本文件再跑 proj_init
+# （device_livecheck.sh 就是这样），也可能用 set -u。
+# shellcheck source=device.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/device.sh"
 
 # ---------- 网络 ----------
 # PC 的局域网 IPv4（设备要能访问 8888 端口拉日志）

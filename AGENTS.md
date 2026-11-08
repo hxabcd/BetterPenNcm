@@ -11,8 +11,8 @@ This file provides guidance to AI Agent when working with code in this repositor
 有道词典笔 S7 上的自研网易云音乐客户端（QuickJS 小程序 + Vue 2 SFC）。appid `8000200708310039`。
 
 - 页面入口 = `src/app.json` 的 `pages`；导航走 `utils/nav.js`（逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）
-- 运行时 API 与平台实测记录的索引见 [`docs/运行时API参考.md`](docs/运行时API参考.md)；引用其中结论时按 [`docs/文档维护规范.md`](@docs/文档维护规范.md) 核对对应证据
-- 文档或注释任务（编写、核验、清理）先读 [`docs/文档维护规范.md`](@docs/文档维护规范.md)：以当前事实与当前意图为准，旧文档中的“用户定”归因和历史决策不作为依据
+- 运行时 API 与平台实测记录的索引见 [`docs/运行时API参考.md`](docs/运行时API参考.md)；引用其中结论时按 [`../../DOCS_SPEC.md`](../../DOCS_SPEC.md) 核对对应证据
+- 文档或注释任务（编写、核验、清理）先读 [`../../DOCS_SPEC.md`](../../DOCS_SPEC.md)：以当前事实与当前意图为准，旧文档中的“用户定”归因和历史决策不作为依据
 - 功能当前如何实现以代码和配置为准；注释只解释非显然的原因、约束或副作用，不代替实现事实
 
 ## 提交规范
@@ -38,14 +38,26 @@ This file provides guidance to AI Agent when working with code in this repositor
 |---|---|
 | 构建 | `bash scripts/build.sh` → `build/8000200708310039.<x_y_z>.amr` |
 | 构建探针版（独立 appid） | `bash scripts/build_probe.sh`（默认 appid `8002026100500004`，入口 = `pages/probe`；脚本临时改 appid 后自动还原源码，不碰正式应用数据） |
-| 构建+装机+截图 | `bash scripts/install.sh [等待秒数]`（截图 `shots/shot.png`） |
+| 构建+装机+截图 | `bash scripts/install.sh [等待秒数]`（截图 `shots/shot.png`）；走 Wi-Fi 加 `--ssh`（无需 USB，如 `--ssh pen`） |
 | 导航层真机自测 | `bash scripts/nav_selftest.sh`（探针构建 + 串行 go/close + 15 层深度压力 + 12 层内存采样，断言 `[nav]` 日志与栈快照；截图 `shots/nav_selftest.png`，不动正式应用数据） |
 | 清互斥锁重来 | `bash scripts/build.sh --force`（`install.sh` 同理） |
 | 收设备日志 | `python scripts/logserver.py`（PC 0.0.0.0:8888 → `device_log.txt`）；**设备端地址必须构建时注入**：`BPNCM_LOG_SRV=http://<你的PC>:8888/log bash scripts/build.sh` —— 未注入则发往 127.0.0.1、静默失败（默认发布形态） |
-| 截图 | `install.sh` 内建 `miniapp_cli capture`，输出 `shots/shot.png`；直接查看，无需旋转/分帧。熄屏时返回空白帧，先 `hal-screen on` 点亮 |
+| 截图 | `bash scripts/shot.sh`（输出 `shots/shot.png`；熄屏时返回空白帧，先 `hal-screen on` 点亮）；`install.sh` 内建 capture，装机后直接看 |
+| 一次性设备命令 | `bash scripts/lib/devctl.sh [--ssh <目标>|--device <序列号>|--vm] run|put|get|exists <参数>`（传输层 CLI 入口；传设备路径参数时外层加 `MSYS_NO_PATHCONV=1`，Git Bash 会在进程启动前改写 `/tmp/...`） |
+| 链路体检 | `bash scripts/lib/device_livecheck.sh [--ssh pen|--device <序列号>]`（只读五原语自检；装机/截图失败先跑这个） |
+| 传输层自测（mock） | `bash scripts/lib/device_selftest.sh`（不碰设备；改 `scripts/lib/device.sh` 后必跑） |
 | 重建图标 | `python scripts/gen_icons.py --preview`（需 ImageMagick 7 + Pillow） |
 
 产物一律 `build/`、截图一律 `shots/`。
+
+### 设备传输层（scripts/lib/device.sh）
+
+所有对设备的命令执行与文件收发统一走传输层五原语：`dev_select <adb|ssh|vm>` 选后端（自动做连通校验），`dev_run` / `dev_put` / `dev_get` / `dev_exists` / `dev_check` 执行与传输。上层脚本（install/shot/nav_selftest）不出现 `adb`/`ssh`/`dpctl` 字样；`--ssh [目标]` 或 `BPNCM_TRANSPORT=ssh` 让脚本走 Wi-Fi。契约要点：
+
+- 这台设备 adbd 不回传远程退出码，**`dev_run` 的退出码不能判断成败**（SSH 后端能回传，但上层不依赖以保持行为一致）；关键写操作用 `dev_exists` 事后校验
+- SSH 后端 scp 优先，无 sftp-server 时回退 `-O`，再回退 base64（截图等二进制可走）
+- 新建 `set -e` 脚本时顶层不要写 `[ -n "$X" ] && ...`：MSYS bash 5.3.20（agent 执行环境）在 source 链含 `.` 命令时，顶层 `&&` 列表首命令失败会整脚本静默退出 rc=1；Git Bash 5.3.15 正常。统一 `if` 写法
+- 别用外部 `timeout` 包 `dev_run` 等 shell 函数（timeout 是 exe，执行不了函数）
 
 ## 硬性约束
 
@@ -53,7 +65,7 @@ This file provides guidance to AI Agent when working with code in this repositor
   该 exe 可能被安全软件拦成「无输出直接退出 1」——此时用 `BPNCM_NODE=<node.exe>` 指定替代（18 或 22 可用，26 不行）
 - **构建/装机互斥**：已有实例在跑时第二个直接报错退出、不排队。确认无人运行时 `rm -rf .build.lock/`（或 `.install.lock/`）或加 `--force`
 - **`miniapp_cli uninstall` 会清空整个 data 目录**：`install.sh` 默认（`--backup`）在设备内把**整个 data 目录** `mv` 到暂存位、装完再 `mv` 回来（整目录 rename，不存在按子目录挑选的漏项）；`--no-backup` 会丢登录态与全部下载。数据布局见 [`docs/存储重构.md`](docs/存储重构.md) §2
-- 改版必须先 uninstall 再 install，否则跑的是旧实例
+- 更新已装应用**直接 `miniapp_cli install` 覆盖即可**，不必先 uninstall（uninstall 会清空整个 data 目录）；`install.sh` 默认卸载重装并 `--backup` 备份/恢复 data，是为保全数据的项目选择，不是平台要求
 - **设备临时文件默认写 `/tmp`**（tmpfs，重启自清），不要在 `/userdisk` 根目录下建临时文件；`/tmp` 放不下的大文件才落 `/userdisk`；持久文件只进 `/userdisk/path/` 等既有子目录
 - 构建号写入生成物 `src/utils/buildInfo.js`（build.sh 生成，勿手改）并显示在首页顶栏，供核对设备版本
 - 平台能力的统一入口（别再各写各的）：可写路径一律走 `src/utils/paths.js`；`process.exec`/`curl`/`du`/`stat` 等能力探测走 `src/utils/exec.js`；`import('fs')` 句柄与 `fileSize` 等小工具走 `src/utils/fsutil.js`；单步超时护栏 `raceTimeout` 走 `src/utils/util.js`；**共享的 UI 视觉常量走 `src/utils/ui/tokens.js`**（唯一值表，改值改它再跑 `scripts/gen_tokens.py --write`；JS 用 `TOK.xxx`、LESS 用生成段里的 `@xxx`）。颜色字面量由 `theme_verify.py` 第五道强制拦截；字号/尺寸目前不巡，仍按值表与评审维护

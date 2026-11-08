@@ -12,6 +12,7 @@
 #   bash scripts/shot.sh --wait 5            # 先等 5 秒（等渲染）
 #   bash scripts/shot.sh --ready             # 先等应用起来（memoryApp 出现 App(appid)）
 #   bash scripts/shot.sh --out shots/foo.png
+#   bash scripts/shot.sh --ssh pen            # 走 Wi-Fi SSH（无需 USB）
 #   bash scripts/shot.sh --vm                # 截 dictpen-vm（dpctl screenshot）
 set -e
 export MSYS_NO_PATHCONV=1
@@ -27,6 +28,7 @@ usage() {
   --wait <秒>        截图前等几秒（默认 0；渲染没出来就加）
   --ready            先等应用就绪（memoryApp 里出现 App(appid)），最多 40 秒
   --device <序列号>  多台设备时指定（也可用 BPNCM_DEVICE）
+  --ssh [目标]       走 Wi-Fi SSH（默认别名 pen；也可 BPNCM_TRANSPORT=ssh）
   --vm               截 dictpen-vm（走 dpctl，不做空白帧检测）
   -h, --help         显示本帮助
 EOF
@@ -36,6 +38,8 @@ OUT="shots/shot.png"
 WAIT=0
 VM=0
 READY=0
+TRANSPORT=""
+SSH_TARGET=""
 DEVICE="${BPNCM_DEVICE:-}"
 
 while [ $# -gt 0 ]; do
@@ -44,6 +48,9 @@ while [ $# -gt 0 ]; do
     --wait)    WAIT="${2:-}"; shift 2 ;;
     --ready)   READY=1; shift ;;
     --device)  DEVICE="${2:-}"; shift 2 ;;
+    --ssh)     TRANSPORT=ssh
+               if [ $# -gt 1 ] && [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; then SSH_TARGET="$2"; shift; fi
+               shift ;;
     --vm)      VM=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *)         printf '未知参数：%s\n' "$1" >&2; usage; exit 1 ;;
@@ -70,30 +77,32 @@ sys.exit(10 if hi - lo < 8 else 0)
 PY
 }
 
+# ---------- 后端选择：vm / adb / ssh（传输层统一分派） ----------
+# ⚠ 不能写 `[ -n "$X" ] && SEL_ARGS+=(...)`：set -e 下 X 为空会让整条 && 列表
+#   返回非 0，脚本静默退出（实测踩过）。用 if 保持列表返回 0。
+SEL_ARGS=()
+if [ -n "$DEVICE" ]; then SEL_ARGS+=(--device "$DEVICE"); fi
+if [ -n "$SSH_TARGET" ]; then SEL_ARGS+=(--ssh "$SSH_TARGET"); fi
 if [ "$VM" = 1 ]; then
-  WS_ROOT="$(_workspace_root 2>/dev/null || printf '%s/../..' "$PROJ")"
-  DPCTL="$WS_ROOT/refs/dictpen-vm/scripts/dpctl.py"
-  [ -f "$DPCTL" ] || die "找不到 $DPCTL（dictpen-vm 没克隆？）"
-  DPCTL="$(cygpath -w "$DPCTL")"
-  if [ -n "${DICTPEN_VM_PY:-}" ]; then PY_CMD="$DICTPEN_VM_PY"
-  elif command -v py >/dev/null 2>&1 && py -3.13 -c "" >/dev/null 2>&1; then PY_CMD="py -3.13"
-  else PY_CMD="python"; fi
+  [ -n "${DICTPEN_VM_PY:-}" ] && [ -z "${BPNCM_VM_PY:-}" ] && export BPNCM_VM_PY="$DICTPEN_VM_PY"
+  dev_select vm
+  # dpctl screenshot 不是五个传输原语之一（截图留在本脚本是刻意偏差，不属于通用传输能力）
   stage "截取虚拟机画面"
-  $PY_CMD "$DPCTL" screenshot --out "$(cygpath -w "$OUT")"
+  "$DEV_VM_PY" "$DEV_VM_DPCTL" screenshot --out "$(cygpath -w "$OUT")"
   info "  截图: $OUT"
   stage_done
   exit 0
 fi
+dev_select "${TRANSPORT:-adb}" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
 
-resolve_device
-$ADB shell 'echo 200 > /sys/class/backlight/backlight/brightness' >/dev/null 2>&1 || true
+dev_run 'echo 200 > /sys/class/backlight/backlight/brightness' >/dev/null 2>&1 || true
 
 if [ "$READY" = 1 ]; then
   stage "等待应用就绪"
   APPID="$(appid_of)"
   t=0
   while [ "$t" -lt 40 ]; do
-    if $ADB shell "miniapp_cli memoryApp 2>/dev/null" 2>/dev/null | tr -d '\r' | grep -qF "App($APPID)"; then
+    if dev_run "miniapp_cli memoryApp 2>/dev/null" 2>/dev/null | tr -d '\r' | grep -qF "App($APPID)"; then
       info "  就绪（约 ${t}s）"
       break
     fi
@@ -110,8 +119,8 @@ fi
 
 stage "截图（miniapp_cli capture）"
 # 设备端临时文件写 /tmp（tmpfs，重启自清），不落在 /userdisk
-$ADB shell "miniapp_cli capture /tmp/shot.png" >/dev/null 2>&1 || die "capture 失败（设备掉线？）"
-$ADB pull /tmp/shot.png "$(cygpath -w "$OUT")" >/dev/null 2>&1 || die "拉回截图失败"
+dev_run "miniapp_cli capture /tmp/shot.png" >/dev/null 2>&1 || die "capture 失败（设备掉线？）"
+dev_get /tmp/shot.png "$OUT" || die "拉回截图失败"
 [ -s "$OUT" ] || die "截图文件为空：$OUT"
 
 RC=0

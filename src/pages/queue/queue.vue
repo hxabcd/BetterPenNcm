@@ -133,6 +133,48 @@ export default {
       }
       return { start: start, end: end, list: this.songs.slice(start, end) };
     },
+    /* ---- 行派生（色值全部走主题色，见 utils/theme.js） ----
+       一次算好整窗的行视图，模板只读字段。**必须放在 computed**：模板
+       `v-for="r in rows"` 编译成取字段，放 methods 会拿到函数 → 整窗 0 行、页面中间空
+       （坑 24；theme_verify.py 第四道现已扫 v-for 集合名）。
+       一次算好也避免 `rowStyle(i)` 那种「每行每次渲染重新调一遍」的写法：
+       一窗 50 行 × 4 个方法 = 200 次调用。computed 只在依赖
+       （st / multi / selIds / accent / win）变时才重算。 */
+    rows() {
+      const st = this.st || {}
+      const cur = Number(st.index)
+      const light = this.accent.light
+      const multi = this.multi
+      const list = this.win.list
+      const base = this.win.start
+      const out = []
+      for (let i = 0; i < list.length; i++) {
+        const s = list[i]
+        const g = base + i
+        const on = g === cur
+        const sel = multi ? this.isSel(s.id) : false
+        let rowStyle = {}
+        if (multi && sel) rowStyle = { backgroundColor: this.accent.a12 }
+        else if (on) rowStyle = { backgroundColor: this.accent.a14 }
+        out.push({
+          id: s.id,
+          i: i,
+          no: g + 1,
+          name: s.name,
+          artist: s.artist,
+          dur: fmtDur(s.durationMs),
+          sel: sel,
+          on: on,
+          rowStyle: rowStyle,
+          idxStyle: { color: on ? light : TOK.text3 },
+          nameStyle: { color: on ? light : TOK.text },
+          markStyle: sel
+            ? { backgroundColor: this.accent.c, borderColor: TOK.text }
+            : { backgroundColor: TOK.none, borderColor: TOK.markBorder }
+        })
+      }
+      return out
+    },
     /** 窗口前面折起来的条数（已播部分） */
     beforeCount() {
       return this.win.start;
@@ -414,47 +456,6 @@ export default {
       }
       this.showToast("已从播放队列移除 " + r.removed + " 首");
       log("queue", "多选移除 " + r.removed + " 首");
-    },
-    /* ---- 行派生（色值全部走主题色，见 utils/theme.js） ----
-       一次算好整窗的行视图，模板只读字段。**不要改回模板里逐行调方法**：
-       `:style="rowStyle(i)"` 这类写法是「每行、每次渲染」重新调一遍并新建对象，
-       一窗 50 行 × 4 个方法 = 200 次调用；而本页可见时每 500ms 有一发 tick
-       （虽然 onTick 已判重，但选中态切换、删除、多选进出仍会整页重渲染）。
-       computed 只在依赖（st / multi / selIds / accent / win）变时才重算。 */
-    rows() {
-      const st = this.st || {}
-      const cur = Number(st.index)
-      const light = this.accent.light
-      const multi = this.multi
-      const list = this.win.list
-      const base = this.win.start
-      const out = []
-      for (let i = 0; i < list.length; i++) {
-        const s = list[i]
-        const g = base + i
-        const on = g === cur
-        const sel = multi ? this.isSel(s.id) : false
-        let rowStyle = {}
-        if (multi && sel) rowStyle = { backgroundColor: this.accent.a12 }
-        else if (on) rowStyle = { backgroundColor: this.accent.a14 }
-        out.push({
-          id: s.id,
-          i: i,
-          no: g + 1,
-          name: s.name,
-          artist: s.artist,
-          dur: fmtDur(s.durationMs),
-          sel: sel,
-          on: on,
-          rowStyle: rowStyle,
-          idxStyle: { color: on ? light : TOK.text3 },
-          nameStyle: { color: on ? light : TOK.text },
-          markStyle: sel
-            ? { backgroundColor: this.accent.c, borderColor: TOK.text }
-            : { backgroundColor: TOK.none, borderColor: TOK.markBorder }
-        })
-      }
-      return out
     },
     /* ---- 左栏（分派骨架见 ui/frame.js）---- */
     onBack() {

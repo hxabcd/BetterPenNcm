@@ -266,17 +266,25 @@ for rel in sorted(_view_files):
     # 模板局部名（v-for 别名）与字面量不算
     locals_ = set(re.findall(r'v-for="\s*\(?\s*([A-Za-z_$][\w$]*)', tpl))
     locals_ |= set(re.findall(r'v-for="\s*\(\s*[A-Za-z_$][\w$]*\s*,\s*([A-Za-z_$][\w$]*)', tpl))
+    # 裸绑定名：:x="name" 与 v-for="x in name" 的集合名，模板都编译成 get_field（坑 24）。
+    # 后者曾漏检：queue.vue 把 rows() 写在 methods，v-for 取到函数 → 整窗 0 行、页面中间全空。
+    bare = []
     for b in re.finditer(r':([a-zA-Z][\w-]*)="([A-Za-z_$][\w$]*)"', tpl):
-        attr, name = b.group(1), b.group(2)
+        bare.append((':%s="%s"' % (b.group(1), b.group(2)), b.group(2)))
+    for b in re.finditer(
+            r'v-for="\s*\(?\s*[A-Za-z_$][\w$]*\s*(?:,\s*[A-Za-z_$][\w$]*\s*)?\)?\s+in\s+([A-Za-z_$][\w$]*)\s*"',
+            tpl):
+        bare.append(('v-for 集合 %s' % b.group(1), b.group(1)))
+    for label, name in bare:
         if name in ('true', 'false', 'null', 'undefined') or name in locals_:
             continue
         groups = set(provided.get(name, set())) | set(pgroups.get(name, set()))
         if groups == {'methods'}:
             bad += 1
-            print('✗ %-42s :%s="%s" 只由 methods 提供（模板编译成取字段 → 拿到函数：静默失效或炸）'
-                  % (rel, attr, name))
+            print('✗ %-42s %s 只由 methods 提供（模板编译成取字段 → 拿到函数：静默失效或炸）'
+                  % (rel, label))
         elif not groups:
-            warns.append('%s 的 :%s="%s" 在 script 里找不到定义' % (rel, attr, name))
+            warns.append('%s 的 %s 在 script 里找不到定义' % (rel, label))
 
     # ---- 第四道补：页面 methods 与 mixin computed 同名（静默失效，上面的并集判不出来）----
     # Vue initState 是 methods → data → computed；initComputed 里 `if (!(key in vm))` 在

@@ -39,6 +39,8 @@ const NEAR_PX = 160
 const DEFAULT_VIEWPORT = 200
 /** loadMore 完成（或页面判定无需加载）后解锁的冷却：挡住同一波滚动的重复事件 */
 const COOL_MS = 300
+/** 最长锁定：网络 Promise 挂起不 settle 时也要兜底解锁，避免自动续页永久失效 */
+const MAX_LOCK_MS = 5000
 
 /**
  * 取当前滚动内容的底部像素位置：页面估算与事件 contentSize 取较大者，
@@ -94,6 +96,13 @@ export const infiniteScrollMixin = {
       if (!shouldLoad(e, this, this.hasMore)) return
       this._infCool = true
       const self = this
+      // 最长锁定兜底：网络 Promise 永不 settle 时也要解锁，否则自动续页永久失效
+      //（此期间底部「加载更多」按钮仍可用）。unlock 幂等，先到者生效。
+      if (self._infTimer) clearTimeout(self._infTimer)
+      self._infTimer = setTimeout(function () {
+        self._infTimer = null
+        self._infCool = false
+      }, MAX_LOCK_MS)
       // 解锁挂在 loadMore 走完这一轮之后（同步或 Promise 均可），冷却只是兜底，
       // 防止网络在飞/小增量续批时同一 y 反复触发。
       const unlock = function () {

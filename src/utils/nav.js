@@ -31,6 +31,7 @@
  * pending 覆盖式、不消费，以兼容「页面会挂两遍」。
  */
 import { log } from './log.js'
+import { markVisible, dropPage } from './ui/vis.js'
 
 /**
  * 逻辑页 → 实例槽位表。
@@ -245,6 +246,8 @@ function noteLive(page) {
     LIVE.push({ page: page, key: key, logical: SLOT_LOGICAL[key] || '' })
     log('nav', 'page-load ' + key + ' live=' + LIVE.length + ' ' + stackKeysJson())
   }
+  // 新页面进栈 = 它一定在最上面：标为可见（hide 通道万一漏派发，这里也能救回来）
+  markVisible(page, true, 'load')
 }
 
 function noteDead(page) {
@@ -254,6 +257,11 @@ function noteDead(page) {
   const key = LIVE[i].key
   LIVE.splice(i, 1)
   log('nav', 'page-unload ' + key + ' live=' + LIVE.length + ' ' + stackKeysJson())
+  // 退栈后新的栈顶是「刚露出来」的那一页：重新标可见。
+  // 兜底价值：若平台在某些路径上只派发 hide、不派发对应的 show，被盖住的页会永远
+  // 停在不可见状态（页面不刷新）——这一句保证任何一次退栈都能把栈顶救回来。
+  if (LIVE.length) markVisible(LIVE[LIVE.length - 1].page, true, 'top')
+  dropPage(page)
 }
 
 function noteOptions(page) {
@@ -273,6 +281,8 @@ export function noteLifeCycle(options) {
     if (o.lifeCycle === 'load') noteLive(page)
     else if (o.lifeCycle === 'unload') noteDead(page)
     else if (o.lifeCycle === 'newOptions') noteOptions(page)
+    else if (o.lifeCycle === 'show') markVisible(page, true, 'show')
+    else if (o.lifeCycle === 'hide') markVisible(page, false, 'hide')
   } catch (e) {
     log('nav', '生命周期记账异常: ' + ((e && e.message) || e))
   }

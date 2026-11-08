@@ -114,6 +114,7 @@
  *   - 页面会挂两遍 → mounted 订阅自带判重（this._sub），beforeDestroy 里注销。
  */
 import { sleepTimer } from '../../utils/player/sleeptimer.js'
+import { bindPageVis } from '../../utils/ui/vis.js'
 import { TOK } from '../../utils/ui/tokens.js'
 import { ICON } from '../../assets/icons.js'
 import { accentMixin } from '../../utils/theme.js'
@@ -193,15 +194,26 @@ export default {
     this.pane = st.active ? 'running' : 'presets'
     this.input = INPUT_INIT
     const self = this
+    /* 定时模块每秒广播一次（倒计时文本）。面板不可见时（播放页被盖住、或定时子页没开）
+       这些 tick 只是白写 data 触发一次重渲染，直接丢；重新可见时用 state() 补一次最新值，
+       所以倒计时不会停在旧数字。 */
+    this._visible = true
     this._sub = function (s) {
+      if (!self._visible) return
       self.onTimer(s)
     }
     sleepTimer.on(this._sub)
+    this._visOff = bindPageVis(this, function (on) {
+      self._visible = on
+      if (on) self.onTimer(sleepTimer.state())
+    })
   },
   beforeDestroy() {
     // 只注销自己的订阅；**不要 cancel** —— 模块跨页面存活，离开播放页定时还得继续跑
     if (this._sub) sleepTimer.off(this._sub)
     this._sub = null
+    if (this._visOff) this._visOff()
+    this._visOff = null
   },
   methods: {
     /** 定时模块每秒（以及每次状态变化）广播一次 */

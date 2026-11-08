@@ -1,7 +1,7 @@
 <template>
   <page-shell :rail="rail" @rail="onRail">
     <page-topbar title="本地下载" :sub="barSub" />
-    <scroller class="dal-list">
+    <scroller class="dal-list" @scroll="onInfiniteScroll">
       <div class="dal-row" v-for="(row, ri) in rows" :key="ri">
         <album-card v-for="a in row" :key="a.id" :item="a" :cols="cols" @open="openAlbum(a)" />
       </div>
@@ -51,7 +51,8 @@ import { localAlbumList } from '../../utils/player/localmeta.js'
 import { log } from '../../utils/log.js'
 import { accentMixin } from '../../utils/theme.js'
 import { pageFrameMixin } from '../../utils/ui/frame.js'
-import { PAGE_CARD, moreText } from '../../utils/ui/paging.js'
+import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD, moreText } from '../../utils/ui/paging.js'
+import { infiniteScrollMixin } from '../../utils/ui/infinite.js'
 
 const SORTS = [
   { key: 'title', label: '标题' },
@@ -90,7 +91,7 @@ function cmpName(a, b) {
 
 export default {
   name: 'dlalbums',
-  mixins: [accentMixin, pageFrameMixin],
+  mixins: [accentMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -112,6 +113,9 @@ export default {
     }
   },
   computed: {
+    infiniteBottomPx() {
+      return this.rows.length * ROW_PX_CARD
+    },
     view() {
       const out = this.albums.slice()
       const k = this.sortKey
@@ -193,7 +197,7 @@ export default {
     },
     loadMore() {
       if (!this.hasMore) return
-      this.shown += PAGE
+      this.shown += AUTO_BATCH
     },
     pickSort(k) {
       if (k === this.sortKey) {

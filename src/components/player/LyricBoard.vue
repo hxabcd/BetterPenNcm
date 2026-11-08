@@ -46,6 +46,7 @@ import { touchAxis } from '../../utils/touch.js'
 import { log } from '../../utils/log.js'
 import { accentMixin } from '../../utils/theme.js'
 import { TOK } from '../../utils/ui/tokens.js'
+import { bindPageVis } from '../../utils/ui/vis.js'
 import { player } from '../../utils/player/player.js'
 import { findLyricIndex } from '../../utils/player/lyric.js'
 import { buildLyricRows, LYRIC_GEO } from '../../utils/player/lyriclayout.js'
@@ -277,10 +278,27 @@ export default {
   mounted() {
     const self = this
     this._dead = false
+    /* 页内播放器快照也只在**可见**时消费：被上层页盖住（或播放页的歌词子面板没开）时，
+       onState 会写 active / 推送时钟给每个 LyricWordLine，整块歌词随之重渲染 ——
+       看不见的歌词没有任何东西需要刷新。露出时用最新快照重锚（下面 bindPageVis 的 on 分支），
+       所以隐藏期间丢掉的 tick 不会让画面停在旧位置。 */
+    this._visible = true
     this._ph = player.on(function (s) {
+      if (!self._visible) return
       self.onState(s)
     })
     this.startClock()
+    /* 面板不可见时连**时钟**一起停（33ms 一拍 = 每秒 30 次推进 + 逐字状态推送），
+       重新露出时按快照重锚并拉起时钟。player 订阅本身保留，用来在露出时重锚。 */
+    this._visOff = bindPageVis(this, function (on) {
+      self._visible = on
+      if (on) {
+        self.onState(player.state())
+        if (self._playing) self.startClock()
+      } else {
+        self.stopClock()
+      }
+    })
     this.applyJump(this.geo.auto) // 幂等对齐（页面会挂两遍）
     log('lyric', '歌词面板挂载 行数=' + this.rowsAll.length +
       ' 渲染=' + this.rowsView.length + ' 行（窗口 ' + this.winStart + '..' + this.winEnd + '）')
@@ -298,6 +316,8 @@ export default {
     this._dead = true
     if (this._ph) player.off(this._ph)
     this._ph = null
+    if (this._visOff) this._visOff()
+    this._visOff = null
     if (this._diagT) clearTimeout(this._diagT)
     this._diagT = 0
     this.stopClock()

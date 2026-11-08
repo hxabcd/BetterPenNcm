@@ -187,6 +187,13 @@ export function notify() {
 
 /** 组件挂载时调用：订阅 + 立即取当前色（bg 与 accent 一起下发）。返回的 handler 交给 unbindTheme */
 export function bindTheme(vm) {
+  /* 页面会挂两遍（平台坑 6）：accentMixin 的 mounted 再跑一次时 `this._accentOff = bindTheme(...)`
+     只会覆盖字段，上一组的 $falcon.on 监听就成了没人释放的孤儿（beforeDestroy 只解绑最后一个）。
+     这里先释放同一 vm 上的上一组，让 bindTheme 自己幂等（与 vis.js / dlvis.js 同一口径）。 */
+  if (vm && vm._accentOff) {
+    unbindTheme(vm._accentOff)
+    vm._accentOff = null
+  }
   const apply = function () {
     vm.bg = currentBg()
     vm.accent = currentAccent()

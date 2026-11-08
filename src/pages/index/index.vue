@@ -103,7 +103,7 @@ import config from "../../utils/config.js";
 import { openTextEdit, available as skAvailable } from "../../utils/systemKeyboard.js";
 import { player } from "../../utils/player/player.js";
 import { countToday as histToday, isLoaded as histLoaded } from "../../utils/player/history.js";
-import { dlState, onDl, offDl } from "../../utils/player/download.js";
+import { bindDl } from "../../utils/player/dlvis.js";
 import { stats } from "../../utils/player/cache.js";
 import { fmtSize } from "../../utils/format.js";
 import { ensureCover, BIG_COVER } from "../../utils/cover.js";
@@ -115,6 +115,7 @@ import { evtJson } from "../../utils/events.js";
 import { log } from "../../utils/log.js";
 import { pageFrameMixin } from "../../utils/ui/frame.js";
 import { pageBusMixin } from "../../utils/ui/pagebus.js";
+import { bindPageVis } from "../../utils/ui/vis.js";
 
 // 防重：运行时页面会挂两遍。started 只护「启动链 + 登录事件」，**不能护播放态订阅**
 // （订阅若只挂第一次挂载的实例，而实际显示的是最后挂载的那个，卡片会永远停在初始状态）。
@@ -278,21 +279,28 @@ export default {
     // 未 load 时 get 返回 undefined → `!== false` 判为开，与 DEFAULTS 一致，不会闪错。
     this.glowOn = config.get("glowOn") !== false;
 
-    // ---- 播放态订阅（每个实例都订；签名判重，别让 500ms 的 tick 把渲染打爆）----
+    // ---- 播放态订阅（每个实例都订；签名判重 + 可见性门控，别让 500ms 的 tick 把渲染打爆）----
     this._sig = "";
+    this._vis = true;
     this._handler = function (s) {
       self.onPlayer(s);
     };
     player.on(this._handler);
+    this._visOff = bindPageVis(this, function (on) {
+      const was = self._vis;
+      self._vis = on;
+      // 重新露出：隐藏期间的 tick 被丢掉了，补一次（onPlayer 自带判重，重复调无副作用）
+      if (on && !was) self.onPlayer(player.state());
+    });
     this.onPlayer(player.state());
     this.syncHist();
     this.syncLogin();
 
     // ---- 本地下载卡：下载活动订阅（进度）+ 计数（文件系统的真相；exec 一次别频繁调）----
-    this._dlOff = onDl(function (s) {
+    // bindDl = 订阅 + 可见性门控 + 首帧快照（主页被上层页盖住时不落 data，见 utils/player/dlvis.js）
+    this._dlOff = bindDl(this, function (s) {
       self.syncDl(s);
     });
-    this.syncDl(dlState());
     this._onShow = function () {
       self.loadDownloads();
       // 从个人中心退出登录后返回主页时，没有事件会通知这里 —— 靠重新可见刷一次
@@ -329,7 +337,9 @@ export default {
     this._dead = true;
     if (this._handler) player.off(this._handler);
     this._handler = null;
-    if (this._dlOff) offDl(this._dlOff);
+    if (this._visOff) this._visOff();
+    this._visOff = null;
+    if (this._dlOff) this._dlOff();
     this._dlOff = null;
     try {
       if (this._onShow) this.$page.off("show", this._onShow);
@@ -366,6 +376,8 @@ export default {
      * （见 AGENTS.md 平台坑 16）。签名只含「卡片上看得见的东西」。
      */
     onPlayer(s) {
+      // 页面被上层盖住时不落 data（订阅不断，只是省掉整页重渲染；露出时会补一次）
+      if (!this._vis) return;
       const c = (s && s.cur) || {};
       const k =
         (c.id || 0) +

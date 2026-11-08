@@ -23,6 +23,7 @@
  */
 import { player } from '../utils/player/player.js'
 import { loadLyrics, findLyricIndex } from '../utils/player/lyric.js'
+import { bindPageVis } from '../utils/ui/vis.js'
 import config from '../utils/config.js'
 import { log } from '../utils/log.js'
 
@@ -54,6 +55,14 @@ export default {
       self.onPlayer(s)
     }
     player.on(this._handler)
+    // 主页被上层页盖住时这一行看不见：不落 data（省掉这个 text 的重渲染）。
+    // 重新露出时补一次；sync 自带判重（同句不重复赋值），重复调无副作用。
+    this._vis = true
+    this._visOff = bindPageVis(this, function (on) {
+      const was = self._vis
+      self._vis = on
+      if (on && !was) self.onPlayer(player.state())
+    })
     // 播放选项页改「歌词开关」→ 这里即时生效（与播放页同一个订阅方式）
     this._optsEvt = function () {
       self.readOpts()
@@ -67,6 +76,8 @@ export default {
   beforeDestroy() {
     if (this._handler) player.off(this._handler)
     this._handler = null
+    if (this._visOff) this._visOff()
+    this._visOff = null
     try {
       /* global $falcon */
       if (this._optsEvt) $falcon.off('bpncm:playeropts', this._optsEvt)
@@ -75,6 +86,8 @@ export default {
   },
   methods: {
     onPlayer(s) {
+      // 主页被上层页盖住时这一行看不见：不落 data（省掉重渲染；露出时补一次）
+      if (!this._vis) return
       const id = (s && s.cur && s.cur.id) || 0
       if (String(id) !== this._key) {
         this._key = String(id)

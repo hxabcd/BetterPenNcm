@@ -21,19 +21,19 @@
            用 v-for 行的 ref 数组做锚点不可靠——窗口上滑后平台会复用同 key 的行，
            $refs 数组顺序会混入「旧窗口的行」，锚点位置就错了；单例 ref 没有这个问题。 -->
       <div class="qu-anchor" ref="topAnchor" />
-      <div class="qu-row" v-for="(s, i) in win.list" :key="s.id" :style="rowStyle(i)" @click="onRow(i)">
+      <div class="qu-row" v-for="r in rows" :key="r.id" :style="r.rowStyle" @click="onRow(r.i)">
         <!-- 多选态：序号列换成勾选圈（未选 = 空心环，已选 = 红底白勾），
              与其它列表页的选中视觉一致（两个独立 v-if，不用 v-else——平台编译器不稳） -->
         <div class="qu-markbox" v-if="multi">
-          <div class="qu-mark" :style="markStyle(s.id)">
+          <div class="qu-mark" :style="r.markStyle">
             <!-- 勾选圈底是实心主题色 → 图标走 fgIcon（亮色预设自动换深色版，否则白图标看不见） -->
-            <image v-if="isSel(s.id)" class="qu-chk" :src="fgIcon('check')" />
+            <image v-if="r.sel" class="qu-chk" :src="fgIcon('check')" />
           </div>
         </div>
-        <text class="qu-i" :style="idxStyle(i)" v-if="!multi">{{ win.start + i + 1 }}</text>
-        <text class="qu-nm" :style="nameStyle(i)">{{ s.name }}</text>
-        <text class="qu-ar">{{ s.artist }}</text>
-        <text class="qu-du">{{ dur(s) }}</text>
+        <text class="qu-i" :style="r.idxStyle" v-if="!multi">{{ r.no }}</text>
+        <text class="qu-nm" :style="r.nameStyle">{{ r.name }}</text>
+        <text class="qu-ar">{{ r.artist }}</text>
+        <text class="qu-du">{{ r.dur }}</text>
       </div>
       <div class="qu-more" v-if="afterCount" @click="expandAfter">
         <text class="qu-more-t" :style="{ color: accent.light }">{{ moreLabel(afterCount, "首") }}</text>
@@ -75,6 +75,7 @@ import EmptyHint from "../../components/EmptyHint.vue";
 import HintToast from "../../components/HintToast.vue";
 import { railBack, railBtn, ICON } from "../../utils/rail.js";
 import { player } from "../../utils/player/player.js";
+import { queueViewSig, sigFeed } from "../../utils/player/sig.js";
 import { downloadSongs } from "../../utils/player/download.js";
 import { toPlaylist } from "../../utils/songact.js";
 import { selPicked, startText, resultText } from "../../utils/multidl.js";
@@ -86,6 +87,7 @@ import { toastMixin } from "../../utils/ui/toast.js";
 import { armMixin } from "../../utils/ui/arm.js";
 import { multiSelectMixin } from "../../utils/ui/multi.js";
 import { pageFrameMixin } from "../../utils/ui/frame.js";
+import { bindPageVis } from "../../utils/ui/vis.js";
 import { PAGE_QUEUE, moreText } from "../../utils/ui/paging.js";
 import { VH } from "../../utils/player/layout.js";
 
@@ -187,8 +189,17 @@ export default {
   mounted() {
     const self = this;
     this._scrollY = 0; // 滚动位置只用于锚定计算，不进 data（高频更新不需要重渲染）
+    // 播放态订阅：**先判重、再判可见**（队列页只需要「列表 / 当前曲 / 播放态」三样，
+    // 500ms 快照里的 positionMs 它一个都不用 —— 整页每 tick 重渲染纯属白费，见 sig.js）
+    this._feed = sigFeed(queueViewSig);
+    this._visible = true;
     this._off = player.on(function (s) {
-      self.st = s;
+      self.onTick(s);
+    });
+    this._visOff = bindPageVis(this, function (on) {
+      const was = self._visible;
+      self._visible = on;
+      if (on && !was) self.onTick(player.state());
     });
     log("queue", "播放列表页挂载，队列 " + this.songs.length + " 首");
     // 整列渲染（≤50 首）时窗口覆盖全部，当前曲可能在首屏之外 → 进来先滚到当前曲附近
@@ -199,10 +210,15 @@ export default {
     this._destroyed = true; // 延迟的滚动锚定回调不要再碰已退出的页面
     if (this._off) player.off(this._off);
     this._off = null;
+    if (this._visOff) this._visOff();
+    this._visOff = null;
   },
   methods: {
-    dur(s) {
-      return fmtDur(s.durationMs);
+    /** 播放器 tick：隐藏时不落 data；可见时按队列视角签名判重 */
+    onTick(s) {
+      if (!this._visible) return;
+      if (!this._feed(s)) return;
+      this.st = s;
     },
     /** 窗口内行下标 → 队列全局下标（窗口只渲染一段，播放/勾选必须用全局下标） */
     globalIndex(i) {
@@ -399,24 +415,46 @@ export default {
       this.showToast("已从播放队列移除 " + r.removed + " 首");
       log("queue", "多选移除 " + r.removed + " 首");
     },
-    /* ---- 行样式（色值全部走主题色，见 utils/theme.js） ---- */
-    rowStyle(i) {
-      const g = this.globalIndex(i);
-      const s = this.songs[g];
-      if (this.multi && s && this.isSel(s.id)) return { backgroundColor: this.accent.a12 };
-      return g === this.st.index ? { backgroundColor: this.accent.a14 } : {};
-    },
-    idxStyle(i) {
-      return { color: this.globalIndex(i) === this.st.index ? this.accent.light : TOK.text3 };
-    },
-    nameStyle(i) {
-      return { color: this.globalIndex(i) === this.st.index ? this.accent.light : TOK.text };
-    },
-    /** 勾选圈两态（内联 style —— 平台不支持 .a.b 复合选择器） */
-    markStyle(id) {
-      return this.isSel(id)
-        ? { backgroundColor: this.accent.c, borderColor: TOK.text }
-        : { backgroundColor: TOK.none, borderColor: TOK.markBorder };
+    /* ---- 行派生（色值全部走主题色，见 utils/theme.js） ----
+       一次算好整窗的行视图，模板只读字段。**不要改回模板里逐行调方法**：
+       `:style="rowStyle(i)"` 这类写法是「每行、每次渲染」重新调一遍并新建对象，
+       一窗 50 行 × 4 个方法 = 200 次调用；而本页可见时每 500ms 有一发 tick
+       （虽然 onTick 已判重，但选中态切换、删除、多选进出仍会整页重渲染）。
+       computed 只在依赖（st / multi / selIds / accent / win）变时才重算。 */
+    rows() {
+      const st = this.st || {}
+      const cur = Number(st.index)
+      const light = this.accent.light
+      const multi = this.multi
+      const list = this.win.list
+      const base = this.win.start
+      const out = []
+      for (let i = 0; i < list.length; i++) {
+        const s = list[i]
+        const g = base + i
+        const on = g === cur
+        const sel = multi ? this.isSel(s.id) : false
+        let rowStyle = {}
+        if (multi && sel) rowStyle = { backgroundColor: this.accent.a12 }
+        else if (on) rowStyle = { backgroundColor: this.accent.a14 }
+        out.push({
+          id: s.id,
+          i: i,
+          no: g + 1,
+          name: s.name,
+          artist: s.artist,
+          dur: fmtDur(s.durationMs),
+          sel: sel,
+          on: on,
+          rowStyle: rowStyle,
+          idxStyle: { color: on ? light : TOK.text3 },
+          nameStyle: { color: on ? light : TOK.text },
+          markStyle: sel
+            ? { backgroundColor: this.accent.c, borderColor: TOK.text }
+            : { backgroundColor: TOK.none, borderColor: TOK.markBorder }
+        })
+      }
+      return out
     },
     /* ---- 左栏（分派骨架见 ui/frame.js）---- */
     onBack() {

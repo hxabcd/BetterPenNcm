@@ -9,7 +9,7 @@
     <!-- 歌单内曲目列表的状态卡片（git fetch / pull）：作为列表第一项跟随滚动，
          左侧上次拉取日期，右侧拉取/同步两个带图标按钮。
          拉取只更新远端信息；同步才下载 A 并清理 D（策略 A：只解除归属，不删文件）。 -->
-    <scroller class="dlt-list">
+    <scroller class="dlt-list" @scroll="onInfiniteScroll">
       <div class="dlt-status" v-if="isPlaylist">
         <text class="dlt-last">{{ lastPullText }}</text>
         <div class="dlt-fill"></div>
@@ -74,7 +74,8 @@ import { railBack, railBtn, ICON } from '../../utils/rail.js'
 import { go, paramsFor } from '../../utils/nav.js'
 import { player } from '../../utils/player/player.js'
 import { listSongs } from '../../utils/player/cache.js'
-import { deleteCached, dlState, onDl, offDl } from '../../utils/player/download.js'
+import { deleteCached } from '../../utils/player/download.js'
+import { bindDl } from '../../utils/player/dlvis.js'
 import { markUser } from '../../utils/player/dlorigin.js'
 import { playlistView, pullList, syncList, splitDownloads } from '../../utils/player/locallists.js'
 import { isOffline } from '../../utils/net/status.js'
@@ -87,7 +88,8 @@ import { toastMixin } from '../../utils/ui/toast.js'
 import { armMixin } from '../../utils/ui/arm.js'
 import { multiSelectMixin } from '../../utils/ui/multi.js'
 import { pageFrameMixin } from '../../utils/ui/frame.js'
-import { PAGE_SONG, moreText } from '../../utils/ui/paging.js'
+import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../utils/ui/paging.js'
+import { infiniteScrollMixin } from '../../utils/ui/infinite.js'
 
 const KIND_NAME = {
   all: '全部下载',
@@ -107,7 +109,7 @@ function normSong(s) {
 
 export default {
   name: 'dltracks',
-  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin],
+  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -135,6 +137,9 @@ export default {
     }
   },
   computed: {
+    infiniteBottomPx() {
+      return this.rows.length * ROW_PX_SONG
+    },
     isPlaylist() {
       return this.kind === 'playlist'
     },
@@ -208,10 +213,10 @@ export default {
   mounted() {
     this._dead = false
     const self = this
-    this._dlOff = onDl(function (s) {
+    // 下载活动订阅（可见性门控 + 首帧快照，见 utils/player/dlvis.js）
+    this._dlOff = bindDl(this, function (s) {
       self.syncDl(s)
     })
-    this.syncDl(dlState())
     this._onShow = function () {
       self.loadView()
     }
@@ -226,7 +231,7 @@ export default {
   },
   beforeDestroy() {
     this._dead = true
-    if (this._dlOff) offDl(this._dlOff)
+    if (this._dlOff) this._dlOff()
     this._dlOff = null
     try {
       if (this._onShow) this.$page.off('show', this._onShow)
@@ -343,7 +348,7 @@ export default {
     },
     loadMore() {
       if (!this.hasMore) return
-      this.rows = this.fullRows.slice(0, this.rows.length + PAGE)
+      this.rows = this.fullRows.slice(0, this.rows.length + AUTO_BATCH)
       this.hasMore = this.fullRows.length > this.rows.length
     },
     /* ---- 行交互 ---- */

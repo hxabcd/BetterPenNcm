@@ -162,5 +162,5 @@ This file provides guidance to AI Agent when working with code in this repositor
 - **下载**（用户主动）→ `$dataDir/downloads/<id>/`，永久保留，计入「本地下载」；**缓存**（边听边存）→ `$dataDir/cache/<id>/`，受缓存上限 LRU 滚动，不计入本地下载。每 track 一个目录，目录内固定 `track.mp3|flac`、`cover.jpg`、`lyrics.json`（仅 downloads）、`metadata.json`；路径一律从 `src/utils/paths.js` 取，布局与不变式见 [`docs/存储重构.md`](docs/存储重构.md) §2
 - **后台 JS 会冻结**：切后台时下载跑完当前片就停，别承诺「后台继续下载」；应用退出后无后台，会直接关闭
 - 退出登录会**删掉 `$dataDir/cookie.txt`**（否则 boot 会把会话灌回来）
-- 歌曲列表的浏览方案：已用「加载更多」分页（渲染每批 50 首，网络游标见 `list.vue`）；列表内搜索仍待定
+- 长列表按首屏批量渲染（口径见 `utils/ui/paging.js`），滚到底自动续批（`utils/ui/infinite.js`，每次 `AUTO_BATCH` 行）；仅在「内容超过一屏且用户已下滚」时自动触发，拿不到滚动位移则降级到原有「加载更多」按钮。网络游标见 `list.vue`；列表内搜索仍待定
 - 原生 `.so` 模块、官方虚拟列表等扩展方向未在当前代码中启用；`global` 已用于输入法与网络状态（`systemKeyboard.js` / `net/status.js`），其它能力动前先用探针页验证

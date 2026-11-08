@@ -56,7 +56,7 @@ import { log } from '../../utils/log.js'
 import { accentMixin } from '../../utils/theme.js'
 import { toastMixin } from '../../utils/ui/toast.js'
 import { pageFrameMixin } from '../../utils/ui/frame.js'
-import { PAGE_ROW, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../utils/ui/paging.js'
+import { PAGE_ROW, AUTO_BATCH, ROW_PX_LIB, moreText } from '../../utils/ui/paging.js'
 import { infiniteScrollMixin } from '../../utils/ui/infinite.js'
 
 const PAGE = PAGE_ROW // 索引歌单一次渲染 40 行（平台 ≤50 行）
@@ -86,7 +86,7 @@ export default {
   },
   computed: {
     infiniteBottomPx() {
-      return this.visibleRows.length * ROW_PX_SONG
+      return this.visibleRows.length * ROW_PX_LIB
     },
     barSub() {
       if (this.loading) return '读取中...'

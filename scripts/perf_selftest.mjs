@@ -449,17 +449,38 @@ const SLEEP_ALLOW = {
 }
 
 /* ---------- 3k. 滚到底自动续页：判定纯函数与接入点 ---------- */
-// 判定只依赖已实测的 contentOffset.y；拿不到位移或内容底部时静默退回按钮翻页。
+// 判定只依赖已实测的 contentOffset.y；拿不到位移/底部、或内容不足一屏时
+// 静默退回按钮翻页（fail-closed 降级）。短列表保护是重点：hasMore 为真是
+// 「服务端还有」，不等于「当前内容已能滚到底」。
 {
-  const vm = { infiniteBottomPx: 1000, infiniteViewportPx: 200 }
-  truthy('infinite: 接近底部触发', inf.shouldLoad({ contentOffset: { y: 700 } }, vm, true))
-  truthy('infinite: 离底部远不触发', !inf.shouldLoad({ contentOffset: { y: 100 } }, vm, true))
-  truthy('infinite: 没有下一批不触发', !inf.shouldLoad({ contentOffset: { y: 700 } }, vm, false))
-  truthy('infinite: 缺滚动位移不触发（fail-open）', !inf.shouldLoad({}, vm, true))
-  truthy('infinite: 缺内容底部且事件无 contentSize 不触发', !inf.shouldLoad({ contentOffset: { y: 700 } }, {}, true))
-  truthy('infinite: 事件 contentSize 兜底可触发', inf.shouldLoad({ contentOffset: { y: 3700 }, contentSize: { height: 4000 } }, {}, true))
-  eq('infinite: 页面估算优先于事件 contentSize', inf.contentBottom({ contentSize: { height: 5000 } }, vm), 1000)
-  truthy('infinite: 续批后同一 y 不再触发', !inf.shouldLoad({ contentOffset: { y: 700 } }, { infiniteBottomPx: 2000 }, true))
+  const EV = (y) => ({ contentOffset: { y } })
+  const vm = { infiniteBottomPx: 1000, infiniteViewportPx: 200 } // vp=200, NEAR=160 → 窗口 360
+
+  // 基本判定
+  truthy('infinite: 接近底部触发', inf.shouldLoad(EV(700), vm, true))
+  truthy('infinite: 离底部远不触发', !inf.shouldLoad(EV(100), vm, true))
+  truthy('infinite: 没有下一批不触发', !inf.shouldLoad(EV(700), vm, false))
+  truthy('infinite: 恰好在预加载边界触发', inf.shouldLoad(EV(640), vm, true)) // 640+360=1000
+
+  // 短列表保护（S1：曾因 bottom≤360 在 y=0 即连加多批）
+  truthy('infinite: y=0 不触发（滚动前/回弹）', !inf.shouldLoad(EV(0), vm, true))
+  truthy('infinite: 负 y 不触发', !inf.shouldLoad(EV(-5), vm, true))
+  truthy('infinite: 非数字 y 不触发(NaN fail-closed)', !inf.shouldLoad({ contentOffset: { y: 'abc' } }, vm, true))
+  truthy('infinite: 内容不足一屏不触发', !inf.shouldLoad(EV(120), { infiniteBottomPx: 200 }, true))
+  truthy('infinite: 内容恰等于一屏不触发', !inf.shouldLoad(EV(120), { infiniteBottomPx: 200, infiniteViewportPx: 200 }, true))
+  truthy('infinite: 内容刚过一屏且已滚到近底可触发', inf.shouldLoad(EV(50), { infiniteBottomPx: 205 }, true))
+
+  // fail-closed 与字段兜底
+  truthy('infinite: 缺滚动位移不触发', !inf.shouldLoad({}, vm, true))
+  truthy('infinite: 缺内容底部且事件无 contentSize 不触发', !inf.shouldLoad(EV(700), {}, true))
+  truthy('infinite: 空列表估算 0 且 contentSize 为 0 不触发', !inf.shouldLoad(EV(700), { infiniteBottomPx: 0 }, true))
+  truthy('infinite: contentHeight 兜底生效', inf.shouldLoad({ contentOffset: { y: 3700 }, contentHeight: 4000 }, {}, true))
+  // 事件 contentSize 与页面估算取较大者（估算漏算 hero 等固定内容）
+  eq('infinite: contentBottom 取估算与事件较大者', inf.contentBottom({ contentSize: { height: 5000 } }, vm), 5000)
+  eq('infinite: 估算更大时取估算', inf.contentBottom({ contentSize: { height: 500 } }, vm), 1000)
+  eq('infinite: 两者皆无返回 null', inf.contentBottom({}, {}), null)
+  // 视口覆盖：0/非法退回默认，正常值生效
+  truthy('infinite: infiniteViewportPx=0 退回默认仍可触发', inf.shouldLoad(EV(700), { infiniteBottomPx: 1000, infiniteViewportPx: 0 }, true))
 }
 {
   const INF_PAGES = [
@@ -470,9 +491,13 @@ const SLEEP_ALLOW = {
   const missing = []
   for (const f of INF_PAGES) {
     const t = fs.readFileSync(path.join(SRC, f), 'utf8')
-    if (!/@scroll="onInfiniteScroll"/.test(t) || !/infiniteScrollMixin/.test(t) || !/AUTO_BATCH/.test(t)) missing.push(f)
+    const c = stripComments(t)
+    const ok = /@scroll="onInfiniteScroll"/.test(t) && /infiniteScrollMixin/.test(c) &&
+      /infiniteBottomPx\(\)/.test(c) && /hasMore/.test(c) && /loadMore\(/.test(c) &&
+      /AUTO_BATCH/.test(c)
+    if (!ok) missing.push(f)
   }
-  eq('自动续页: 接入页都有 @scroll/mixin/AUTO_BATCH', missing.join(', ') || 'none', 'none')
+  eq('自动续页: 接入页四要件齐全(@scroll/mixin/估算/hasMore/loadMore/AUTO_BATCH)', missing.join(', ') || 'none', 'none')
   const EXCLUDE = ['pages/queue/queue.vue', 'pages/dlqueue/dlqueue.vue', 'pages/artist/artist.vue']
   const leaked = []
   for (const f of EXCLUDE) {
@@ -480,6 +505,11 @@ const SLEEP_ALLOW = {
     if (/onInfiniteScroll/.test(t)) leaked.push(f)
   }
   eq('自动续页: 锚定/多段/嵌套 scroller 页不接入', leaked.join(', ') || 'none', 'none')
+  // mixin 用实例普通属性而非 data，并清理定时器（平台坑 6 / perf 约定）
+  const mix = fs.readFileSync(path.join(SRC, 'utils/ui/infinite.js'), 'utf8')
+  truthy('自动续页: 冷却标志不进 data(_ 前缀)', !/data\s*\(/.test(mix) && /created\s*\(/.test(mix))
+  truthy('自动续页: beforeDestroy 清理定时器', /beforeDestroy/.test(mix) && /clearTimeout/.test(mix))
+  truthy('自动续页: loadMore 后解锁(防同一 y 连锁)', /\.then\(unlock, unlock\)/.test(mix))
 }
 
 /* ---------- 收尾 ---------- */

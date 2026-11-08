@@ -3,24 +3,33 @@
  *
  * 为什么要有这个文件：曲目列表 / 本地歌手 / 本地专辑 / 歌单索引 / 队列各页原来
  * 各自写一份 `const PAGE = 50` 与「加载更多（还有 N 首）」文案，批大小和句式容易漂移。
- * 批大小按**行高**取不同值（歌曲行 23vh、ArtistRow 32vh、卡片网格 4 张一行），
- * 但都从这里取，改口径只改这一处。
+ * PAGE_* 是**首屏**批量（快速绘制）；AUTO_BATCH 是滚到底自动续页（utils/ui/infinite.js）
+ * 与手动点「加载更多」的**增量** —— 增量比首屏小，滚到就出、等待更短。
  *
  * ⚠ 分页是**渲染分片**，不是数据分页：本地列表本来就是全量在内存里，
  *   网络列表则按 cursor 继续取（见 list.vue 的 cursor / loadMore）。
  */
 
-/** 歌曲行（SongRow，23vh）：首屏与每次「加载更多」各 50 行 */
+/** 歌曲行（SongRow，23vh）：首屏 50 行 */
 export const PAGE_SONG = 50
 
-/** 较高的行（ArtistRow 32vh / 索引类行）：40 行 */
+/** 较高的行（ArtistRow 32vh / 索引类行）：首屏 40 行 */
 export const PAGE_ROW = 40
 
-/** 卡片网格（4 张一行）：40 张 = 10 行 */
+/** 卡片网格（4 张一行）：首屏 40 张 = 10 行 */
 export const PAGE_CARD = 40
 
 /** 播放队列页：50 行一段（与歌曲行同高） */
 export const PAGE_QUEUE = 50
+
+/** 滚到底自动续页 / 手动「加载更多」每次新增的行数（比首屏小，减少等待） */
+export const AUTO_BATCH = 20
+
+/* 自动续页判定「内容底部」用的行高估算（px，S7 上 1vh = 2.4px）。是保守估算、不是
+   布局精确值：偏小只会更早预加载，不会漏触发；各页用 infiniteBottomPx 乘已渲染行数。 */
+export const ROW_PX_SONG = 23 * 2.4
+export const ROW_PX_TALL = 32 * 2.4
+export const ROW_PX_CARD = 34 * 2.4
 
 /**
  * 搜索结果每类取回条数。搜索结果**不翻页**（老端点 offset 对非单曲类不可靠，

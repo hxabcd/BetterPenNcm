@@ -1,7 +1,7 @@
 <template>
   <page-shell :rail="rail" @rail="onRail">
     <page-topbar title="本地下载" :sub="barSub" />
-    <scroller class="dlpl-list">
+    <scroller class="dlpl-list" @scroll="onInfiniteScroll">
       <library-row :item="allItem" @open="openAll" />
       <library-row v-for="it in visibleRows" :key="it.key" :item="it" @open="openItem(it)" />
       <div class="dlpl-more" v-if="hasMore" @click="loadMore">
@@ -56,13 +56,14 @@ import { log } from '../../utils/log.js'
 import { accentMixin } from '../../utils/theme.js'
 import { toastMixin } from '../../utils/ui/toast.js'
 import { pageFrameMixin } from '../../utils/ui/frame.js'
-import { PAGE_ROW, moreText } from '../../utils/ui/paging.js'
+import { PAGE_ROW, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../utils/ui/paging.js'
+import { infiniteScrollMixin } from '../../utils/ui/infinite.js'
 
 const PAGE = PAGE_ROW // 索引歌单一次渲染 40 行（平台 ≤50 行）
 
 export default {
   name: 'dlplaylists',
-  mixins: [accentMixin, toastMixin, pageFrameMixin],
+  mixins: [accentMixin, toastMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -84,6 +85,9 @@ export default {
     }
   },
   computed: {
+    infiniteBottomPx() {
+      return this.visibleRows.length * ROW_PX_SONG
+    },
     barSub() {
       if (this.loading) return '读取中...'
       return '歌单 · ' + this.lists.length + ' 个索引 · ' + this.allCount + ' 首'
@@ -208,7 +212,7 @@ export default {
     },
     loadMore() {
       if (!this.hasMore) return
-      this.shown += PAGE
+      this.shown += AUTO_BATCH
     }
   }
 }

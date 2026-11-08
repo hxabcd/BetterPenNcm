@@ -16,7 +16,7 @@
             }}</text>
           </div>
         </page-topbar>
-        <scroller class="lst-list">
+        <scroller class="lst-list" @scroll="onInfiniteScroll">
           <song-row
             v-for="(s, i) in viewSongs"
             :key="s.id"
@@ -135,7 +135,8 @@ import { armMixin } from "../../utils/ui/arm.js";
 import { multiSelectMixin } from "../../utils/ui/multi.js";
 import { pageFrameMixin } from "../../utils/ui/frame.js";
 import { pageBusMixin } from "../../utils/ui/pagebus.js";
-import { PAGE_SONG, SEARCH_LIMIT, moreText } from "../../utils/ui/paging.js";
+import { PAGE_SONG, SEARCH_LIMIT, AUTO_BATCH, ROW_PX_SONG, moreText } from "../../utils/ui/paging.js";
+import { infiniteScrollMixin } from "../../utils/ui/infinite.js";
 import { openTextEdit, available as skAvailable } from "../../utils/systemKeyboard.js";
 
 /* 每批条数（首屏 + 加载更多一批）：200 行一次性渲染会拖垮渲染器
@@ -218,7 +219,7 @@ function cmpName(a, b) {
 
 export default {
   name: "list",
-  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageBusMixin, pageFrameMixin],
+  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageBusMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     "page-shell": PageShell,
     "page-topbar": PageTopbar,
@@ -284,6 +285,9 @@ export default {
     };
   },
   computed: {
+    infiniteBottomPx() {
+      return this.shown * ROW_PX_SONG
+    },
     /** 本页是不是搜索结果页（只有它才有右侧分类侧栏；其余 kind 的内容类型是固定的） */
     isSearch() {
       return this.kind === "search";
@@ -822,7 +826,7 @@ export default {
       if (this.loadingMore || this._loadingFull || !this.hasMore) return;
       // 已取回的还有没渲染的：纯本地展开（历史 / 全量排序后的分片），不发请求
       if (this.shown < this.viewAll.length) {
-        this.shown = Math.min(this.shown + PAGE, this.viewAll.length);
+        this.shown = Math.min(this.shown + AUTO_BATCH, this.viewAll.length);
         return;
       }
       if (this.allLoaded) return;

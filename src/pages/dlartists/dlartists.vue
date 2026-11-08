@@ -1,7 +1,7 @@
 <template>
   <page-shell :rail="rail" @rail="onRail">
     <page-topbar title="本地下载" :sub="barSub" />
-    <scroller class="dla-list">
+    <scroller class="dla-list" @scroll="onInfiniteScroll">
       <artist-row v-for="a in visible" :key="a.id" :item="card(a)" @open="openArtist(a)" />
       <empty-hint v-if="loading" text="读取中..." />
       <empty-hint v-else-if="!artists.length" text="暂无本地歌手" />
@@ -46,7 +46,8 @@ import { localArtistList } from '../../utils/player/localmeta.js'
 import { log } from '../../utils/log.js'
 import { accentMixin } from '../../utils/theme.js'
 import { pageFrameMixin } from '../../utils/ui/frame.js'
-import { PAGE_ROW, moreText } from '../../utils/ui/paging.js'
+import { PAGE_ROW, AUTO_BATCH, ROW_PX_TALL, moreText } from '../../utils/ui/paging.js'
+import { infiniteScrollMixin } from '../../utils/ui/infinite.js'
 
 const SORTS = [
   { key: 'name', label: '标题' },
@@ -67,7 +68,7 @@ function cmpName(a, b) {
 
 export default {
   name: 'dlartists',
-  mixins: [accentMixin, pageFrameMixin],
+  mixins: [accentMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -88,6 +89,9 @@ export default {
     }
   },
   computed: {
+    infiniteBottomPx() {
+      return this.visible.length * ROW_PX_TALL
+    },
     view() {
       const out = this.artists.slice()
       const k = this.sortKey
@@ -172,7 +176,7 @@ export default {
     },
     loadMore() {
       if (!this.hasMore) return
-      this.shown += PAGE
+      this.shown += AUTO_BATCH
     },
     pickSort(k) {
       if (k === this.sortKey) {

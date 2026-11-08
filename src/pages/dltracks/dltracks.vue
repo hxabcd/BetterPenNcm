@@ -9,7 +9,7 @@
     <!-- 歌单内曲目列表的状态卡片（git fetch / pull）：作为列表第一项跟随滚动，
          左侧上次拉取日期，右侧拉取/同步两个带图标按钮。
          拉取只更新远端信息；同步才下载 A 并清理 D（策略 A：只解除归属，不删文件）。 -->
-    <scroller class="dlt-list">
+    <scroller class="dlt-list" @scroll="onInfiniteScroll">
       <div class="dlt-status" v-if="isPlaylist">
         <text class="dlt-last">{{ lastPullText }}</text>
         <div class="dlt-fill"></div>
@@ -88,7 +88,8 @@ import { toastMixin } from '../../utils/ui/toast.js'
 import { armMixin } from '../../utils/ui/arm.js'
 import { multiSelectMixin } from '../../utils/ui/multi.js'
 import { pageFrameMixin } from '../../utils/ui/frame.js'
-import { PAGE_SONG, moreText } from '../../utils/ui/paging.js'
+import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../utils/ui/paging.js'
+import { infiniteScrollMixin } from '../../utils/ui/infinite.js'
 
 const KIND_NAME = {
   all: '全部下载',
@@ -108,7 +109,7 @@ function normSong(s) {
 
 export default {
   name: 'dltracks',
-  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin],
+  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -136,6 +137,9 @@ export default {
     }
   },
   computed: {
+    infiniteBottomPx() {
+      return this.rows.length * ROW_PX_SONG
+    },
     isPlaylist() {
       return this.kind === 'playlist'
     },
@@ -344,7 +348,7 @@ export default {
     },
     loadMore() {
       if (!this.hasMore) return
-      this.rows = this.fullRows.slice(0, this.rows.length + PAGE)
+      this.rows = this.fullRows.slice(0, this.rows.length + AUTO_BATCH)
       this.hasMore = this.fullRows.length > this.rows.length
     },
     /* ---- 行交互 ---- */

@@ -23,7 +23,7 @@
       </div>
     </page-topbar>
 
-    <scroller class="pls-list">
+    <scroller class="pls-list" @scroll="onInfiniteScroll">
       <!-- 4 张一行的横卡网格（手动分行，不依赖 flex-wrap） -->
       <div class="pls-row" v-for="(row, ri) in rows" :key="ri">
         <playlist-card v-for="p in row" :key="p.id" :item="p" @select="openItem(p)" />
@@ -65,7 +65,8 @@ import { TOK } from "../../utils/ui/tokens.js";
 import { toastMixin } from "../../utils/ui/toast.js";
 import { pageFrameMixin } from "../../utils/ui/frame.js";
 import { pageBusMixin } from "../../utils/ui/pagebus.js";
-import { PAGE_CARD, moreText } from "../../utils/ui/paging.js";
+import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD, moreText } from "../../utils/ui/paging.js";
+import { infiniteScrollMixin } from "../../utils/ui/infinite.js";
 
 const PER_ROW = 4; // 每行卡片数
 
@@ -76,7 +77,7 @@ const NAME_MAX = 40;
 
 export default {
   name: "playlists",
-  mixins: [accentMixin, toastMixin, pageBusMixin, pageFrameMixin],
+  mixins: [accentMixin, toastMixin, pageBusMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     "page-shell": PageShell,
     "page-topbar": PageTopbar,
@@ -105,6 +106,9 @@ export default {
     };
   },
   computed: {
+    infiniteBottomPx() {
+      return this.rows.length * ROW_PX_CARD
+    },
     isArtist() {
       return this.source === "artist";
     },
@@ -292,7 +296,7 @@ export default {
       if (this.loadingMore || !this.hasMore) return;
       // 歌手专辑：服务端 offset 分页；用户歌单：本地分片（数据早已全量拉回）
       if (!this.isArtist) {
-        this.shown = Math.min(this.shown + PAGE_CARD, this.sorted.length);
+        this.shown = Math.min(this.shown + AUTO_BATCH, this.sorted.length);
         return;
       }
       this.loadingMore = true;

@@ -117,6 +117,10 @@ fs.writeFileSync(path.join(sandbox, 'log.js'), 'export function log() {}\n')
 const sig = await import('file://' + path.join(sandbox, 'sig.js').replace(/\\/g, '/'))
 const vis = await import('file://' + path.join(sandbox, 'vis.js').replace(/\\/g, '/'))
 
+// infinite.js 无外部依赖，原样搬进沙箱测纯判定函数
+stage('utils/ui/infinite.js', 'infinite.js')
+const inf = await import('file://' + path.join(sandbox, 'infinite.js').split(path.sep).join('/'))
+
 /* ---------- 1. 签名判重 ---------- */
 const base = {
   cur: { id: 42, name: '歌名', artist: '歌手', album: '专辑', cover: 'file:///c.jpg', durationMs: 200000 },
@@ -442,6 +446,40 @@ const SLEEP_ALLOW = {
     if (!allFiles.some((x) => rel(x) === f)) stale.push(f + '(缺失)')
   }
   eq('列表行样式: v-for 内不逐行现算样式对象', bad.concat(stale).join(', ') || 'none', 'none')
+}
+
+/* ---------- 3k. 滚到底自动续页：判定纯函数与接入点 ---------- */
+// 判定只依赖已实测的 contentOffset.y；拿不到位移或内容底部时静默退回按钮翻页。
+{
+  const vm = { infiniteBottomPx: 1000, infiniteViewportPx: 200 }
+  truthy('infinite: 接近底部触发', inf.shouldLoad({ contentOffset: { y: 700 } }, vm, true))
+  truthy('infinite: 离底部远不触发', !inf.shouldLoad({ contentOffset: { y: 100 } }, vm, true))
+  truthy('infinite: 没有下一批不触发', !inf.shouldLoad({ contentOffset: { y: 700 } }, vm, false))
+  truthy('infinite: 缺滚动位移不触发（fail-open）', !inf.shouldLoad({}, vm, true))
+  truthy('infinite: 缺内容底部且事件无 contentSize 不触发', !inf.shouldLoad({ contentOffset: { y: 700 } }, {}, true))
+  truthy('infinite: 事件 contentSize 兜底可触发', inf.shouldLoad({ contentOffset: { y: 3700 }, contentSize: { height: 4000 } }, {}, true))
+  eq('infinite: 页面估算优先于事件 contentSize', inf.contentBottom({ contentSize: { height: 5000 } }, vm), 1000)
+  truthy('infinite: 续批后同一 y 不再触发', !inf.shouldLoad({ contentOffset: { y: 700 } }, { infiniteBottomPx: 2000 }, true))
+}
+{
+  const INF_PAGES = [
+    'pages/list/list.vue', 'pages/playlists/playlists.vue', 'pages/album/album.vue',
+    'pages/dlartists/dlartists.vue', 'pages/dlalbums/dlalbums.vue',
+    'pages/dlplaylists/dlplaylists.vue', 'pages/dltracks/dltracks.vue'
+  ]
+  const missing = []
+  for (const f of INF_PAGES) {
+    const t = fs.readFileSync(path.join(SRC, f), 'utf8')
+    if (!/@scroll="onInfiniteScroll"/.test(t) || !/infiniteScrollMixin/.test(t) || !/AUTO_BATCH/.test(t)) missing.push(f)
+  }
+  eq('自动续页: 接入页都有 @scroll/mixin/AUTO_BATCH', missing.join(', ') || 'none', 'none')
+  const EXCLUDE = ['pages/queue/queue.vue', 'pages/dlqueue/dlqueue.vue', 'pages/artist/artist.vue']
+  const leaked = []
+  for (const f of EXCLUDE) {
+    const t = fs.readFileSync(path.join(SRC, f), 'utf8')
+    if (/onInfiniteScroll/.test(t)) leaked.push(f)
+  }
+  eq('自动续页: 锚定/多段/嵌套 scroller 页不接入', leaked.join(', ') || 'none', 'none')
 }
 
 /* ---------- 收尾 ---------- */

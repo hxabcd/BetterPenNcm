@@ -7,7 +7,7 @@
         <text class="ab-all-t">{{ allPicked ? '全不选' : '全选' }}</text>
       </div>
     </page-topbar>
-    <scroller class="ab-scroll">
+    <scroller class="ab-scroll" @scroll="onInfiniteScroll">
       <!-- 头部：大封面 + 专辑名 + 歌手（可点 → 歌手页）+ 发行时间/曲目数 -->
       <div class="ab-hero">
         <div class="ab-coverbox">
@@ -75,11 +75,12 @@ import { toastMixin } from '../../utils/ui/toast.js'
 import { armMixin } from '../../utils/ui/arm.js'
 import { multiSelectMixin } from '../../utils/ui/multi.js'
 import { pageFrameMixin } from '../../utils/ui/frame.js'
-import { PAGE_SONG, moreText } from '../../utils/ui/paging.js'
+import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../utils/ui/paging.js'
+import { infiniteScrollMixin } from '../../utils/ui/infinite.js'
 
 export default {
   name: 'album',
-  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin],
+  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -108,6 +109,9 @@ export default {
     }
   },
   computed: {
+    infiniteBottomPx() {
+      return this.visibleSongs.length * ROW_PX_SONG
+    },
     artistText() {
       if (!this.artists.length) return '未知歌手'
       const out = []
@@ -252,7 +256,7 @@ export default {
     /** 只加渲染行数；云端/本地数据早已全量在 songs 里 */
     loadMore() {
       if (!this.hasMore) return
-      this.shown = Math.min(this.shown + PAGE_SONG, this.songs.length)
+      this.shown = Math.min(this.shown + AUTO_BATCH, this.songs.length)
     },
     play(i) {
       // 渲染从 0 开始切片，行下标与 songs 下标一致；队列仍用**全量** songs

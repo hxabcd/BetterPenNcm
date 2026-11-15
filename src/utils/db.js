@@ -1,39 +1,47 @@
 /**
- * SQLite 索引库通道 —— 平台**没有原生 sqlite 模块**，只能走 `sqlite3` CLI（每次 fork ≈50ms）。
+ * SQLite 通道 —— **原生 `sqlite3` 模块**（`import('sqlite3')`），不走 CLI。
  *
- * ## 访问模型：boot 整表灌内存 + 写穿
+ * ⚠ 不要改回 `process.exec` + `/usr/bin/sqlite3`。那条路每次调用都是一次 fork
+ *   （S7 真机实测 92~139ms/次），而且 SQL 不能走命令行参数（非 ASCII 会经过一次
+ *   本机代码页转换），只能「写一个临时 .sql 文件再 `.read`」—— 于是每读一次表还得
+ *   额外付两次文件 I/O。原生模块一次 bind+step 是微秒级，也没有任何编码环节。
+ *   同一份 134KB 数据真机实测：原生 sqlite 写入 10ms、读回 2ms；
+ *   走 shell 分片写文本文件要 2511ms（见 docs/存储层.md）。
  *
- *   open()   建库建表（幂等），一次 `sqlite3 -json` 批量导出各表 → 内存对象
- *   *Of/all  **纯内存**查询，不分叉（与旧 store/local_index.json 的读路径同速）
- *   upsert   单条 `INSERT ... ON CONFLICT DO UPDATE`，一次 fork；**代价与库规模无关**
- *            —— 这正是相对旧「整表 JSON 重写」的收益（写一条不再重写整份 62KB）
+ * ## 两类数据都在这一个库里
  *
- * 所以本模块**不得**出现在任何轮询/高频路径上。播放快照、播放历史这类「每 5~15 秒整份重写」
- * 的小块**没有**进这里，仍在顶层 JSON 文件（见 docs/存储重构.md §1.2）。
+ *   索引表   album / artist / track / track_artist / playlist / playlist_track
+ *            —— boot 整表灌内存，此后查询不分叉；写走批量语句（一批一个事务）
+ *   文档表   kv（config / cookie / 播放会话 / 播放历史）、track_meta（每曲 metadata）、
+ *            track_lyric（每曲歌词）—— 原先都是一个 JSON 文件，现在一行一条
  *
- * ## 为什么手写 SQL 字符串
+ * ## 为什么保留「拼 SQL 文本」的写接口
  *
- * 没有可用的绑定参数通道（CLI 每次都是一个新进程），只能拼字符串。所以：
- *   - 所有值过 `q()`（单引号 + 内部 ' 转义），**永远不要**把未经 q() 的值拼进 SQL；
- *   - 表名/列名只来自本文件的常量，不接受外部输入；
- *   - 整批改动包在 `BEGIN; ...; COMMIT;` 里，一批只 fork 一次。
+ * `upsertSql` / `deleteSql` 返回语句文本，`exec(list)` 把它们打包进一个事务。
+ * 调用方（localmeta / locallists / dlorigin / artistmeta）已按这个形状写好，
+ * 而语句文本现在直接交给 `db.exec()`，**不再经过 shell** —— 所以值里的引号只需按
+ * SQL 自己的规则转义（`q()`：`'` → `''`），不必再套一层 shell 转义。
  *
  * ## 故障语义
  *
- * 所有函数**不抛**：通道不可用（没有 sqlite3 二进制）时 `available()` 为 false，
- * 上层按「没有本地库」降级（列表为空），写操作静默失败但内存态仍对 —— 文件系统才是真相，
- * 索引丢了能从文件与网络重建，这比「整个应用起不来」好。
+ * 所有函数**不抛**：通道不可用（没有 sqlite3 原生模块 / 打不开库）时 `data()` 给空表，
+ * 上层按「没有本地库」降级。文件系统才是真相 —— 索引丢了能从文件与网络重建，
+ * 这比「整个应用起不来」好。
  */
-import { run, has } from './exec.js'
-import { ensureDir, writeTextFile, removePath } from './fsutil.js'
+import { ensureDir } from './fsutil.js'
 import { dbFile, normDir } from './paths.js'
 import { log } from './log.js'
 
-/** 表名常量（只在这里出现，不接受外部拼装） */
+/** 索引表名常量（只在这里出现，不接受外部拼装） */
 export const TABLES = ['album', 'artist', 'track', 'track_artist', 'playlist', 'playlist_track']
 
-/** 建表 DDL。`user_version` 记 schema 版本，迁移时据此判断要不要重建 */
+/**
+ * 建表 DDL。`user_version` 记 schema 版本（v2 = 文档表并入本库）。
+ * 全部 `IF NOT EXISTS`：老库（v1，只有索引表）升级时只补新表，不重建已有索引。
+ */
 const DDL = [
+  'PRAGMA journal_mode = WAL;',
+  'PRAGMA synchronous = NORMAL;',
   'CREATE TABLE IF NOT EXISTS album (',
   '  id INTEGER PRIMARY KEY,',
   '  name TEXT NOT NULL DEFAULT "",',
@@ -85,10 +93,29 @@ const DDL = [
   '  PRIMARY KEY (playlist_id, track_id)',
   ');',
   'CREATE INDEX IF NOT EXISTS idx_pt_track ON playlist_track(track_id);',
-  'PRAGMA user_version = 1;'
+  // ---- 文档表（原先都是 data/ 下的 JSON 文件）----
+  'CREATE TABLE IF NOT EXISTS kv (',
+  '  k TEXT PRIMARY KEY,',
+  '  v TEXT NOT NULL DEFAULT "",',
+  '  t INTEGER NOT NULL DEFAULT 0',
+  ');',
+  'CREATE TABLE IF NOT EXISTS track_meta (',
+  '  id INTEGER NOT NULL,',
+  '  kind INTEGER NOT NULL,',
+  '  v TEXT NOT NULL DEFAULT "",',
+  '  t INTEGER NOT NULL DEFAULT 0,',
+  '  PRIMARY KEY (id, kind)',
+  ');',
+  'CREATE TABLE IF NOT EXISTS track_lyric (',
+  '  id INTEGER NOT NULL,',
+  '  v TEXT NOT NULL DEFAULT "",',
+  '  t INTEGER NOT NULL DEFAULT 0,',
+  '  PRIMARY KEY (id)',
+  ');',
+  'PRAGMA user_version = 2;'
 ].join('\n')
 
-/** SQL 字面量：单引号包裹，内部 ' 翻倍（SQLite 标准转义，不做 shell 层转义） */
+/** SQL 字面量：单引号包裹，内部 ' 翻倍（SQLite 标准转义；不再经过 shell，所以只此一层） */
 export function q(v) {
   if (v === undefined || v === null) return 'NULL'
   return "'" + String(v).replace(/'/g, "''") + "'"
@@ -102,120 +129,239 @@ export function num(v) {
 
 /* ---------------- 通道 ---------------- */
 
-let ready = null // Promise<boolean>：sqlite3 可用 + 库已建好
-let mem = null // { album:{id:row}, artist, track, track_artist:[], playlist, playlist_track:[] }
-let loading = null
-let writeChain = Promise.resolve() // 所有写串行，且合并成批
+/** 原生模块的成功约定：0 / true / 'OK' / 空返回值都算成功，其余（错误信息字符串）算失败 */
+function okRc(rc) {
+  return rc === 0 || rc === true || rc === 'OK' || rc === undefined || rc === null
+}
+
+let conn = null // sqlite3.Database 实例
+let ready = null // Promise<Database|null>：模块可用 + 库已建好
 
 /**
- * sqlite3 CLI 是否可用**且支持 `-json`**。
+ * 打开库并建表（幂等）。返回 Database 实例；**通道不可用时返回 null**（调用方按空库降级）。
  *
- * 整表导出靠 `-json`（sqlite3 3.33 起的选项）。设备实测 3.39.2 有它；
- * 更老的 CLI 没有这个选项，导出会失败 —— 此时宁可显式降级为空库也不要做
- * 「读不到就当成空表、然后把空表写回去」这种会**清空用户索引**的事。
+ * 用动态 `import()` 而不是顶层静态 import：与工程里 `import('fs')` / `import('process')`
+ * 同一形态 —— 裸模块由运行时解析，打包器不插手；模块缺失时也只是这一处失败。
  */
-let jsonOk = null
-
-async function cliOk() {
-  if (jsonOk !== null) return jsonOk
-  jsonOk = false
-  if (!(await has('sqlite3'))) {
-    log('db', '没有 sqlite3 可执行文件')
-    return false
-  }
-  const out = await sql('SELECT 1 AS a;', 8000, true)
-  jsonOk = out !== null
-  log('db', 'sqlite3 可用=' + jsonOk + (jsonOk ? '' : '（不支持 -json，索引降级为空库）'))
-  return jsonOk
-}
-
-/**
- * 单条 sqlite3 命令（.db 不存在时 sqlite3 会自己建）。
- *
- * ⚠ 两个坑，都靠「把 SQL 写到临时文件再 .read」绕开：
- *
- *   1) 选项与 SQL 必须是**分开的 argv**。写成 `"-json SELECT ..."` 会被 getopt 当成
- *      一个以 `-` 开头的选项名，报 `unknown option` —— 表现是「探针失败 → 整个索引库
- *      静默降级为空」，日志还像 CLI 版本太老。
- *   2) SQL 不能走**命令行参数**：非 ASCII 会经过一次本机代码页转换（Windows 实测
- *      `insert ... '测试中文'` 落库变成 GBK 字节），写进去就是乱码。歌名/歌手名全是中文，
- *      所以这条是硬伤。写到 UTF-8 文件再 `.read` 就完全没有转码环节 ——
- *      每条语句路径也不再受 Linux 单参数 128KB 上限约束（长索引一次能写完）。
- *
- * @param sqlText  SQL 文本
- * @param timeoutMs 命令超时
- * @param wantJson  true = 结果按 JSON 数组输出（整表导出用）
- */
-let sqlSeq = 0
-
-async function sql(sqlText, timeoutMs, wantJson) {
-  const file = normDir() + '/.idx-' + Date.now().toString(36) + '-' + (++sqlSeq) + '.sql'
-  const ok = await writeTextFile(file, sqlText)
-  if (!ok) {
-    log('db', '写 SQL 临时文件失败（跳过一次读写）')
-    return null
-  }
-  // `-cmd ".timeout 8000"` 避免并发写时直接 SQLITE_BUSY 失败
-  const full = 'sqlite3 -cmd ".timeout 8000" ' + (wantJson ? '-json ' : '') +
-    shq(normDir() + '/local_index.db') + ' ".read ' + file + '"'
-  let r = null
-  try {
-    r = await run(full, timeoutMs || 15000, 4 * 1024 * 1024)
-  } catch (e) {
-    r = null
-  }
-  // 临时文件一定要清：它是 data 目录里的垃圾，重启也不会自己消失
-  await removePath(file)
-  if (!r || r.code !== 0) {
-    log('db', 'sqlite 失败 rc=' + (r && r.code) + ' err=' + String((r && r.stderr) || '').slice(0, 120))
-    return null
-  }
-  return String((r && r.stdout) || '')
-}
-
-/** shell 单引号转义（**只用于给 shell 传参**，SQL 内的值另走 q()） */
-function shq(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'"
-}
-
-/** 建库建表（幂等）；返回通道是否可用 */
 export function ensureDb() {
   if (ready) return ready
   ready = (async function () {
-    if (!(await cliOk())) {
-      log('db', 'sqlite3 不可用，本地索引降级为空库')
-      return false
+    try {
+      const m = await import('sqlite3')
+      const sqlite3 = (m && m.default) || m
+      if (!sqlite3 || typeof sqlite3.Database !== 'function') {
+        log('db', '平台没有 sqlite3 原生模块，本地索引与文档库降级为空')
+        return null
+      }
+      await ensureDir(normDir())
+      const db = new sqlite3.Database()
+      const openRc = await db.open(dbFile())
+      if (!okRc(openRc)) {
+        log('db', '打开数据库失败：' + openRc)
+        return null
+      }
+      const ddlRc = await db.exec(DDL)
+      if (!okRc(ddlRc)) {
+        log('db', '建表失败：' + String(ddlRc).slice(0, 160))
+        return null
+      }
+      conn = db
+      log('db', '索引库就绪 ' + dbFile().replace(normDir() + '/', ''))
+      return db
+    } catch (e) {
+      log('db', '打开 sqlite3 通道异常：' + ((e && e.message) || e))
+      return null
     }
-    await ensureDir(normDir())
-    const out = await sql(DDL, 20000)
-    if (out === null) {
-      log('db', '建表失败，本地索引降级为空库')
-      return false
-    }
-    log('db', '索引库就绪 ' + dbFile().replace(normDir() + '/', ''))
-    return true
   })()
   return ready
 }
 
-/* ---------------- 导出到内存 ---------------- */
+/* ---------------- 底层三原语 ---------------- */
 
-/** 导出单表为数组（`-json` 输出；空表可能给空串 → 当 []） */
-async function dumpTable(name) {
-  const out = await sql('SELECT * FROM ' + name + ';', 20000, true)
-  if (!out || !out.trim()) return []
-  const i = out.indexOf('[')
-  if (i < 0) return []
+/**
+ * 执行一段 SQL 文本（可含多条语句）。返回 **''=成功**，否则返回错误文本；通道不可用返回 null。
+ * 与旧 CLI 版的返回约定一致，方便上层判断。
+ */
+async function runText(text) {
+  const db = await ensureDb()
+  if (!db) return null
   try {
-    const arr = JSON.parse(out.slice(i))
-    return Array.isArray(arr) ? arr : []
+    const rc = await db.exec(text)
+    return okRc(rc) ? '' : String(rc)
   } catch (e) {
-    log('db', '表解析失败 ' + name + ' len=' + out.length)
-    return []
+    return String((e && e.message) || e)
   }
 }
 
-/** 导出全部表到内存（open 时一次；此后查询不再分叉） */
+/** 行数组 → 对象数组。原生 `step()` 回的是**按列顺序的数组**，靠 columnNameList 对齐。 */
+async function toObjects(st, rows) {
+  let cols = []
+  try {
+    cols = (await st.columnNameList()) || []
+  } catch (e) {
+    cols = []
+  }
+  const out = []
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    if (r && typeof r === 'object' && !Array.isArray(r)) {
+      out.push(r) // 万一某些固件直接给对象
+      continue
+    }
+    const o = {}
+    for (let k = 0; k < cols.length; k++) o[cols[k]] = Array.isArray(r) ? r[k] : undefined
+    out.push(o)
+  }
+  return out
+}
+
+/** 带绑定参数执行一条写语句。返回 **''=成功**，否则错误文本；通道不可用返回 null。 */
+async function runStmt(sql, params) {
+  const db = await ensureDb()
+  if (!db) return null
+  let st = null
+  try {
+    st = await db.prepare(sql)
+    if (!st) return 'prepare 失败'
+    if (params && params.length) await st.bind(params)
+    const rc = await st.run()
+    return okRc(rc) ? '' : String(rc)
+  } catch (e) {
+    return String((e && e.message) || e)
+  } finally {
+    if (st) {
+      try {
+        await st.finalize()
+      } catch (e) {}
+    }
+  }
+}
+
+/** 带绑定参数查询。通道不可用/出错一律返回 []（调用方无需 try）。 */
+async function query(sql, params) {
+  const db = await ensureDb()
+  if (!db) return []
+  let st = null
+  try {
+    st = await db.prepare(sql)
+    if (!st) return []
+    if (params && params.length) await st.bind(params)
+    const rows = (await st.all()) || []
+    return await toObjects(st, rows)
+  } catch (e) {
+    log('db', '查询失败：' + ((e && e.message) || e))
+    return []
+  } finally {
+    if (st) {
+      try {
+        await st.finalize()
+      } catch (e) {}
+    }
+  }
+}
+
+/* ---------------- 键值表（原 store.js 的四个顶层 JSON 文件） ---------------- */
+
+/** 读一个 key；没有/通道不可用给 null */
+export async function kvGet(k) {
+  const rows = await query('SELECT v FROM kv WHERE k = ?;', [String(k)])
+  if (!rows.length) return null
+  const v = rows[0].v
+  return v === undefined || v === null ? null : String(v)
+}
+
+/** 写一个 key（整行替换）。返回是否成功 */
+export async function kvPut(k, v) {
+  const text = v === undefined || v === null ? '' : String(v)
+  const err = await runStmt('INSERT OR REPLACE INTO kv (k, v, t) VALUES (?, ?, ?);',
+    [String(k), text, Date.now()])
+  if (err) {
+    if (err !== null) log('db', '写 kv 失败 ' + k + '：' + String(err).slice(0, 120))
+    return false
+  }
+  return true
+}
+
+/** 删一个 key */
+export async function kvDel(k) {
+  const err = await runStmt('DELETE FROM kv WHERE k = ?;', [String(k)])
+  return err === ''
+}
+
+/* ---------------- 每曲文档表（原 metadata.json / lyrics.json） ---------------- */
+
+/** kind → 表里的整数（下载 = 1，播放缓存 = 2） */
+export function kindCode(kind) {
+  return kind === 'download' ? 1 : 2
+}
+
+/** 读一条曲目文档；没有给 null */
+export async function docGet(table, id, kind) {
+  const params = kind === undefined ? [Number(id) || 0] : [Number(id) || 0, kindCode(kind)]
+  const where = kind === undefined ? 'id = ?' : 'id = ? AND kind = ?'
+  const rows = await query('SELECT v FROM ' + table + ' WHERE ' + where + ';', params)
+  if (!rows.length) return null
+  const v = rows[0].v
+  return v === undefined || v === null ? null : String(v)
+}
+
+/**
+ * 一次取出某类文档的全部行（`{ id: 文本 }`）。
+ * 扫目录时用：几百首曲目逐条 prepare 不合算，一条 SELECT 全拿出来再按 id 取。
+ */
+export async function docAll(table, kind) {
+  const params = kind === undefined ? [] : [kindCode(kind)]
+  const where = kind === undefined ? '' : ' WHERE kind = ?'
+  const rows = await query('SELECT id, v FROM ' + table + where + ';', params)
+  const out = {}
+  for (let i = 0; i < rows.length; i++) {
+    const id = rows[i].id
+    const v = rows[i].v
+    if (id === undefined || id === null) continue
+    out[String(id)] = v === undefined || v === null ? '' : String(v)
+  }
+  return out
+}
+
+/** 写一条曲目文档（整行替换）；返回是否成功 */
+export async function docPut(table, id, kind, text) {
+  const nid = Number(id) || 0
+  if (!nid) return false
+  const s = text === undefined || text === null ? '' : String(text)
+  const err = kind === undefined
+    ? await runStmt('INSERT OR REPLACE INTO ' + table + ' (id, v, t) VALUES (?, ?, ?);',
+      [nid, s, Date.now()])
+    : await runStmt('INSERT OR REPLACE INTO ' + table + ' (id, kind, v, t) VALUES (?, ?, ?, ?);',
+      [nid, kindCode(kind), s, Date.now()])
+  if (err) {
+    if (err !== null) log('db', '写 ' + table + ' 失败 ' + id + '：' + String(err).slice(0, 120))
+    return false
+  }
+  return true
+}
+
+/** 删一条曲目文档 */
+export async function docDel(table, id, kind) {
+  const nid = Number(id) || 0
+  if (!nid) return false
+  const err = kind === undefined
+    ? await runStmt('DELETE FROM ' + table + ' WHERE id = ?;', [nid])
+    : await runStmt('DELETE FROM ' + table + ' WHERE id = ? AND kind = ?;', [nid, kindCode(kind)])
+  return err === ''
+}
+
+/* ---------------- 导出到内存 ---------------- */
+
+let mem = null // { album:{id:row}, artist, track, playlist, track_artist:[], playlist_track:[] }
+let loading = null
+let writeChain = Promise.resolve() // 所有写串行，且合并成批
+
+/** 导出单表为对象数组 */
+async function dumpTable(name) {
+  return query('SELECT * FROM ' + name + ';')
+}
+
+/** 导出全部表到内存（open 时一次；此后查询不再查库） */
 export function open() {
   if (mem) return Promise.resolve(mem)
   if (loading) return loading
@@ -263,7 +409,6 @@ export function data() {
 export function reset() {
   mem = null
   loading = null
-  ready = null
 }
 
 /* ---------------- 写（串行 + 批量） ---------------- */
@@ -276,22 +421,25 @@ function flush() {
   pending = []
   if (!batch.length) return writeChain
   writeChain = writeChain.then(async function () {
-    const okChan = await ensureDb()
-    if (!okChan) return false
-    const body = 'BEGIN;\n' + batch.join('\n') + '\nCOMMIT;'
-    const out = await sql(body, 20000)
-    return out !== null
+    const err = await runText('BEGIN;\n' + batch.join('\n') + '\nCOMMIT;')
+    if (err === null) return false // 通道不可用
+    if (err) {
+      // 事务中途失败会把它留在打开状态；不回滚的话后续 BEGIN 全部报错
+      await runText('ROLLBACK;')
+      log('db', '写库失败：' + String(err).slice(0, 160))
+      return false
+    }
+    return true
   })
   return writeChain
 }
 
 /**
  * 执行若干条 SQL（调用方拼好、**值都过 q()/num()**）。
- * 与同一事件循环内的其它 insert 合并成一批：一次 fork 写多条。
+ * 与同一事件循环内的其它 insert 合并成一批：一个事务写多条。
  *
  * ⚠ **本函数只落盘，不改内存态。** 内存是读的真相，由各调用方在写 SQL 的同一步里
  * 自己更新（例如 localmeta.putIndex 写完既 mem[k]=rec 又 db.exec([...])）。
- * 这里若顺手改内存，就需要再解析一遍 SQL —— 既脆又慢，还不如让调用方显式写两处。
  */
 export function exec(sqlList) {
   if (!sqlList || !sqlList.length) return Promise.resolve(false)
@@ -315,11 +463,6 @@ export function upsertSql(table, cols, pk) {
   return 'INSERT INTO ' + table + ' (' + names.join(',') + ') VALUES (' + vals.join(',') + ')' +
     (sets.length ? ' ON CONFLICT(' + pk + ') DO UPDATE SET ' + sets.join(',') : ' ON CONFLICT(' + pk + ') DO NOTHING') +
     ';'
-}
-
-/** 替代整表重写：先删该 id 的旧行再插入（多对多表用） */
-export function replaceSql(table, whereSql, cols, pk) {
-  return 'DELETE FROM ' + table + ' WHERE ' + whereSql + ';\n' + upsertSql(table, cols, pk)
 }
 
 /** 简单删除语句 */

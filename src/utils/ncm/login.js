@@ -32,7 +32,7 @@ import { invalidateDaily } from './recommend.js'
 import config from '../config.js'
 import { log, brief } from '../log.js'
 import { rmQuiet } from '../fsutil.js'
-import { cookieFile, wecurlJarFile } from '../paths.js'
+import { wecurlJarFile } from '../paths.js'
 
 const BASE = 'https://music.163.com'
 
@@ -68,16 +68,18 @@ export async function primeSession() {
 }
 
 /**
- * 把当前会话写进 $dataDir/cookie.txt（fs 只读 → 走 shell 重定向）。
- * 为什么需要：本应用 setStorage 实测写不进去，重启后内存 jar 就没了，
- * 每次启动都得重新扫码 —— 而反复扫码正是触发 8821 风控的温床。
+ * 把当前会话写进 SQLite（`kv` 表的 ncm_cookies 行）。
+ *
+ * 为什么需要：登录成功后必须立刻落盘，否则重启就丢了，每次启动都得重新扫码 ——
+ * 而反复扫码正是触发 8821 风控的温床。落库本身由 cookies.js 的 save() 负责，
+ * 这里只是给登录链路一个语义明确的收尾点（并记一条日志）。
  */
 export async function persistSession() {
   const s = cookieHeader()
   if (!s) return 0
-  const ok = await wecurl.shellWrite(cookieFile(), s)
-  log('login', ok ? '会话已写入 cookie.txt' : '会话写入 cookie.txt 失败（不影响本次）')
-  return ok ? 1 : 0
+  await save()
+  log('login', '会话已写入本地库（kv: ncm_cookies）')
+  return 1
 }
 
 /** 二维码里要编码的内容 */
@@ -268,12 +270,11 @@ export function cachedProfile() {
 }
 
 /**
- * 退出登录：清 cookie + 清资料 + 删 cookie.txt + 通知界面
+ * 退出登录：清 cookie + 清资料 + 清 cookie jar + 通知界面
  *
- * **必须删 $dataDir/cookie.txt**：boot.js 每次启动都无条件 importFromFile()，
- * 不删的话重启后会话会被灌回来 —— 「退出登录」就变成假的（审核发现）。
- * 代价是 adb 递会话（push cookie.txt）的调试通道没了，需要时重新 push 即可。
- * 注意 $dataDir 结尾自带 '/'（设备实测），所以这里不再补斜杠。
+ * 登录态在 SQLite 的 `kv` 表的 ncm_cookies 行，`clearCookies()` 已经把它写成空；
+ * 这里再删掉 curl 的 jar 文件，免得下一次扫码带上上一次的匿名会话。
+ * boot 每次启动都会 load() 读那一行，所以清空即真的退出。
  */
 export async function logout() {
   await clearCookies()
@@ -283,7 +284,6 @@ export async function logout() {
   invalidateUserPlaylists()
   invalidateDaily() // 每日推荐是账号相关的，换账号后不能接着用上一个账号那份
   try {
-    await rmQuiet(cookieFile())
     // 顺手清掉 curl 的 cookie jar：留着会让下一次扫码带上上一次的匿名会话
     await rmQuiet(wecurlJarFile())
   } catch (e) {
@@ -293,5 +293,5 @@ export async function logout() {
     /* global $falcon */
     $falcon.trigger('bpncm:login-done') // 首页/设置页/个人中心据此刷新
   } catch (e) {}
-  log('login', '已退出登录（cookie.txt 已清除）')
+  log('login', '已退出登录（登录态已从本地库清除）')
 }

@@ -1,17 +1,17 @@
 /**
- * 应用设置（顶层 config.json，字符串 KV 的封装）
+ * 应用设置（SQLite kv 行 ncm_settings 的封装）
  * 用法：await cfg.load(); cfg.get('rate'); await cfg.set('rate', 1.25)
  *
- * 落点：`$dataDir/config.json`（见 utils/paths.js 的 configFile）。
- * 旧实现在平台 storage 的单个 preferences.json 里，一次 setStorage 要重写整库；
- * 现在一个 key 一个文件，写代价只与这份配置本身有关（store.js 是文件实现）。
+ * 落点：`$dataDir/local_index.db` 的 `kv` 表（见 utils/store.js）。
+ * ⚠ **不写 config.json**：平台 `fs` 没有写接口，写文件只能 fork 一次 shell（真机 92~139ms），
+ *   而配置在改主题/倍速/音质时会被连续改写。库里的 upsert 是微秒级。
  *
  * 用户已存配置里的残留键会在 load()
  * 里被忽略（只认 DEFAULTS 里出现的键），无需迁移。
  */
-import { getStorage, setStorage } from './store.js'
+import { getStorage, setStorage, KEY_SETTINGS } from './store.js'
 
-const KEY = 'ncm_settings'
+const KEY = KEY_SETTINGS
 
 /** 当前数据布局版本（迁移判据，见 utils/migrate.js 与 docs/存储重构.md §4） */
 export const LAYOUT_VERSION = 2

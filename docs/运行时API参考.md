@@ -72,12 +72,18 @@ const sp = new SoundPlayer()
 
 ## 5. 文件与路径
 
-`fs` 裸模块：`exists / stat / statfs / readdir / readFile / mkdir / rm` —— **没有 writeFile**。
+`fs` 裸模块：`exists / stat / statfs / readdir / readFile / mkdir / rm` ——
+**没有写入接口**（`writeFile` / `appendFile` / `rename` / `unlink` 实测都是 `undefined`），
+也没有 `fs.unlink`。
 
-- 普通文件写入：`http.download({url, outPath})`；登录 Cookie / weapi 临时文件由 `wecurl` 通过 shell 重定向写。
-- 下载引擎：`process.exec` + 系统 curl 写 `.part`，完成后由上层 promote。
-- `fs.rm(path)` 可真删文件，删不存在的路径不抛异常；没有 `fs.unlink`。
+> ⚠ **不要在应用里用 shell 重定向写文本文件。** 一次 `process.exec` 就是一次 fork
+> （真机 92~139ms），超过 60KB 还要分片、每片再一次 fork —— 134KB 的播放快照实测要 2511ms。
+> 结构化数据一律进 SQLite（下一节），二进制文件走 `http.download({url, outPath})`。
+
+- `fs.mkdir(path)` **递归**：`mkdir('a/b/c')` 一次建多级，不需要先建父目录。
+- `fs.rm(path)` **递归**：删目录会连内容一起删；删不存在的路径不抛异常。
 - `fs.readdir` 当前固件返回**文件名数组（字符串）**；部分固件返回 `{name}` 对象，[`src/utils/fsutil.js`](../src/utils/fsutil.js) 兼容两种形状。
+- 二进制落盘：`http.download({url, outPath})`；下载引擎用 `process.exec` + 系统 curl 写 `.part`。
 - `fs.statfs('/userdisk')` 的 `free/total` 语义可疑（可能 free > total），**可用空间用**：
 
 ```bash
@@ -85,6 +91,28 @@ df -k /userdisk | tail -1 | awk '{print $4}'
 ```
 
 - 目录统计一次 exec 拿全：`ls -1 <dir> | grep -cE '[.](mp3|flac)$'` + `du -sk <dir> | cut -f1`；目录不存在时 du 的 KB 列可能是空串，解析要容忍。
+
+### 5.1 SQLite（`sqlite3` 裸模块）
+
+`const m = await import('sqlite3'); const db = new m.Database()` —— **平台有原生模块**，
+不需要走 CLI。S7 实测全通：
+
+| 调用 | 结果 |
+|---|---|
+| `await db.open(path)` | `0` |
+| `await db.exec(sql)`（可多条语句，含 `BEGIN/COMMIT`） | `0` |
+| `await db.prepare(sql)` | `Statement` |
+| `await st.bind(...)` / `await st.run()` | `0` |
+| `await st.columnNameList()` | `["id","name", ...]` |
+| `await st.step()` | **按列顺序的数组**（不是对象）；读完返回 `null` |
+| `await st.all()` | 行数组 |
+| `await st.finalize()` / `await db.close()` | `"OK"` |
+
+- **失败返回错误信息字符串**，不抛异常 —— 判断成功要 `rc === 0`（或 `'OK'`）。
+- `bind` 支持三种形态：位置参数列表 `bind(1, 'x')`、数组 `bind(['x'])`、具名 `bind({':a': 'x'})`。
+- **中文/引号/反斜杠逐字节无损**（CLI 走命令行参数才会被代码页转换搞坏）。
+- 同样 134KB：原生 bind+step 写 10ms、读回 2ms；shell 分片写文本文件 2511ms。
+- 用法与表结构见 [`存储重构.md`](存储重构.md) §1，通道取舍见 [`存储层.md`](存储层.md)。
 
 ## 6. 子进程 `process.exec` 与系统 curl
 

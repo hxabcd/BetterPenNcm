@@ -1,16 +1,15 @@
 /**
- * fs 小工具：模块句柄单例 + 全工程共用的读/写/删除/建目录。
+ * fs 小工具：模块句柄单例 + 全工程共用的读/删/建目录。
  *
  * 约定：
  *   - 所有函数**不抛异常**：失败返回安全默认（0 / false / '' / []）；调用方无需再包 try。
- *   - 删除一律「尽力而为」：删不掉不报错（Linux 语义下 fd 仍有效，见各调用方注释）。
- *   - **平台 fs 模块没有写入接口**（只有 exists/stat/statfs/readdir/readFile/mkdir/rm），
- *     `global` 的 createFile 也只建空文件 —— 写内容只能 `/bin/sh` 重定向，
- *     所以 writeTextFile 每次写 = 一次 fork（真机裸 fork 48~52ms）。
- *     ⇒ 只有「低频、按需」的写入才走它；高频小块另有去处（缓存元数据随曲目目录、
- *       索引走 utils/db.js 的批量 upsert，见 docs/存储重构.md §1.2）。
+ *   - **只做原生调用**：`fs` 的 exists / stat / statfs / readdir / readFile / mkdir / rm
+ *     都是 native（微秒级、不分叉）。建目录与递归删除都走 `mkdir` / `rm`，不再 fork shell。
+ *   - 平台 `fs` **没有写入接口**（`writeFile` / `rename` / `unlink` 是 undefined），
+ *     所以**这里没有写函数**：文本一律进 SQLite（`utils/db.js` 的 kv / track_meta /
+ *     track_lyric）。历史上的 `printf > tmp && mv -f` 通道已删除 —— 它每次写都是一次
+ *     `process.exec`（真机 92~139ms），134KB 的播放快照分片写实测 2511ms。
  */
-import { run } from './exec.js'
 import { log } from './log.js'
 
 let fsMod = null
@@ -37,7 +36,7 @@ export async function fileSize(p) {
 }
 
 /** 是否存在。**fs.exists 是 native 调用、不走 exec（不 fork）** ——
- *  fetcher.js 的进度轮询每 300ms 调一次就靠这一点（exec 一次要 48ms，绝不能拿来轮询） */
+ *  fetcher.js 的进度轮询每 300ms 调一次就靠这一点（fork 一次要 92ms，绝不能拿来轮询） */
 export async function fileExists(p) {
   try {
     const fs = await getFs()
@@ -47,7 +46,7 @@ export async function fileExists(p) {
   }
 }
 
-/** 删除文件，删不掉静默（包括「本来就不存在」） */
+/** 删除路径（文件或目录，**递归**）。删不掉静默（包括「本来就不存在」） */
 export async function rmQuiet(p) {
   try {
     const fs = await getFs()
@@ -85,7 +84,7 @@ export async function statOf(p) {
 const readyDirs = {} // 已确认存在的目录（幂等缓存，免得每次写盘都 exists 一次）
 
 /** 确保目录存在（幂等；失败返回 false，只记一次日志）。
- *  store.js 的 storage 目录自愈与 cover.js / download.js 的建目录都走这里 */
+ *  `fs.mkdir` 在真机上**自动建多级父目录**（实测 `a/b/c` 一次成功），不需要 `-p` */
 export async function ensureDir(dir) {
   if (readyDirs[dir]) return true
   let ok = false
@@ -107,56 +106,8 @@ export async function ensureDir(dir) {
   return !!ok
 }
 
-/* ---------------- 读 / 写文本文件（写走 shell 重定向） ---------------- */
-
-/** 单条命令里内容的字节上限：`/bin/sh -c <整串>` 是**一个 argv**，Linux 单参数上限 128KB，
- *  这里取 60KB 留足转义与路径的余量（超了自动分片追加） */
-const CHUNK_BYTES = 60000
-const WRITE_TIMEOUT = 20000
-
-/** 单引号包裹：内部的 ' 变成 '\''。引号内的 $ ` \ 与换行 shell 都不解释 */
-function shq(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'"
-}
-
-/** 按「转义后的字节数」切片（'?' → 4 字节，中文 → 3 字节）；空串返回 [''] */
-function chunk(s, max) {
-  const out = []
-  let buf = ''
-  let cost = 0
-  for (let i = 0; i < s.length; i++) {
-    let c = s.charAt(i)
-    let add = 0
-    const code = s.charCodeAt(i)
-    if (code >= 0xd800 && code <= 0xdbff && i + 1 < s.length) {
-      // 别把代理对劈开：一次吃两个 char（4 字节）
-      const next = s.charCodeAt(i + 1)
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        c += s.charAt(++i)
-        add = 4
-      } else add = 3
-    } else if (c === "'") {
-      add = 4 // '\'' 
-    } else if (code < 0x80) {
-      add = 1
-    } else if (code < 0x800) {
-      add = 2
-    } else {
-      add = 3
-    }
-    if (cost + add > max && buf) {
-      out.push(buf)
-      buf = ''
-      cost = 0
-    }
-    buf += c
-    cost += add
-  }
-  out.push(buf)
-  return out
-}
-
-/** 读文本文件；不存在/出错一律给 ''（不抛） */
+/** 读文本文件；不存在/出错一律给 ''（不抛）。
+ *  只用于读**旧布局**遗留文件（迁移）与 curl 写出的 cookie jar —— 新数据一律在 SQLite 里 */
 export async function readTextFile(path) {
   try {
     const fs = await getFs()
@@ -167,82 +118,23 @@ export async function readTextFile(path) {
     return ''
   }
 }
-/**
- * printf 用的**双引号**转义：把内容包进 "..."，转义 bash 会解释的四类字符。
- *
- * 为什么不能用原来的「单引号 + '\''」写法：`printf '%s'` 的格式串已经用掉了单引号，
- * 拼出来的 `'It'\''s a test'` 在 sh 里虽然语法合法，但实测**单引号被吞掉**
- * （`'It''s a test'` → `Itsatest`），写进文件的是坏数据。JSON/歌词/SQL 里都有 `'`，
- * 这条会静默损坏内容，所以改成双引号转义。
- *
- * 双引号内只有 $ ` \ " 四个字符需要转义；换行与其它字符原样保留。
- */
-function dq(s) {
-  return '"' + String(s)
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\$/g, '\\$')
-    .replace(/`/g, '\\`') + '"'
-}
 
 /**
- * 写文本文件（**原子替换**：先写 `<path>.tmp` 再 `mv -f`，读到的永远是完整一版）。
- * 内容超过 60KB 自动分片：**每片一条命令、各一次 exec**（整串命令本身就是一个 argv，
- * 把多片拼进同一条命令不会绕过 128KB 上限），最后一片带上 `mv`。
- * 返回是否成功；失败只记日志（调用方决定要不要回退）。
+ * 删文件（原生 `fs.rm`）。
+ * 保留这个导出只是为了让既有调用点（cover / download / login）不必改；
+ * 语义与 `rmQuiet` 一致，返回值以「文件确实不在了」为准。
  */
-export async function writeTextFile(path, text) {
-  const s = text === undefined || text === null ? '' : String(text)
-  const i = path.lastIndexOf('/')
-  if (i > 0) await ensureDir(path.slice(0, i))
-  const tmp = path + '.tmp'
-  const parts = chunk(s, CHUNK_BYTES)
-  for (let k = 0; k < parts.length; k++) {
-    const last = k === parts.length - 1
-    let cmd = 'printf %s ' + dq(parts[k]) + (k === 0 ? ' > ' : ' >> ') + shq(tmp)
-    if (last) cmd += ' && mv -f ' + shq(tmp) + ' ' + shq(path)
-    let r = null
-    try {
-      r = await run(cmd, WRITE_TIMEOUT)
-    } catch (e) {
-      r = null
-    }
-    if (!r || r.code !== 0) {
-      log('fs', '写文件失败 ' + path + ' len=' + s.length + ' 片=' + (k + 1) + '/' + parts.length +
-        ' rc=' + (r && r.code) + ' err=' + String((r && r.stderr) || '').slice(0, 80))
-      try {
-        await rmQuiet(tmp)
-      } catch (e) {}
-      return false
-    }
-  }
-  return true
-}
-
-/** 删文件（shell rm -f 优先，失败回退 fs.rm）。文件本来不存在也算成功 */
 export async function removePath(path) {
-  let r = null
-  try {
-    r = await run('rm -f ' + shq(path), 8000)
-  } catch (e) {
-    r = null
-  }
-  if (r && r.code === 0) return true
   await rmQuiet(path)
   return !(await fileExists(path))
 }
 
-/** 删整个目录（shell rm -rf 优先，失败回退逐个 fs.rm） */
+/**
+ * 删整个目录（原生 `fs.rm`，**本身递归**，不需要 `rm -rf`）。
+ * 目录不在也算成功。
+ */
 export async function removeTree(dir) {
-  let r = null
-  try {
-    r = await run('rm -rf ' + shq(dir), 20000)
-  } catch (e) {
-    r = null
-  }
-  if (r && r.code === 0) return true
-  const names = await readNames(dir)
-  for (let i = 0; i < names.length; i++) await rmQuiet(dir + '/' + names[i])
+  await rmQuiet(dir)
   readyDirs[dir] = false // 目录没了，下次 ensureDir 要重新建
-  return true
+  return !(await fileExists(dir))
 }

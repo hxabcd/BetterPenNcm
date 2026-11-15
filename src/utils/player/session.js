@@ -1,5 +1,5 @@
 /**
- * 上次播放状态（播放器会话快照）—— storage 单 key 落盘，boot 时由 player.loadLastState 恢复
+ * 上次播放状态（播放器会话快照）—— SQLite kv 单行，boot 时由 player.loadLastState 恢复
  *
  * **播放器记录上次播放状态，首页「正在播放」卡片从播放器取数据**。
  * 记录内容 = 播放队列 + 当前曲 + 下标 + 播放位置（+ 保存瞬间是否在出声，仅供日志）。
@@ -11,17 +11,19 @@
  *
  * 落盘同 history.js 的**串行 + 合并写**：写盘期间来的新快照只留最新一份、写完补一次，
  * setStorage 永远不并发（播放中每 15 秒一次位置快照，切歌/暂停/seek 由 player 即时触发）。
- * 队列超过 MAXQ 时只存当前曲附近的窗口（大歌单别每次写几百 KB）；恢复后下标仍指向同一首，
- * 窗口外的歌不在了（队列页会短一截）—— 比拖慢每次写盘划算。
+ *
+ * ⚠ 大的歌单**不再需要靠窗口换命**：这份快照一份 134KB，以前写的是文本文件、分片走 shell，
+ *   一次落盘实测 2511ms（正好卡在切歌手势上）。现在是一行 upsert，实测 10ms。
+ *   MAXQ 仍留着 —— 它约束的是快照体积与恢复时的对象数量，不再是写盘代价。
  *
  * 随机模式（假随机）的**临时队列另存一份 id 序列**（rec.shuffle，见 slimShuffle）：快照里的
  * queue 始终是原始队列，随机顺序只是它的一份排列。id 很小（≈队列体积的 1/10），
  * 恢复时按 id 映射回歌曲对象即可，代价可忽略。
  */
-import { getStorage, setStorage, removeStorage } from '../store.js'
+import { getStorage, setStorage, removeStorage, KEY_PLAYER_STATE } from '../store.js'
 import { log } from '../log.js'
 
-const KEY = 'bpncm_player_state'
+const KEY = KEY_PLAYER_STATE
 const MAXQ = 500 // 队列最多存这么多首
 const WIN_BEFORE = 200 // 窗口以当前曲为界，前面保留的条数（后面就是 MAXQ - WIN_BEFORE）
 

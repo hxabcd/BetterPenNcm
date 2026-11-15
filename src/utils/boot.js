@@ -2,12 +2,12 @@
  * 应用启动序列（幂等）
  *
  * 从原 index.vue 的 mounted 启动链搬出：存储目录就绪 → 数据布局迁移 → 索引库就绪 →
- * 设置加载 → cookie 引导（$dataDir/cookie.txt，开发期 adb 递会话用）→ cookie 载入 → 账号校验。
+ * 设置加载 → cookie 引导（$dataDir/cookie.txt，开发期递会话用）→ cookie 载入 → 账号校验。
  * 多页面/页面挂两遍都会调，用模块级 Promise 保证只跑一次。
  *
  * 顺序是有讲究的：
- *   - 迁移必须在**任何模块读旧布局**之前跑完（config.load 之前，因为迁移判据就写在 config 里）；
- *     这里先读一次原始 config 拿 layoutVersion，迁完再正式 load。
+ *   - 迁移必须在**任何模块读旧布局**之前跑完（config.load 之前，因为迁移判据就写在配置里）；
+ *     这里先读一次原始配置拿 layoutVersion，迁完再正式 load。
  *   - 索引库 open() 放在迁移之后：迁移会往库里写数据，先 open 会拿不到迁移前的正确状态。
  */
 import config, { LAYOUT_VERSION } from './config.js'
@@ -28,10 +28,10 @@ let promise = null
 /**
  * 存储就绪 —— **只建目录，不写任何数据**。
  *
- * 新布局下没有「目录不存在就写失败」这种前置条件（写文件会自建父目录），建目录只是为了
- * 让首次 `readdir`/`ls` 不报错、以及日志好排查。建目录走 fs.mkdir（原生调用、不 fork）。
+ * 建目录走原生 `fs.mkdir`（递归、不分叉），只是为了让首次 `readdir`/`ls` 不报错、
+ * 以及日志好排查。数据一律在 SQLite 里，目录只装音频文件与封面。
  *
- * ⚠ 不要在这里写探测数据：任何一次写都可能是一次 fork（≈50ms），而它只验证目录在不在。
+ * ⚠ 不要在这里写探测数据：写文本文件只能借 shell，一次就是一次 fork（真机 92~139ms）。
  */
 async function prepareStore() {
   const a = await ensureDir(downloadsDir())
@@ -42,7 +42,7 @@ async function prepareStore() {
 
 async function run() {
   await prepareStore()
-  // 迁移判据在 config.json 里，所以先读原始值再决定要不要迁：
+  // 迁移判据在配置里（kv 行 ncm_settings），所以先读原始值再决定要不要迁：
   // 缺失/小于当前版本 ⇒ 旧布局（含「全新安装」—— 全新安装没有任何旧数据，迁移会空跑一遍
   // 并把 layoutVersion 写成当前版本，这是最快的正确路径）。
   let v = 0
@@ -59,9 +59,9 @@ async function run() {
       // 迁移内部已逐步吞异常，这里兜住「迁移模块本身炸了」的情况：不阻塞启动。
       log('boot', '迁移异常（继续启动）：' + ((e && e.message) || e))
     }
-    await config.load() // 迁移可能改写了 config.json，重新载一次
+    await config.load() // 迁移会改写配置行，重新载一次
   }
-  // 索引库：建表 + 整表灌内存（之后查询不再 fork，见 utils/db.js）
+  // 索引库：建表 + 整表灌内存（之后查询不再查库，见 utils/db.js）
   await openDb()
   // 播放器设置（倍速 / 循环模式）在 config 载入后恢复，播放页直接读单例状态
   loadPlayerSettings()

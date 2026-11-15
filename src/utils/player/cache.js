@@ -8,15 +8,18 @@
  *   | 缓存 cache | data/cache/<id>/ | 「播放音质」 | **不出现**在任何「本地下载」清单里 | 边听边存，受「缓存上限」LRU 滚动，满了按最久未播放先删 |
  *   | 浏览缩略图 | data/cache/thumbs/ | — | — | 可整体清空，不属于任何曲目（cover.js / clearCoverCache） |
  *
- * 元数据：**不再有整表 JSON**，每个曲目目录里一份 `metadata.json`
+ * 元数据：**不再有整表 JSON**，每首一条记录在索引库 `local_index.db` 的 `track_meta` 表
  * （{n,a,b,y,q,d,c,origin,addedAt}；缓存多一个 u=lastUsed、p=续传档位标记）：
- *   - 读：media.readMeta（原生 fs.readFile，不分叉）
- *   - 写：media.patchMeta（合并写；一次 shell 重定向 ≈50ms，只在下载完成/播放打点时写）
- *   - 删：随目录一起走（media.dropTrackDir，一次 rm -rf）
+ *   - 读：media.readMeta（一次 prepare，微秒级）
+ *   - 写：media.patchMeta（合并写，单行 upsert）
+ *   - 删：随目录一起走（media.dropTrackDir，原生 fs.rm 递归删除）
+ *
+ * ⚠ 元数据**不写 metadata.json**：平台 `fs` 没有写接口，写文件只能 fork 一次 shell
+ *   （真机 92~139ms），而下载一首歌会写它两次、播放打点再写一次 —— 全在播放链路上。
  *
  * 设计原则不变：**文件系统为真相，元数据可缺失**
  *   - 有什么目录（readdir）永远是准的，不维护「索引说有人、文件却没了」的伪真相；
- *   - metadata.json 只负责「显示得好看」与「LRU 排序」，缺了不影响功能。
+ *   - 元数据只负责「显示得好看」与「LRU 排序」，缺了不影响功能。
  *
  * 容量实测（真机探针）：
  *   - fs.statfs 返回 {free,total} 但语义可疑（free>total），**可用空间一律走 exec df**
@@ -25,7 +28,7 @@
  * exec 不可用时回退纯 fs 实现（慢但不失败）。
  */
 import * as media from '../media.js'
-import { trackDir, trackMeta } from '../paths.js'
+import { trackDir } from '../paths.js'
 import { clearCovers } from '../cover.js'
 import { clearLocalLibrary } from './localmeta.js'
 import { clearAllOrigins } from './dlorigin.js'
@@ -129,7 +132,7 @@ function makeDirMeta(kind) {
     drop: async function (id) {
       const k = String(id)
       delete mem[k]
-      await media.dropFile(trackMeta(k, kind)) // 只删 metadata.json；音频/封面由目录删除负责
+      await media.dropMeta(k, kind) // 只删库里那条元数据；音频/封面由目录删除负责
     },
     /** 只清内存快照（目录清空后调用，避免同步查还拿到旧数据） */
     clear: async function () {

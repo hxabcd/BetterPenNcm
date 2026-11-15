@@ -15,7 +15,7 @@
  *     boot 整表灌内存，此后查询不分叉；写走批量语句（一批一个事务）。
  *     **可重建**：丢了从音频文件与网络重扫，所以允许整个删掉。
  *
- *   local_state.db（`paths.stateDbFile()`）—— **用户资产**
+ *   state.db（`paths.stateDbFile()`）—— **用户资产**
  *     kv           配置 / 登录 Cookie / 播放会话快照 / 播放历史
  *     track_meta   每曲元数据（原 metadata.json）
  *     track_lyric  每曲歌词（原 lyrics.json）

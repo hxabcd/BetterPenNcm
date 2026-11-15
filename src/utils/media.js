@@ -6,7 +6,7 @@
  *       track.*.part(.cur)         续传残片（下载中）
  *       cover.jpg                  封面（**单尺寸 200px**，理由见 §0.1）
  *
- *   local_state.db（状态库）
+ *   state.db（状态库）
  *       track_meta  (id, kind) → metadata.json 的内容
  *       track_lyric (id)       → lyrics.json 的内容
  *

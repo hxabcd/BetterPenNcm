@@ -65,7 +65,7 @@ This file provides guidance to AI Agent when working with code in this repositor
 - **`--fresh` 会清空 data**：先 `miniapp_cli uninstall` 再装，登录态与全部下载都会丢，只在要彻底重置时用。`miniapp_cli uninstall` 本身也清空整个 data 目录，别随手跑
 - **设备临时文件默认写 `/tmp`**（tmpfs，重启自清），不要在 `/userdisk` 根目录下建临时文件；`/tmp` 放不下的大文件才落 `/userdisk`；持久文件只进 `/userdisk/path/` 等既有子目录
 - 构建号写入生成物 `src/utils/buildInfo.js`（build.sh 生成，勿手改）并显示在首页顶栏，供核对设备版本
-- 平台能力的统一入口（别再各写各的）：可写路径一律走 `src/utils/paths.js`；**文本/结构化数据的唯一写入通道是 `src/utils/db.js`（原生 `import('sqlite3')`）——它开两个库：`local_index.db`（索引，可重建）与 `local_state.db`（`kv` 配置/凭据/会话/历史 + `track_meta` 每曲元数据 + `track_lyric` 歌词，属用户资产）**；`process.exec`/`curl`/`du`/`stat` 等能力探测走 `src/utils/exec.js`；`import('fs')` 句柄与 `fileSize` 等小工具走 `src/utils/fsutil.js`（**没有写函数**）；单步超时护栏 `raceTimeout` 走 `src/utils/util.js`；**共享的 UI 视觉常量走 `src/utils/ui/tokens.js`**（唯一值表，改值改它再跑 `scripts/gen_tokens.py --write`；JS 用 `TOK.xxx`、LESS 用生成段里的 `@xxx`）。颜色字面量由 `theme_verify.py` 第五道强制拦截；字号/尺寸目前不巡，仍按值表与评审维护
+- 平台能力的统一入口（别再各写各的）：可写路径一律走 `src/utils/paths.js`；**文本/结构化数据的唯一写入通道是 `src/utils/db.js`（原生 `import('sqlite3')`）——它开两个库：`local_index.db`（索引，可重建）与 `state.db`（`kv` 配置/凭据/会话/历史 + `track_meta` 每曲元数据 + `track_lyric` 歌词，属用户资产）**；`process.exec`/`curl`/`du`/`stat` 等能力探测走 `src/utils/exec.js`；`import('fs')` 句柄与 `fileSize` 等小工具走 `src/utils/fsutil.js`（**没有写函数**）；单步超时护栏 `raceTimeout` 走 `src/utils/util.js`；**共享的 UI 视觉常量走 `src/utils/ui/tokens.js`**（唯一值表，改值改它再跑 `scripts/gen_tokens.py --write`；JS 用 `TOK.xxx`、LESS 用生成段里的 `@xxx`）。颜色字面量由 `theme_verify.py` 第五道强制拦截；字号/尺寸目前不巡，仍按值表与评审维护
 - **不要用 shell 重定向写文本文件**：`process.exec` 一次 = 一次 fork（真机 92~139ms），超 60KB 还得分片、每片再一次 fork。134KB 播放快照实测 2511ms，改走 SQLite 后 10ms。同理**不要用 `sqlite3` CLI**（每次一次 fork，且 SQL 走命令行参数会被代码页转成 GBK、中文变乱码）
 - **导航一律走 `src/utils/nav.js` 的 `go('<逻辑页名>')`**：不直接 `$falcon.navTo`、不写槽位 key、不传变量页名；参数用 `paramsFor()`。新增页面 / 调整层级见 [`docs/页面导航.md`](docs/页面导航.md)
 - **注释里别写 `**/`**：`*/` 会提前闭合块注释，rollup 报错且行号指向注释后一行
@@ -165,11 +165,11 @@ This file provides guidance to AI Agent when working with code in this repositor
 - **下载慢先查 WiFi 链路速率**（`iw dev wlan0 link` 的 rx bitrate）：这台笔须钉在 2.4GHz BSS，改配置走 `wpa_cli` + `save_config`，别直接编辑 `wpa_supplicant.conf`（会被回写覆盖）
 - **自动化探针**：用 `bash scripts/build_probe.sh` 构建**独立 appid** 的探针版（入口 = `pages/probe`；脚本临时改 appid 后自动还原源码），安装/启动用产物的探针 appid，不会卸载或清空正式应用数据；用完 `miniapp_cli uninstall <探针appid>` 清理。探针日志同样走 logserver（构建时注入 `BPNCM_LOG_SRV`）；安装命令见脚本头部注释
 - **导航层排查**：`[nav]` 日志（`go … (push|reuse|degrade)`、`page-load/unload`、`page-options`）走 logserver；返回落错层 / 页面被意外销毁时先看槽位与栈顺序；`bash scripts/nav_selftest.sh` 可在探针版上跑 push/pop 自测（不动正式应用数据）。详见 [`docs/页面导航.md`](docs/页面导航.md)
-- 设备保持已登录；登录态在 `$dataDir/local_state.db` 的 `kv` 表（`ncm_cookies` 行）与 `cookie.txt` 里，**日志/汇报中不要回显**
+- 设备保持已登录；登录态在 `$dataDir/state.db` 的 `kv` 表（`ncm_cookies` 行）与 `cookie.txt` 里，**日志/汇报中不要回显**
 
 ## 边界
 
-- **下载**（用户主动）→ `$dataDir/downloads/<id>/`，永久保留，计入「本地下载」；**缓存**（边听边存）→ `$dataDir/cache/<id>/`，受缓存上限 LRU 滚动，不计入本地下载。每 track 一个目录，目录内只有 `track.mp3|flac` 与 `cover.jpg`；**元数据与歌词在 `local_state.db` 的 `track_meta` / `track_lyric` 表**（按 `id`，元数据另按 `kind` 1=download / 2=cache 区分）。路径一律从 `src/utils/paths.js` 取，布局与不变式见 [`docs/存储重构.md`](docs/存储重构.md) §2
+- **下载**（用户主动）→ `$dataDir/downloads/<id>/`，永久保留，计入「本地下载」；**缓存**（边听边存）→ `$dataDir/cache/<id>/`，受缓存上限 LRU 滚动，不计入本地下载。每 track 一个目录，目录内只有 `track.mp3|flac` 与 `cover.jpg`；**元数据与歌词在 `state.db` 的 `track_meta` / `track_lyric` 表**（按 `id`，元数据另按 `kind` 1=download / 2=cache 区分）。路径一律从 `src/utils/paths.js` 取，布局与不变式见 [`docs/存储重构.md`](docs/存储重构.md) §2
 - **后台 JS 会冻结**：切后台时下载跑完当前片就停，别承诺「后台继续下载」；应用退出后无后台，会直接关闭
 - 退出登录会**清空 `kv` 表的 `ncm_cookies` 行**（否则 boot 会把会话灌回来），并删掉 curl 的 jar 文件
 - 长列表按首屏批量渲染（口径见 `utils/ui/paging.js`），滚到底自动续批（`utils/ui/infinite.js`，每次 `AUTO_BATCH` 行）；仅在「内容超过一屏且用户已下滚」时自动触发，拿不到滚动位移则降级到原有「加载更多」按钮。网络游标见 `list.vue`；列表内搜索仍待定

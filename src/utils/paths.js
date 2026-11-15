@@ -93,7 +93,7 @@ export function dbFile() {
  * （真机 92~139ms，134KB 快照实测 2511ms），见 docs/存储层.md。
  */
 export function stateDbFile() {
-  return normDir() + '/local_state.db'
+  return normDir() + '/state.db'
 }
 
 /* ---------------- 其它既有落点 ---------------- */

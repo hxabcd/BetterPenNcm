@@ -2,7 +2,7 @@
  * 应用设置（SQLite kv 行 ncm_settings 的封装）
  * 用法：await cfg.load(); cfg.get('rate'); await cfg.set('rate', 1.25)
  *
- * 落点：`$dataDir/local_state.db` 的 `kv` 表（见 utils/store.js）。
+ * 落点：`$dataDir/state.db` 的 `kv` 表（见 utils/store.js）。
  * ⚠ **不写 config.json**：平台 `fs` 没有写接口，写文件只能 fork 一次 shell（真机 92~139ms），
  *   而配置在改主题/倍速/音质时会被连续改写。库里的 upsert 是微秒级。
  *

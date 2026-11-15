@@ -299,7 +299,7 @@ console.log('\n2) paths —— 路径形状与唯一真源')
 // 本机 $dataDir 是 Windows 反斜杠路径（设备上是 POSIX），断言只核尾斜杠被折掉、分隔符是 /
 eq('normDir 去尾斜杠且无重复斜杠', paths.normDir(), String(dataDir).replace(/\//g, '\\'))
 truthy('dbFile 落在 data 根', paths.dbFile() === paths.normDir() + '/local_index.db')
-truthy('stateDbFile 落在 data 根', paths.stateDbFile() === paths.normDir() + '/local_state.db')
+truthy('stateDbFile 落在 data 根', paths.stateDbFile() === paths.normDir() + '/state.db')
 truthy('曲目目录 = <root>/<id>', paths.trackDir(42, 'download') === paths.dataDir() + '/downloads/42')
 truthy('paths 不再导出 configFile / stateFile 等文本文件路径', paths.configFile === undefined && paths.stateFile === undefined)
 truthy('paths 不再导出 trackMeta / trackLyrics', paths.trackMeta === undefined && paths.trackLyrics === undefined)
@@ -322,7 +322,7 @@ truthy('ensureStateDb 拿到状态库连接', connState !== null)
 truthy('状态库和索引库不是同一个连接', conn !== connState)
 eq('两个库文件路径不同', paths.dbFile() !== paths.stateDbFile(), true)
 truthy('local_index.db 在盘上', fs.existsSync(paths.dbFile()))
-truthy('local_state.db 在盘上', fs.existsSync(paths.stateDbFile()))
+truthy('state.db 在盘上', fs.existsSync(paths.stateDbFile()))
 
 // 表必须落在正确的库里：索引库只有 6 张索引表，状态库只有 kv/track_meta/track_lyric
 {
@@ -417,7 +417,7 @@ eq('session 快照可读', back && back.positionMs, 5000)
 /* ---- 库文件本身 ---- */
 console.log('\n7) 库文件')
 truthy('local_index.db 存在于 data 根', fs.existsSync(paths.dbFile()))
-truthy('local_state.db 存在于 data 根', fs.existsSync(paths.stateDbFile()))
+truthy('state.db 存在于 data 根', fs.existsSync(paths.stateDbFile()))
 {
   const raw = new DatabaseSync(paths.dbFile())
   const tables = raw.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r) => r.name)

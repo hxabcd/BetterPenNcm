@@ -12,7 +12,7 @@
  * 'sqlite3'）换成 shim，其余代码一字不改 —— 检验的是真产品逻辑，替换的只有平台边界。
  *
  * 覆盖：paths 形状 / db 建表与 upsert 与 kv / media 每曲一目录与曲目文档 /
- *       store 的合并写 / cover 单尺寸不变式 / migrate 旧布局映射与幂等。
+ *       store 的合并写 / 两个库的表清单互斥 / cover 单尺寸不变式。
  */
 import { exec as cpExec } from 'node:child_process'
 import fs from 'node:fs'
@@ -299,6 +299,7 @@ console.log('\n2) paths —— 路径形状与唯一真源')
 // 本机 $dataDir 是 Windows 反斜杠路径（设备上是 POSIX），断言只核尾斜杠被折掉、分隔符是 /
 eq('normDir 去尾斜杠且无重复斜杠', paths.normDir(), String(dataDir).replace(/\//g, '\\'))
 truthy('dbFile 落在 data 根', paths.dbFile() === paths.normDir() + '/local_index.db')
+truthy('stateDbFile 落在 data 根', paths.stateDbFile() === paths.normDir() + '/local_state.db')
 truthy('曲目目录 = <root>/<id>', paths.trackDir(42, 'download') === paths.dataDir() + '/downloads/42')
 truthy('paths 不再导出 configFile / stateFile 等文本文件路径', paths.configFile === undefined && paths.stateFile === undefined)
 truthy('paths 不再导出 trackMeta / trackLyrics', paths.trackMeta === undefined && paths.trackLyrics === undefined)
@@ -313,9 +314,28 @@ truthy('删完 exists=false', !(await fsutil.fileExists(path.join(dataDir, 'a'))
 eq('建目录/删目录全程 0 次 fork', execCount - beforeFork, 0)
 
 /* ---- db 通道 ---- */
-console.log('\n4) db —— 原生 sqlite3 通道')
+console.log('\n4) db —— 原生 sqlite3 通道（两个库）')
 const conn = await db.ensureDb()
-truthy('ensureDb 拿到连接', conn !== null)
+truthy('ensureDb 拿到索引库连接', conn !== null)
+const connState = await db.ensureStateDb()
+truthy('ensureStateDb 拿到状态库连接', connState !== null)
+truthy('状态库和索引库不是同一个连接', conn !== connState)
+eq('两个库文件路径不同', paths.dbFile() !== paths.stateDbFile(), true)
+truthy('local_index.db 在盘上', fs.existsSync(paths.dbFile()))
+truthy('local_state.db 在盘上', fs.existsSync(paths.stateDbFile()))
+
+// 表必须落在正确的库里：索引库只有 6 张索引表，状态库只有 kv/track_meta/track_lyric
+{
+  const a = new DatabaseSync(paths.dbFile())
+  const idxTables = a.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r) => r.name)
+  a.close()
+  const b = new DatabaseSync(paths.stateDbFile())
+  const stTables = b.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r) => r.name)
+  b.close()
+  eq('索引库表清单', idxTables, ['album', 'artist', 'playlist', 'playlist_track', 'track', 'track_artist'])
+  eq('状态库表清单', stTables, ['kv', 'track_lyric', 'track_meta'])
+}
+
 truthy('open() 灌内存', (await db.open()) !== null)
 eq('内存态六张索引表', Object.keys(db.data()).sort(),
   ['album', 'artist', 'playlist', 'playlist_track', 'track', 'track_artist'])
@@ -397,47 +417,29 @@ eq('session 快照可读', back && back.positionMs, 5000)
 /* ---- 库文件本身 ---- */
 console.log('\n7) 库文件')
 truthy('local_index.db 存在于 data 根', fs.existsSync(paths.dbFile()))
-const raw = new DatabaseSync(paths.dbFile())
-const tables = raw.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r) => r.name)
-raw.close()
-for (const t of ['album', 'artist', 'kv', 'playlist', 'playlist_track', 'track', 'track_artist',
-  'track_lyric', 'track_meta']) {
-  truthy('表存在：' + t, tables.includes(t))
-}
-
-/* ---- 迁移：必须能跑完并写出版本号（真机曾卡在 cleanupErrLog） ---- */
-console.log('\n8) migrate —— 入口必须能跑完')
-const migrate = await import(path.join(srcDst, 'utils/migrate.js').replace(/\\/g, '/').replace(/^/, 'file://'))
+truthy('local_state.db 存在于 data 根', fs.existsSync(paths.stateDbFile()))
 {
-  // 造一份旧布局：store/*.json + storage/preferences.json
-  const storeDir = path.join(dataDir, 'store')
-  const storageDir = path.join(dataDir, 'storage')
-  fs.mkdirSync(storeDir, { recursive: true })
-  fs.mkdirSync(storageDir, { recursive: true })
-  fs.writeFileSync(path.join(storeDir, 'local_index.json'), JSON.stringify({
-    9001: { n: '迁移歌', alia: [], ars: [{ i: 501, n: '歌手甲' }], al: { i: 601, n: '专辑甲', c: '' }, d: 1000, pub: 0, no: 1, cd: '01', pop: 0, fee: 0 }
-  }))
-  fs.writeFileSync(path.join(storageDir, 'preferences.json'), JSON.stringify({
-    ncm_settings: JSON.stringify({ rate: 1.25 }),
-    bpncm_dl_origin: JSON.stringify({ 9001: 1 })
-  }))
-  // 让已经打开的旧实例失效（迁移会重新读库）
-  db.reset()
-  const res = await Promise.race([
-    migrate.run(1),
-    new Promise((r) => setTimeout(() => r({ timeout: true }), 15000))
-  ])
-  truthy('migrate.run 在 15s 内返回（不得自锁）', res && !res.timeout)
-  eq('迁移版本 from', res.from, 1)
-  truthy('迁移写回 layoutVersion=2', res.ok === true && res.migrated === true)
-  const cfg = JSON.parse(await db.kvGet(store.KEY_SETTINGS) || '{}')
-  eq('配置行里的 layoutVersion', cfg.layoutVersion, 2)
-  truthy('旧设置被合并进来（rate=1.25）', cfg.rate === 1.25)
-  const row = new DatabaseSync(paths.dbFile())
-  const trow = row.prepare('SELECT name, dl_origin FROM track WHERE id = 9001').get()
-  row.close()
-  eq('旧索引进库', trow && trow.name, '迁移歌')
-  eq('归属标记进库', trow && trow.dl_origin, 1)
+  const raw = new DatabaseSync(paths.dbFile())
+  const tables = raw.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r) => r.name)
+  raw.close()
+  for (const t of ['album', 'artist', 'playlist', 'playlist_track', 'track', 'track_artist']) {
+    truthy('索引库表存在：' + t, tables.includes(t))
+  }
+  // 索引库**不该**含状态表（用户要求两者分开）
+  for (const t of ['kv', 'track_meta', 'track_lyric']) {
+    truthy('索引库里没有 ' + t, !tables.includes(t))
+  }
+}
+{
+  const raw = new DatabaseSync(paths.stateDbFile())
+  const tables = raw.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r) => r.name)
+  raw.close()
+  for (const t of ['kv', 'track_meta', 'track_lyric']) {
+    truthy('状态库表存在：' + t, tables.includes(t))
+  }
+  for (const t of ['album', 'artist', 'track', 'track_artist', 'playlist', 'playlist_track']) {
+    truthy('状态库里没有 ' + t, !tables.includes(t))
+  }
 }
 
 /* ---------------- 汇总 ---- */

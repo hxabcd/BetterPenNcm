@@ -2,7 +2,7 @@
  * 应用设置（SQLite kv 行 ncm_settings 的封装）
  * 用法：await cfg.load(); cfg.get('rate'); await cfg.set('rate', 1.25)
  *
- * 落点：`$dataDir/local_index.db` 的 `kv` 表（见 utils/store.js）。
+ * 落点：`$dataDir/local_state.db` 的 `kv` 表（见 utils/store.js）。
  * ⚠ **不写 config.json**：平台 `fs` 没有写接口，写文件只能 fork 一次 shell（真机 92~139ms），
  *   而配置在改主题/倍速/音质时会被连续改写。库里的 upsert 是微秒级。
  *
@@ -13,13 +13,7 @@ import { getStorage, setStorage, KEY_SETTINGS } from './store.js'
 
 const KEY = KEY_SETTINGS
 
-/** 当前数据布局版本（迁移判据，见 utils/migrate.js 与 docs/存储重构.md §4） */
-export const LAYOUT_VERSION = 2
-
 const DEFAULTS = {
-  // 数据布局版本：缺失/小于 LAYOUT_VERSION 时 boot 会跑一次迁移，迁完写回。
-  // 不是 UI 可见的设置项，只作为迁移幂等标记（0 = 从没迁过）。
-  layoutVersion: 0,
   // 是否自动演示（开发用）
   demo: false,
   // 登录资料缓存（cookie 本体在 utils/net/cookies.js 里单独持久化）

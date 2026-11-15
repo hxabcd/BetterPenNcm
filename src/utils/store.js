@@ -1,6 +1,13 @@
 /**
  * 顶层键值存储 —— 同名 API 的 **SQLite 实现**（原平台 storage 的替代）。
  *
+ * ## 落在哪个库
+ *
+ * `local_state.db` 的 `kv` 表（见 [`paths.stateDbFile()`](paths.js) / utils/db.js）。
+ * 这个库放的是**用户资产**：配置、登录 Cookie、播放会话快照、播放历史，
+ * 以及每曲元数据与歌词。它和 `local_index.db`（可重建的索引）分开，
+ * 重置索引不会碰到登录态。
+ *
  * ## 为什么不写 JSON 文件
  *
  * 平台 `fs` 模块**没有写入接口**（只有 exists/stat/statfs/readdir/readFile/mkdir/rm），

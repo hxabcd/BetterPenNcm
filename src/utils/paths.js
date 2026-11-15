@@ -75,44 +75,25 @@ export function trackCover(id, kind) {
   return trackDir(id, kind) + '/cover.jpg'
 }
 
-/* ---------------- 顶层文件 ---------------- */
-
 /**
- * SQLite 库（索引表 + kv 文档表 + 曲目元数据/歌词都在这里）。
- *
- * ⚠ 元数据、歌词、配置、Cookie、播放快照/历史**都不落 JSON 文件**：
- *   平台 `fs` 没有写接口，写文件只能借 shell 重定向（一次 fork，真机 92~139ms），
- *   134KB 的播放快照分片写实测 2511ms。全部改走本库的 upsert（10ms 量级）。
+ * 本地索引库（**只**放索引表：album / artist / track / track_artist / playlist / playlist_track）。
+ * 丢了能从文件与网络重建，所以它自己一个文件、可以整个删掉。
  */
 export function dbFile() {
   return normDir() + '/local_index.db'
 }
 
-/* ---------------- 旧通道（仅 utils/migrate.js 读取；新代码不得调用） ---------------- */
-
-/** 旧封面目录 */
-export function legacyCoversDir() {
-  return normDir() + '/covers'
-}
-
-/** 旧 store/ 目录 */
-export function legacyStoreDir() {
-  return normDir() + '/store'
-}
-
-/** 旧歌词目录 */
-export function legacyLrcDir() {
-  return normDir() + '/lrc'
-}
-
-/** 旧下载目录 */
-export function legacyMusicDir() {
-  return normDir() + '/music'
-}
-
-/** 旧 storage 目录 */
-export function legacyStorageDir() {
-  return normDir() + '/storage'
+/**
+ * 应用状态库：配置、登录凭据、播放会话快照、播放历史（`kv` 表），
+ * 以及每曲元数据与歌词（`track_meta` / `track_lyric` 表）。
+ *
+ * 与索引库分开的理由：这些是**用户资产**（丢了要重新登录/丢进度），
+ * 而索引是可重建的派生数据。分开后「重置索引」不会碰到登录态。
+ * 两者都是 SQLite —— 平台 `fs` 没有写接口，文本数据写文件只能 fork 一次 shell
+ * （真机 92~139ms，134KB 快照实测 2511ms），见 docs/存储层.md。
+ */
+export function stateDbFile() {
+  return normDir() + '/local_state.db'
 }
 
 /* ---------------- 其它既有落点 ---------------- */

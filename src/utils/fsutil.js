@@ -106,19 +106,6 @@ export async function ensureDir(dir) {
   return !!ok
 }
 
-/** 读文本文件；不存在/出错一律给 ''（不抛）。
- *  只用于读**旧布局**遗留文件（迁移）与 curl 写出的 cookie jar —— 新数据一律在 SQLite 里 */
-export async function readTextFile(path) {
-  try {
-    const fs = await getFs()
-    if (!(await fs.exists(path))) return ''
-    const t = await fs.readFile(path)
-    return t === undefined || t === null ? '' : String(t)
-  } catch (e) {
-    return ''
-  }
-}
-
 /**
  * 删文件（原生 `fs.rm`）。
  * 保留这个导出只是为了让既有调用点（cover / download / login）不必改；

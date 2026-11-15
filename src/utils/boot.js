@@ -1,23 +1,19 @@
 /**
  * 应用启动序列（幂等）
  *
- * 从原 index.vue 的 mounted 启动链搬出：存储目录就绪 → 数据布局迁移 → 索引库就绪 →
+ * 存储目录就绪 → 开两个库（建表）→ 索引灌内存 →
  * 设置加载 → cookie 引导（$dataDir/cookie.txt，开发期递会话用）→ cookie 载入 → 账号校验。
  * 多页面/页面挂两遍都会调，用模块级 Promise 保证只跑一次。
  *
- * 顺序是有讲究的：
- *   - 迁移必须在**任何模块读旧布局**之前跑完（config.load 之前，因为迁移判据就写在配置里）；
- *     这里先读一次原始配置拿 layoutVersion，迁完再正式 load。
- *   - 索引库 open() 放在迁移之后：迁移会往库里写数据，先 open 会拿不到迁移前的正确状态。
+ * 没有迁移步骤：应用只认当前布局，旧布局的数据一律不读、不搬。
  */
-import config, { LAYOUT_VERSION } from './config.js'
+import config from './config.js'
 import { notify as themeNotify } from './theme.js'
 import { loadPlayerSettings, loadLastState } from './player/player.js'
 import { load as loadHistory } from './player/history.js'
 import { ensureDir } from './fsutil.js'
 import { downloadsDir, cacheDir, thumbsDir } from './paths.js'
-import { open as openDb } from './db.js'
-import { run as runMigrate } from './migrate.js'
+import { open as openDb, ensureStateDb as openStateDb } from './db.js'
 import { importFromFile, load as loadCookies, names as cookieNames } from './net/cookies.js'
 import { cachedProfile, loggedIn, fetchProfile } from './ncm/login.js'
 import { pullAll as autoPullLocalLists } from './player/locallists.js'
@@ -42,27 +38,13 @@ async function prepareStore() {
 
 async function run() {
   await prepareStore()
-  // 迁移判据在配置里（kv 行 ncm_settings），所以先读原始值再决定要不要迁：
-  // 缺失/小于当前版本 ⇒ 旧布局（含「全新安装」—— 全新安装没有任何旧数据，迁移会空跑一遍
-  // 并把 layoutVersion 写成当前版本，这是最快的正确路径）。
-  let v = 0
-  try {
-    const raw = await config.load()
-    v = Number(raw.layoutVersion) || 0
-  } catch (e) {
-    v = 0
-  }
-  if (v < LAYOUT_VERSION) {
-    try {
-      await runMigrate(v)
-    } catch (e) {
-      // 迁移内部已逐步吞异常，这里兜住「迁移模块本身炸了」的情况：不阻塞启动。
-      log('boot', '迁移异常（继续启动）：' + ((e && e.message) || e))
-    }
-    await config.load() // 迁移会改写配置行，重新载一次
-  }
-  // 索引库：建表 + 整表灌内存（之后查询不再查库，见 utils/db.js）
+  // 两个库都建表：索引库（可重建）+ 状态库（配置/凭据/会话/元数据/歌词）。
+  // 索引表接着整表灌内存（之后查询不再查库，见 utils/db.js）。
+  await openStateDb()
   await openDb()
+  // 配置从状态库的 kv 行读进来。**必须在任何读配置的模块之前**：
+  // 下面 loadPlayerSettings / 主题广播 / 自动拉取都直接读 config 的单例缓存。
+  await config.load()
   // 播放器设置（倍速 / 循环模式）在 config 载入后恢复，播放页直接读单例状态
   loadPlayerSettings()
   // 播放历史（本地）在页面读取前载入完 —— 首页卡片/历史列表页不做「未加载」闪烁

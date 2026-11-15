@@ -1,14 +1,17 @@
 /**
- * 单个 track 的读写 —— 音频/封面在目录里，元数据/歌词在 SQLite 里。
+ * 单个 track 的读写 —— 音频/封面在目录里，元数据/歌词在状态库里。
  *
  *   <downloads|cache>/<track_id>/
  *       track.mp3 | track.flac     音频（扩展名由直链回包 type 定）
  *       track.*.part(.cur)         续传残片（下载中）
  *       cover.jpg                  封面（**单尺寸 200px**，理由见 §0.1）
  *
- *   索引库 local_index.db：
+ *   local_state.db（状态库）
  *       track_meta  (id, kind) → metadata.json 的内容
  *       track_lyric (id)       → lyrics.json 的内容
+ *
+ * 为什么索引和状态分两个库：索引（`local_index.db`）是可重建的派生数据，
+ * 而元数据/歌词属于用户资产；分开后重置索引不会波及它们。见 utils/db.js 顶部。
  *
  * 为什么要这一层：本次重构把「一首歌 = 一个目录」定成不变式，音频/封面同生共死。
  * 若各处自己拼 `<root>/<id>/xxx`，删歌时就必然漏清某一样，留下孤儿文件（旧布局

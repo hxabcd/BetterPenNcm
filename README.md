@@ -49,7 +49,7 @@ adb shell "miniapp_cli install /userdisk/Favorite/8000200708310039.x_y_z.amr"
 adb shell "miniapp_cli start 8000200708310039"
 ```
 
-改版后要先 `miniapp_cli uninstall 8000200708310039` 再安装，否则运行的是旧实例。`install.sh` 会在卸载前把 `cookie.txt`、`storage/preferences.json`、`music/`、`covers/` 暂存到设备内再恢复；`cache/` 可再生，不备份。
+更新已装应用直接 `miniapp_cli install` 覆盖即可，不必先 uninstall。`install.sh` 默认把 `cookie.txt`、`storage/preferences.json`、`music/`、`covers/` 暂存到设备内再恢复（卸载重装会清 data，脚本以此保全）；`cache/` 可再生，不备份。
 
 截图由 `install.sh` 调用 `miniapp_cli capture` 生成，直接得到可看的合成画面，无需旋转或分帧。capture 跟随当前前台画面；熄屏时返回空白帧，先执行 `hal-screen on` 点亮。
 

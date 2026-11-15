@@ -1,16 +1,15 @@
 #!/bin/bash
-# 装机（真机 / --vm）：构建（可选）→ 备份数据 → 卸载 → 推送 → 安装 → 恢复数据 → 启动 → 就绪校验
+# 装机：构建（可选）→ 推包 → install → start → 等就绪。
 #
-# 三条相对旧版的设计决定：
-#   1) 数据备份是**整目录 mv**。$DATA 与暂存目录同属 /userdisk（单块 ext4），mv 只是
-#      rename，2.3G 也是瞬时。旧版按 cookie.txt / storage / music / covers / store / lrc
-#      逐项挑，漏一个就丢一样 —— 实际就漏了 ncm_ck.txt（paths.js 的 Cookie 落盘），
-#      后果是装机后要重新登录。整目录搬不存在"漏项"这个失败模式。
-#   2) 装前先认领上次失败留下的暂存数据，有就先归位再继续。旧版开头无条件
-#      rm -rf 暂存目录：如果上次死在"卸载后、恢复前"，删掉的就是唯一副本。
-#   3) 中途失败自动回滚（注册到锁的退出钩子，见 lock.sh），不再是"打印一句请手动 mv"。
+# 默认**覆盖安装**：同 appid 直接 install，应用的 data（登录态、设置、下载）
+# 原样保留。2026-11-12 实测确认：往 data/ 里写标记文件后覆盖安装，标记与
+# config.json 的 md5 全不变。所以不需要「备份 data → uninstall → install →
+# 恢复 data」那套流程（旧版为此付出 250 行与一套回滚逻辑）。
 #
-# 本脚本**不截图**：截图是 scripts/shot.sh 的事，装机只负责"装上去并能起来"。
+# --fresh 是唯一的例外：先 uninstall 再装，**会清空该应用的 data**，
+# 只在要彻底重置（怀疑设置损坏、要回到首次启动状态）时用。
+#
+# 本脚本不截图：截图是 scripts/shot.sh 的事，装机只负责「装上去并能起来」。
 set -e
 export MSYS_NO_PATHCONV=1
 
@@ -22,50 +21,43 @@ usage() {
   cat <<'EOF'
 用法: bash scripts/install.sh [选项]
 
-  --build            构建后再装（默认）
-  --no-build         直接装 build/ 里现成的产物
-  --backup           装机前备份应用数据、装完恢复（默认，整目录 rename）
-  --no-backup        不备份不恢复（会丢登录态与下载；--vm 天然不备份）
-  --page <name>      启动后直接进某个页面（miniapp_cli start --<name>）
-  --wait <秒>        等待应用就绪的上限，默认 40；0 = 不等待
-  --device <序列号>  多台设备时指定（也可用 BPNCM_DEVICE 环境变量）
-  --ssh [目标]       走 Wi-Fi SSH（目标 = ssh 别名或 user@host，单参数，默认别名 pen）；
-                     也可用 BPNCM_TRANSPORT=ssh / BPNCM_SSH 环境变量
-  --appid <id>       覆盖 package.json 里的 appid（默认读 package.json）
-  --vm               装进 dictpen-vm（走 dpctl，不备份数据）
-  --force            清掉残留的装机/构建锁
-  -h, --help         显示本帮助
+  --build        构建后再装（默认）
+  --no-build     直接装 build/ 里现成的产物
+  --fresh        先 uninstall 再装（会清空该应用 data；默认覆盖安装、data 保留）
+  --page <name>  启动后直接进某个页面（miniapp_cli start --<name>）
+  --wait <秒>    等待应用就绪的上限，默认 40；0 = 不等待
+  --device <名>  用工具链 config.toml 里登记的设备
+  --via <通路>   只走这条通路（adb / ssh / vm），不退让
+  --appid <id>   覆盖 package.json 里的 appid
+  --force        清掉残留的装机/构建锁
+  -h, --help     显示本帮助
 
 截图不在本脚本里：装机后用 bash scripts/shot.sh
 EOF
 }
 
 DO_BUILD=1
-DO_BACKUP=1
-VM=0
-TRANSPORT=""
-SSH_TARGET=""
+FRESH=0
 PAGE=""
 WAIT=40
 LOCK_FORCE=0
-DEVICE="${BPNCM_DEVICE:-}"
 APPID_OVERRIDE=""
+SEL_ARGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --build)     DO_BUILD=1; shift ;;
     --no-build)  DO_BUILD=0; shift ;;
-    --backup)    DO_BACKUP=1; shift ;;
-    --no-backup) DO_BACKUP=0; shift ;;
-    --vm)        VM=1; shift ;;
+    --fresh)     FRESH=1; shift ;;
     --page)      PAGE="${2:-}"; shift 2 ;;
-    --device)    DEVICE="${2:-}"; shift 2 ;;
-    --ssh)       TRANSPORT=ssh
-                 if [ $# -gt 1 ] && [ -n "${2:-}" ] && [ "${2#-}" = "$2" ]; then SSH_TARGET="$2"; shift; fi
-                 shift ;;
     --wait)      WAIT="${2:-}"; shift 2 ;;
     --appid)     APPID_OVERRIDE="${2:-}"; shift 2 ;;
     --force)     LOCK_FORCE=1; shift ;;
+    # 设备选择交给工具链（--device / --via 的值原样透传）
+    --device|--via|--ssh|--vm) SEL_ARGS+=("$1"); shift
+                   if [ $# -ge 1 ] && [ -n "${1:-}" ] && [ "${1#-}" = "$1" ]; then
+                     SEL_ARGS+=("$1"); shift
+                   fi ;;
     -h|--help)   usage; exit 0 ;;
     [0-9]*)      WAIT="$1"; shift ;;   # 兼容旧用法：位置上的数字 = 等待秒数
     *)           printf '未知参数：%s\n' "$1" >&2; usage; exit 1 ;;
@@ -78,56 +70,15 @@ case "$PAGE" in *[!0-9A-Za-z_]*) die "--page 只接受页面名（字母数字�
 proj_init
 APPID="${APPID_OVERRIDE:-$(appid_of)}"
 
-# ---------- 目标执行器：真机 adb / 真机 ssh / 虚拟机 dpctl ----------
-# 三个后端统一走 lib/device.sh 的传输层（dev_run/dev_put/dev_get/dev_exists），
-# 本脚本不再自己拼 adb/ssh/dpctl 命令。
+# 设备连接走工作区工具链（lib/device.sh 是它的适配层）。
 # ⚠ 不能写 `[ -n "$X" ] && SEL_ARGS+=(...)`：set -e 下 X 为空会让整条 && 列表
 #   返回非 0，脚本静默退出。用 if 保持列表返回 0。
-SEL_ARGS=()
-if [ -n "$DEVICE" ]; then SEL_ARGS+=(--device "$DEVICE"); fi
-if [ -n "$SSH_TARGET" ]; then SEL_ARGS+=(--ssh "$SSH_TARGET"); fi
-if [ "$VM" = 1 ]; then
-  # 旧环境变量名兼容：device.sh 只认 BPNCM_VM_PY
-  [ -n "${DICTPEN_VM_PY:-}" ] && [ -z "${BPNCM_VM_PY:-}" ] && export BPNCM_VM_PY="$DICTPEN_VM_PY"
-  dev_select vm
-else
-  dev_select "${TRANSPORT:-adb}" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
-fi
-# ⚠ 这台设备的 adbd 不回传远程退出码（`adb shell "test -e 不存在的路径"` 本地 rc 也是 0，
-#   2026-11-01 实测），所以 dev_exists **不能**靠 dev_run 的退出码 —— 那会恒为真，
-#   残留检查就永远误报「两边都有数据」。dev_exists 已由 device.sh 按此契约实现
-#   （只看 `ls -d` 的输出）；SSH 后端能回传真实退出码，`|| die` 会真实触发（fail-fast），
-#   见 device.sh 头部契约。关键的 mv 之后仍必须用 dev_exists 做事后校验。
+dev_select --project "$PROJ" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
+# ⚠ 这台设备的 adbd 不回传远程退出码（`adb shell "test -e 不存在的路径"` 本地 rc
+#   也是 0，2026-11-01 实测），所以 dev_exists **不能**靠 dev_run 的退出码 ——
+#   那会恒为真。dev_exists 只看 `ls -d` 的输出；SSH 后端能回传真实退出码，
+#   `|| die` 会真实触发（fail-fast）。关键的写操作之后仍用 dev_exists 事后校验。
 
-PKG="/userdisk/secondary/miniapp/data/mini_app/pkg/$APPID"
-DATA="$PKG/data"
-# 暂存与 data 同属 /userdisk（单块 ext4）→ mv 是 rename。按 appid 分目录，
-# 探针版与正式版同时装卸不会串。放在 <appid>/ 之外：uninstall 会删掉整个 <appid>。
-BAK_DATA="/userdisk/.bpncm_bak/$APPID/data"
-BAK_ACTIVE=0
-
-# 暂存目录的两层空壳（<bak>/<appid> 与 <bak>）都收掉，否则设备上会一直留着空目录。
-# 只在目录为空时 rmdir 才成功，不会误删东西。
-bak_cleanup() {
-  dev_run "rmdir $(dirname "$BAK_DATA") 2>/dev/null; rmdir $(dirname "$(dirname "$BAK_DATA")") 2>/dev/null" \
-    >/dev/null 2>&1 || true
-}
-
-# 装机失败时把数据搬回去（由锁的退出钩子统一调度；这里**不要 exit**，退出码由 lock.sh 透传）
-rollback_data() {
-  if [ "${BAK_ACTIVE:-0}" = "1" ]; then
-    printf '\n⚠ 装机中断，回滚应用数据：%s → %s\n' "$BAK_DATA" "$DATA" >&2
-    if dev_run "mkdir -p $PKG; rm -rf $DATA; mv $BAK_DATA $DATA" >/dev/null 2>&1; then
-      printf '  已回滚，数据回到原位（未丢失）\n' >&2
-      BAK_ACTIVE=0
-      bak_cleanup
-    else
-      printf '  ✗ 回滚失败：数据完整保存在设备的 %s，手动 mv 回 %s\n' "$BAK_DATA" "$DATA" >&2
-    fi
-  fi
-}
-
-lock_add_exit_hook rollback_data
 lock_acquire install
 
 info "应用: $APPID    目标: $DEVICE_LABEL"
@@ -149,77 +100,32 @@ AMRF="$(basename "$AMR")"
 [ "${AMRF%%.*}" = "$APPID" ] || die "产物与 appid 不符：$AMRF（期望前缀 $APPID）"
 info "产物: $AMRF（$(du -h "$AMR" | cut -f1)）"
 
-# ---------- 2) 认领上次失败的残留备份（真机） ----------
-if [ "$VM" = 0 ]; then
-  stage "检查上次装机残留"
-  if dev_exists "$BAK_DATA"; then
-    warn "发现上次装机留下的数据备份：$BAK_DATA"
-    if dev_exists "$DATA"; then
-      warn "  当前 data 也在（$DATA）—— 两边都有数据，脚本不替你选："
-      warn "    保留现有 data：adb shell rm -rf $(dirname "$BAK_DATA")"
-      warn "    改用备份数据：adb shell rm -rf $DATA && adb shell mkdir -p $PKG && adb shell mv $BAK_DATA $DATA"
-      die "请先处理上面的冲突再重跑"
-    fi
-    dev_run "mkdir -p $PKG && mv $BAK_DATA $DATA" || die "残留备份归位失败：$BAK_DATA 仍在设备上"
-    dev_exists "$DATA" || die "残留备份归位后 $DATA 不存在（adb 不回传退出码，mv 可能没执行）"
-    info "  已把上次的备份归位到 data（登录态与下载都保住了）"
-  else
-    info "  无残留"
-  fi
-fi
-
-# ---------- 3) 备份（真机，整目录 rename） ----------
-if [ "$VM" = 0 ] && [ "$DO_BACKUP" = 1 ]; then
-  stage "备份应用数据（整目录 rename，不拷贝）"
-  if dev_exists "$DATA"; then
-    if dev_exists "$BAK_DATA"; then die "暂存目录意外存在，拒绝覆盖：$BAK_DATA"; fi
-    SZ="$(dev_run "du -sh $DATA 2>/dev/null | cut -f1" 2>/dev/null | tr -d '\r')"
-    dev_run "mkdir -p $(dirname "$BAK_DATA") && mv $DATA $BAK_DATA" \
-      || die "备份失败（数据仍在 $DATA，未动）"
-    BAK_ACTIVE=1
-    info "  $DATA → $BAK_DATA（${SZ:-大小未知}）"
-  else
-    info "  设备上还没有 data 目录，跳过"
-  fi
-elif [ "$VM" = 0 ]; then
-  stage "跳过备份（--no-backup）"
-fi
-
-# ---------- 4) 卸载 / 推送 / 安装 ----------
-stage "卸载 / 推送 / 安装"
+# ---------- 2) 推送 / 安装 ----------
+stage "推送 / 安装"
 dev_run "mkdir -p /userdisk/Favorite" >/dev/null 2>&1 || true
 REMOTE_AMR="/userdisk/Favorite/$AMRF"
-dev_run "miniapp_cli uninstall $APPID" >/dev/null 2>&1 || true
+
+# --fresh 会清空该应用的 data（登录态/设置/下载全丢），所以是显式选项。
+if [ "$FRESH" = 1 ]; then
+  warn "卸载旧版本（--fresh：会清空该应用的 data）"
+  dev_run "miniapp_cli uninstall $APPID" >/dev/null 2>&1 || true
+fi
 
 dev_put "$AMR" "$REMOTE_AMR" || die "推送失败（设备空间不足或设备掉线）"
 
-# 确认装上去的就是这次构建的字节（VM 是同机文件系统，不需要）
-if [ "$VM" = 0 ]; then
-  LOCAL_MD5="$(md5sum "$AMR" | cut -d' ' -f1)"
-  REMOTE_MD5="$(dev_run "md5sum $REMOTE_AMR 2>/dev/null | cut -d' ' -f1" 2>/dev/null | tr -d '\r')"
-  [ "$LOCAL_MD5" = "$REMOTE_MD5" ] \
-    || die "推送后 md5 不一致（本地 $LOCAL_MD5 / 远端 ${REMOTE_MD5:-空}）"
-  info "  md5 一致：$LOCAL_MD5"
-fi
+# 确认装上去的就是这次构建的字节
+LOCAL_MD5="$(md5sum "$AMR" | cut -d' ' -f1)"
+REMOTE_MD5="$(dev_run "md5sum $REMOTE_AMR 2>/dev/null | cut -d' ' -f1" 2>/dev/null | tr -d '\r')"
+[ "$LOCAL_MD5" = "$REMOTE_MD5" ] \
+  || die "推送后 md5 不一致（本地 $LOCAL_MD5 / 远端 ${REMOTE_MD5:-空}）"
+info "  md5 一致：$LOCAL_MD5"
 
 dev_run "miniapp_cli install $REMOTE_AMR" || die "miniapp_cli install 返回非 0"
 
-# ---------- 5) 恢复数据（必须在首次启动之前） ----------
-if [ "$BAK_ACTIVE" = 1 ]; then
-  stage "恢复应用数据"
-  # install 可能建了空的 data（部分版本会），先清掉再 mv，否则会变成 data/data
-  dev_run "mkdir -p $PKG; rm -rf $DATA; mv $BAK_DATA $DATA" \
-    || die "恢复失败：数据完整保存在 $BAK_DATA"
-  dev_exists "$DATA" || die "恢复后 $DATA 不存在（adb 不回传退出码，mv 可能没执行）：数据完整保存在 $BAK_DATA"
-  BAK_ACTIVE=0
-  bak_cleanup
-  info "  数据已回到 $DATA"
-fi
-
-# ---------- 6) 启动 + 就绪 ----------
+# ---------- 3) 启动 + 就绪 ----------
 # ⚠ 顶层 `[ -n "$X" ] && ...` 不能用：MSYS bash 5.3.20（DSH agent 执行环境）存在
 #   errexit 偏差——脚本 source 链里有 `.` 命令时，顶层 && 列表首命令失败（X 为空）
-#   即整脚本静默退出 rc=1；Git Bash 5.3.15 正常。全脚本统一 if 写法（2026-11-08 评审钉死）。
+#   即整脚本静默退出 rc=1；Git Bash 5.3.15 正常。全脚本统一 if 写法。
 stage "启动"
 START_ARGS=""
 if [ -n "$PAGE" ]; then START_ARGS="--$PAGE"; fi

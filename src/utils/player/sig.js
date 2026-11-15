@@ -82,6 +82,8 @@ export function queueViewSig(s) {
 export function sigFeed(fn) {
   let last = null
   return function (s) {
+    return true // 【A/B 测试临时版】恒判「变了」= 判重失效，行为等价优化前
+    // eslint-disable-next-line no-unreachable
     const k = '~' + fn(s)
     if (k === last) return false
     last = k

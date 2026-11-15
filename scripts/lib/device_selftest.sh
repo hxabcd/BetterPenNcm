@@ -137,10 +137,30 @@ cp "$HERE/common.sh" "$PROJ/scripts/lib/common.sh"
 cp "$HERE/device.sh" "$PROJ/scripts/lib/device.sh"
 export BPNCM_ADB="$MOCK/adb" BPNCM_SSH_BIN="$MOCK/ssh" BPNCM_SCP_BIN="$MOCK/scp"
 
+# device.sh 现在是工作区共享工具链的适配层。临时目录不在工作区里，向上找不到
+# tools/dictpen-dev；把真实工作区指给它，测的仍是生产代码路径（共享层一行不改）。
+_selftest_ws() {
+  local d="$HERE"
+  while [ -n "$d" ] && [ "$d" != "/" ] && [ "$d" != "." ]; do
+    if [ -f "$d/tools/dictpen-dev/lib/transport.sh" ]; then printf '%s' "$d"; return 0; fi
+    d="$(dirname "$d")"
+  done
+  return 1
+}
+if ! DPD_SELFTEST_WS="$(_selftest_ws)"; then
+  printf 'FAIL  找不到工作区 tools/dictpen-dev（自测需要它在源仓库里）\n' >&2
+  exit 1
+fi
+export DPD_WORKSPACE="$DPD_SELFTEST_WS"
+# 共享层用 DPD_* 键；本自测的 mock 二进制走这些变量名。
+export DPD_ADB_BIN="$MOCK/adb" DPD_SSH_BIN="$MOCK/ssh" DPD_SCP_BIN="$MOCK/scp"
+
 # common.sh 会 source device.sh，die/info/warn 也因此可用。
 . "$PROJ/scripts/lib/common.sh"
-# 每个用例重新 source device.sh，避免状态串味
-load() { unset DEV_TRANSPORT DEVICE DEVICE_LABEL DEV_ADB_BIN DEV_SSH_TARGET BPNCM_TRANSPORT; . "$PROJ/scripts/lib/device.sh"; }
+# 每个用例重新 source device.sh，避免状态串味。
+# 共享层用 DPD_* 键：DPD_TRANSPORT/DPD_TARGET 是**输入**，必须与旧名一起清，
+# 否则上一用例解析出的目标会挡住本用例显式设置的 BPNCM_SSH（适配层只在未设时映射）。
+load() { unset DEV_TRANSPORT DEVICE DEVICE_LABEL DEV_ADB_BIN DEV_SSH_TARGET BPNCM_TRANSPORT DPD_TRANSPORT DPD_TARGET DPD_EFFECTIVE_TRANSPORT; . "$PROJ/scripts/lib/device.sh"; }
 
 echo "=== 传输层自测（mock adb / ssh / scp） ==="
 

@@ -47,7 +47,11 @@ done
 ACTION="${ACTION:-}"
 [ -n "$ACTION" ] || die "devctl: 缺动作（run/put/get/exists/check；-h 看用法）"
 
-dev_select "${MODE:-${BPNCM_TRANSPORT:-adb}}" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
+# 不指定 --ssh/--device/--vm 时按项目配置选设备（工作区 targets.env 或本项目
+# .dictpen-dev.env），不再把 adb 写死成默认值。
+_DCTL_ARGS=()
+[ -n "$MODE" ] && _DCTL_ARGS+=(--transport "$MODE")
+dev_select --project "${PROJ:-$PWD}" "${_DCTL_ARGS[@]+"${_DCTL_ARGS[@]}"}" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
 
 case "$ACTION" in
   run)    [ $# -ge 1 ] || die "devctl run: 缺命令串"

@@ -88,9 +88,11 @@ trap cleanup EXIT INT TERM
 # 设备连接由传输层解析（lib/device.sh）：默认 ADB 自动选唯一设备，
 # --ssh / BPNCM_TRANSPORT=ssh 走 Wi-Fi。dev_select 自带连通校验。
 SEL_ARGS=()
-[ -n "$SEL_DEVICE" ] && SEL_ARGS+=(--device "$SEL_DEVICE")
-[ -n "$SEL_SSH_TARGET" ] && SEL_ARGS+=(--ssh "$SEL_SSH_TARGET")
-dev_select "${SEL_TRANSPORT:-${BPNCM_TRANSPORT:-adb}}" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
+[ -n "$SEL_DEVICE" ] && SEL_ARGS+=(--target "$SEL_DEVICE")
+[ -n "$SEL_SSH_TARGET" ] && SEL_ARGS+=(--target "$SEL_SSH_TARGET")
+_NS_ARGS=()
+if [ -n "$SEL_TRANSPORT" ]; then _NS_ARGS+=(--transport "$SEL_TRANSPORT"); fi
+dev_select --project "$PROJ" ${_NS_ARGS[@]+"${_NS_ARGS[@]}"} ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
 
 PASS=0
 FAIL=0

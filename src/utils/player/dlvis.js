@@ -36,8 +36,7 @@ export function bindDl(vm, fn) {
   }
   let visible = true
   const off = onDl(function (s) {
-    if (!visible) return
-    call(s)
+    call(s) // 【A/B 测试临时版】不做可见性门控，行为等价优化前
   })
   const visOff = bindPageVis(vm, function (on) {
     const was = visible

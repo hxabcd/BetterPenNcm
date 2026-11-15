@@ -31,12 +31,13 @@ while [ $# -gt 0 ]; do
     *)              die "未知参数：$1" ;;
   esac
 done
-MODE="${MODE:-${BPNCM_TRANSPORT:-adb}}"
-
+# 不指定 --adb/--ssh/--vm 时按项目配置选设备（工作区 targets.env 或本项目
+# .dictpen-dev.env）；显式指定才覆盖。不再把 adb 写死成默认值。
 SEL_ARGS=()
-[ -n "$DEV_SERIAL" ] && SEL_ARGS+=(--device "$DEV_SERIAL")
-[ "$MODE" = ssh ] && [ -n "$SSH_TARGET" ] && SEL_ARGS+=(--ssh "$SSH_TARGET")
-dev_select "$MODE" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
+[ -n "$MODE" ] && SEL_ARGS+=("--transport=$MODE")
+[ -n "$DEV_SERIAL" ] && SEL_ARGS+=("--target=$DEV_SERIAL")
+[ -n "$SSH_TARGET" ] && SEL_ARGS+=("--target=$SSH_TARGET")
+dev_select --project="$PROJ" "${SEL_ARGS[@]+"${SEL_ARGS[@]}"}"
 
 info "目标: $DEVICE_LABEL"
 PASS=0; FAIL=0
@@ -75,3 +76,5 @@ info ""
 info "结果: PASS=$PASS FAIL=$FAIL（目标 $DEVICE_LABEL）"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
+
+

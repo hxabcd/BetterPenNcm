@@ -48,10 +48,9 @@ const http = (m && m.default) || m
 
 ### 3.1 实测边界（S7，2026-10-17）
 
-- `http.request` 的响应体按 C 字符串返回，**遇到第一个 NUL 就截断**：`AB\0CD` 只回 `AB`，首字节为 0 的图片回 0 字节，MP3 只回 `ID3\x03`。**只用于文本/JSON；图片/音频/protobuf 用 `download` 或 curl。**
-- `http.download` 返回时文件可能还没 flush 完：1KB 首次 `stat`=0、4KB=0、4097B=4096、1MB=1044480，100ms 后完整。**读大小/校验前至少等 100ms 或轮询到稳定。**
-- 速度取决于站点/CDN，不是固定上限：局域网 10MB `http.request` 7.5MB/s、`http.download` 9.2MB/s、curl 9.2MB/s；163 CDN 10.69MB `http.download` 3.4~6.2MB/s、curl 4.8~9.3MB/s；慢 HTTPS 站点三者 0.2~0.4MB/s。
-- 分片在快链路上更亏：局域网 10MB 整文件 1.09s、4MB 片 2.56s、512KB 片（2 exec/片）4.61s；片数/连接数比片大小更关键。完整 5 轮数据见父工作区 `docs/fetch通道速度实测_2026-10-17.md`。
+- `http.request` 的响应体按 C 字符串返回，**遇到第一个 NUL 就截断**（图片/MP3 会拿到截断内容）。**只用于文本/JSON；图片/音频/protobuf 用 `download` 或 curl。**两条边界、速度数据与分片结论的完整实测见 [`docs/fetch通道速度实测_2026-10-17.md`](../../../docs/fetch通道速度实测_2026-10-17.md)（权威来源）。
+- `http.download` 返回时文件可能还没 flush 完：读大小/校验前至少等 100ms 或轮询到稳定（详见 fetch 实测文档）。
+- 速度取决于站点/CDN，不是固定上限；分片在快链路上更亏，片数/连接数比片大小更关键——数据见 fetch 实测文档。
 
 ## 4. 音频：`soundPlayer`
 
@@ -124,9 +123,7 @@ const r = await P.exec('/bin/sh', ['-c', cmd], { timeout: 8000, maxBuffer: 26214
 
 - **exec 不解析 shell 命令串**：`P.exec('echo hi')` 会把整串当可执行文件路径（code=127）；必须 `P.exec('/bin/sh', ['-c', cmd])`。
 - 以 root 运行；`/bin/sh`、`curl`、`wget`、`busybox`、`dd`、`cat` 都在。
-- 系统 curl 7.77.0 带 OpenSSL，支持 Range：`curl -r 0-262143` → 206；`-w '%{http_code} %{size_download} %{speed_download}'` 可取码/字节/速度。
-- 续传：`-C -` 或按 `.part` 大小自己算 `-r` 起点；`-C -` 与 `-r a-b` 同用会丢掉范围终点，别混用。
-- 低速与断线：`--speed-limit 49152 --speed-time 10`（低于 48KB/s 持续 10s → rc=28）、`--connect-timeout 8 --max-time 120`。
+- 系统 curl 7.77.0 带 OpenSSL，支持 Range（`-r 0-262143` → 206）；续传、低速断线、超时等参数用法与坑（`-C -` 与 `-r a-b` 混用丢终点、`--speed-limit`/`--speed-time`、`--connect-timeout`）见 [`docs/fetch通道速度实测_2026-10-17.md`](../../../docs/fetch通道速度实测_2026-10-17.md)。
 
 ## 7. 网易云接口
 

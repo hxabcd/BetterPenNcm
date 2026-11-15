@@ -84,16 +84,20 @@ SEL_ARGS=()
 if [ -n "$DEVICE" ]; then SEL_ARGS+=(--device "$DEVICE"); fi
 if [ -n "$SSH_TARGET" ]; then SEL_ARGS+=(--ssh "$SSH_TARGET"); fi
 if [ "$VM" = 1 ]; then
-  [ -n "${DICTPEN_VM_PY:-}" ] && [ -z "${BPNCM_VM_PY:-}" ] && export BPNCM_VM_PY="$DICTPEN_VM_PY"
-  dev_select vm
+  [ -n "${DICTPEN_VM_PY:-}" ] && [ -z "${DPD_VM_PY:-}" ] && export DPD_VM_PY="$DICTPEN_VM_PY"
+  dev_select --transport vm --project "$PROJ"
   # dpctl screenshot 不是五个传输原语之一（截图留在本脚本是刻意偏差，不属于通用传输能力）
   stage "截取虚拟机画面"
-  "$DEV_VM_PY" "$DEV_VM_DPCTL" screenshot --out "$(cygpath -w "$OUT")"
+  $DPD_VM_PY "$DPD_VM_DPCTL" screenshot --out "$(cygpath -w "$OUT")"
   info "  截图: $OUT"
   stage_done
   exit 0
 fi
-dev_select "${TRANSPORT:-adb}" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
+# 不指定 --ssh/--device 时按项目配置选设备（工作区 targets.env 或本项目
+# .dictpen-dev.env），不再把 adb 写死成默认值。
+_SHOT_ARGS=()
+if [ -n "$TRANSPORT" ]; then _SHOT_ARGS+=(--transport "$TRANSPORT"); fi
+dev_select --project "$PROJ" ${_SHOT_ARGS[@]+"${_SHOT_ARGS[@]}"} ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}
 
 dev_run 'echo 200 > /sys/class/backlight/backlight/brightness' >/dev/null 2>&1 || true
 

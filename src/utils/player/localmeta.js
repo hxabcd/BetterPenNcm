@@ -34,22 +34,20 @@ const T_ALBUM = 'album'
 const T_ARTIST = 'artist'
 
 /**
- * 一条 sqlite3 命令的体积预算（**转义后的字节数**）。
+ * 一批 SQL 的体积预算。
  *
- * db.js 把整批 SQL 拼成**一个** `/bin/sh -c <整串>` 参数，而单参数上限环境相关：
- * 设备（Linux）128KB，开发机 Git Bash 实测 ~6KB 就报 `unexpected EOF`。
- * 所以按**字节**装箱：大库只是多 fork 几次，而「整批超限 → 整批静默失败」会凭空丢索引。
+ * 走原生 `sqlite3` 后已经没有「argv 上限」这回事（不再拼 `/bin/sh -c`、也不 fork），
+ * 但语句仍是拼成一整串交给 `db.exec()`，所以保留分箱：一批太大时出错会更难定位，
+ * 而且单批变小能让写落在多个事务里、主线程不至于长时间不返回。
  */
 const SQL_BATCH_BYTES = 6000
 
-/** 一条语句在 shell 单引号里占的字节（对齐 db.js 的 shq：外层一对 '，内部每个 ' 变 4 字符） */
+/** 一条语句的近似体积（保留原口径，只用于分箱，不要求精确） */
 function escapedLen(sql) {
-  let n = sql.length + 2
-  for (let i = 0; i < sql.length; i++) if (sql.charAt(i) === "'") n += 3
-  return n
+  return sql.length + 2
 }
 
-/** 顺序提交一批 SQL，按字节装箱（每箱一次 fork）。单条超限时自己成批，不连带整批。 */
+/** 顺序提交一批 SQL，按字节装箱。单条超限时自己成批，不连带整批。 */
 async function runStmts(stmts) {
   let batch = []
   let bytes = 0
@@ -69,7 +67,7 @@ async function runStmts(stmts) {
 /**
  * 多行 `INSERT OR REPLACE`：一行元组只要 ~20B。
  * 逐条写 upsert 要 ~90B/行（每条都重复列名与 ON CONFLICT 子句），
- * 几百首的库在 6KB 预算下会多 fork 好几倍。
+ * 几百首的库在 6KB 预算下会多分几箱。
  */
 function replaceRowsSql(table, cols, rows) {
   if (!rows.length) return []
@@ -219,7 +217,7 @@ function mapArtists(list) {
  * 写入一首歌的索引（与已有条目**合并写**：新快照缺的字段保留旧值）。
  * info = fetchSongInfo 的返回（{song, artists, album, publishTime, trackNo, disc, popularity}）。
  *
- * 两条路径一起更新：先改内存投影（读的真相），再拼一批 SQL 落库（一批只 fork 一次）。
+ * 两条路径一起更新：先改内存投影（读的真相），再拼一批 SQL 落库（一批一个事务）。
  * 写库失败只记日志 —— 文件系统才是真相，索引丢了能重建，不能让下载链路跟着炸。
  */
 export async function putIndex(id, info) {

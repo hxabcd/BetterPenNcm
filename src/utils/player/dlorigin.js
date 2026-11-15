@@ -27,7 +27,7 @@
  *   - 曲目没进过索引（本功能上线前的老文件）也会有一行：name 为空、只有 dl_origin。
  *     localmeta 的「已索引」判据是 name 非空，所以这类行不会被当成有详情的曲目。
  *   - 反过来，清标记只把列置 0，不删行（行里的索引数据仍有效）。
- * 读写模型见 utils/db.js：内存态是读的真相，写走批量 upsert（一次 fork）。
+ * 读写模型见 utils/db.js：内存态是读的真相，写走批量 upsert（一批一个事务）。
  */
 import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, num } from '../db.js'
 import { log } from '../log.js'

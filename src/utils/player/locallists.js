@@ -63,23 +63,20 @@ const T_PL = 'playlist'
 const T_PT = 'playlist_track'
 
 /**
- * 一条 sqlite3 命令的体积预算（**转义后的字节数**）。
+ * 一批 SQL 的体积预算。
  *
- * db.js 把整批 SQL 拼成**一个** `/bin/sh -c <整串>` 参数，而单参数上限环境相关：
- * 设备（Linux）128KB，开发机 Git Bash 实测 ~6KB 就开始报 `unexpected EOF`。
- * 所以按**字节**装箱，取两边都安全的值 —— 大歌单（几千首）只是多 fork 几次，
- * 而「整批超限 → 整批静默失败」是不可接受的（索引会凭空丢歌单曲目）。
+ * 走原生 `sqlite3` 后已经没有「argv 上限」这回事（不再拼 `/bin/sh -c`、也不 fork），
+ * 但语句仍是拼成一整串交给 `db.exec()`，所以保留分箱：一批太大时出错更难定位，
+ * 而且单批变小能让写落在多个事务里、主线程不至于长时间不返回。
  */
 const SQL_BATCH_BYTES = 6000
 
-/** 一条语句在 shell 单引号里占的字节数（db.js 的 shq：外层一对 '，内部每个 ' 转成 4 字符） */
+/** 一条语句的近似体积（保留原口径，只用于分箱，不要求精确） */
 function escapedLen(sql) {
-  let n = sql.length + 2
-  for (let i = 0; i < sql.length; i++) if (sql.charAt(i) === "'") n += 3
-  return n
+  return sql.length + 2
 }
 
-/** 顺序提交一批 SQL，按字节装箱（每箱一次 fork）。单条超限时自己成批，不连带整批。 */
+/** 顺序提交一批 SQL，按字节装箱。单条超限时自己成批，不连带整批。 */
 async function runStmts(stmts) {
   let batch = []
   let bytes = 0
@@ -99,7 +96,7 @@ async function runStmts(stmts) {
 /**
  * 多对多关系的整组替换：`INSERT OR REPLACE` 多行 VALUES。
  * 一行 ~20B（逐条 upsert 要 ~90B，因为每条都重复列名与 ON CONFLICT 子句），
- * 大歌单下这决定了要 fork 几次。
+ * 大歌单下这决定了要分几箱。
  */
 function replaceRowsSql(table, cols, rows) {
   if (!rows.length) return []
@@ -135,15 +132,13 @@ function qv(v) {
 /**
  * 把一个大文本列写进某一行的 SQL 片段：先清空再分片 `col = col || '<片段>'`。
  *
- * 为什么要分片：`base_ids` / `remote_ids` 是 JSON 数组文本，跟歌单曲目数成正比
- * （10000 首 ≈ 70KB）。db.js 把整批拼成**一个** `/bin/sh -c` 参数，
- * 10k 首歌单的两列合起来会顶到设备 128KB 单参数上限 —— 那样整条歌单记录静默写不进去。
- * 拆成多片追加就与歌单大小无关了。
+ * 为什么还要分片：`base_ids` / `remote_ids` 是 JSON 数组文本，跟歌单曲目数成正比
+ * （10000 首 ≈ 70KB）。整串一次拼进单条语句会让「单句出错」的影响面变得很大，
+ * 而且 SQLite 对单条语句长度也有上限；拆成多片追加就与歌单大小无关了。
  */
 function appendTextColSql(table, idCol, id, col, text) {
   const s = text === undefined || text === null ? '' : String(text)
   const out = ['UPDATE ' + table + ' SET ' + col + " = '' WHERE " + idCol + ' = ' + num(id) + ';']
-  // 片段按转义后的字节算：单引号在 SQL 里翻倍、在 shell 里再翻，这里留一半余量
   const CHUNK = 2000
   let i = 0
   while (i < s.length) {
@@ -234,7 +229,7 @@ async function load() {
 }
 
 /**
- * 落一条歌单记录：playlist 行 + playlist_track 关系行（一次事务、一批 fork）。
+ * 落一条歌单记录：playlist 行 + playlist_track 关系行（一次事务、一批写完）。
  * 先改内存（读的真相），再拼 SQL —— 与 localmeta 同一套「内存 + 写穿」模式。
  */
 async function persist(rec) {

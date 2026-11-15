@@ -405,7 +405,42 @@ for (const t of ['album', 'artist', 'kv', 'playlist', 'playlist_track', 'track',
   truthy('表存在：' + t, tables.includes(t))
 }
 
-/* ---------------- 汇总 ---------------- */
+/* ---- 迁移：必须能跑完并写出版本号（真机曾卡在 cleanupErrLog） ---- */
+console.log('\n8) migrate —— 入口必须能跑完')
+const migrate = await import(path.join(srcDst, 'utils/migrate.js').replace(/\\/g, '/').replace(/^/, 'file://'))
+{
+  // 造一份旧布局：store/*.json + storage/preferences.json
+  const storeDir = path.join(dataDir, 'store')
+  const storageDir = path.join(dataDir, 'storage')
+  fs.mkdirSync(storeDir, { recursive: true })
+  fs.mkdirSync(storageDir, { recursive: true })
+  fs.writeFileSync(path.join(storeDir, 'local_index.json'), JSON.stringify({
+    9001: { n: '迁移歌', alia: [], ars: [{ i: 501, n: '歌手甲' }], al: { i: 601, n: '专辑甲', c: '' }, d: 1000, pub: 0, no: 1, cd: '01', pop: 0, fee: 0 }
+  }))
+  fs.writeFileSync(path.join(storageDir, 'preferences.json'), JSON.stringify({
+    ncm_settings: JSON.stringify({ rate: 1.25 }),
+    bpncm_dl_origin: JSON.stringify({ 9001: 1 })
+  }))
+  // 让已经打开的旧实例失效（迁移会重新读库）
+  db.reset()
+  const res = await Promise.race([
+    migrate.run(1),
+    new Promise((r) => setTimeout(() => r({ timeout: true }), 15000))
+  ])
+  truthy('migrate.run 在 15s 内返回（不得自锁）', res && !res.timeout)
+  eq('迁移版本 from', res.from, 1)
+  truthy('迁移写回 layoutVersion=2', res.ok === true && res.migrated === true)
+  const cfg = JSON.parse(await db.kvGet(store.KEY_SETTINGS) || '{}')
+  eq('配置行里的 layoutVersion', cfg.layoutVersion, 2)
+  truthy('旧设置被合并进来（rate=1.25）', cfg.rate === 1.25)
+  const row = new DatabaseSync(paths.dbFile())
+  const trow = row.prepare('SELECT name, dl_origin FROM track WHERE id = 9001').get()
+  row.close()
+  eq('旧索引进库', trow && trow.name, '迁移歌')
+  eq('归属标记进库', trow && trow.dl_origin, 1)
+}
+
+/* ---------------- 汇总 ---- */
 console.log('\n' + '='.repeat(60))
 if (failures.length) {
   console.log('失败 ' + failures.length + ' 项 / 通过 ' + pass + ' 项')

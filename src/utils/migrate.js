@@ -50,7 +50,7 @@ import {
   trackCover,
   trackFile
 } from './paths.js'
-import { fileExists, readNames, readTextFile } from './fsutil.js'
+import { fileExists, readNames, readTextFile, removePath } from './fsutil.js'
 import { run as sh } from './exec.js'
 import {
   ensureDb,
@@ -611,9 +611,16 @@ async function readFailures() {
   return out
 }
 
+/**
+ * 删掉失败项日志（原生 `fs.rm`，不 fork）。
+ *
+ * ⚠ 别在这里调本文件的 `run` —— 那是**迁移入口**，会拿到正在执行的那个 Promise，
+ * 等于让迁移 await 自己，后面写 layoutVersion 的那一步永远不执行（真机上表现为
+ * 「写完 kv 就再没日志、布局版本不推进、每次启动重跑迁移」）。
+ */
 async function cleanupErrLog() {
   try {
-    await run('rm -f ' + shq(errLogPath()), 8000)
+    await removePath(errLogPath())
   } catch (e) {}
 }
 

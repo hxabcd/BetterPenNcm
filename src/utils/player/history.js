@@ -1,5 +1,5 @@
 /**
- * 播放历史（纯本地记录）—— 模块级单例 + storage 持久化
+ * 播放历史（纯本地记录）—— 模块级单例 + SQLite 持久化
  *
  * 设计要点：
  *   - **去重**：同一首歌重复播放 → 保留最近一次（移除旧条目、unshift 到最前并刷新 at）
@@ -9,16 +9,16 @@
  *     不动 at、不新增条目 —— 记录点在出声瞬间必须同步快照，详情是异步的
  *   - 落盘是**串行 + 合并写**：record 在 playAt 调用栈里同步执行，连点快切时
  *     不能每次都整份 JSON.stringify + setStorage（一次在飞 + 一次补写）
- *   - 写入失败静默降级（内存仍有效，与 store.js 同策略）。MAX=200：真机日志里
- *     len 超 ~60KB 或切歌有可感卡顿就把 MAX 降到 100（加载时已按 MAX 截断，无需迁移）
+ *   - 写入失败静默降级（内存仍有效，与 store.js 同策略）。MAX=200：历史是一整份 JSON
+ *     存一行，条目多了序列化本身就慢（与写盘通道无关），所以仍设上限
  *   - 变更广播 $falcon.trigger('bpncm:playhist')：首页卡片据此刷新。
  *     历史列表页**刻意不订阅**（重建 50 行会重下封面、滚动位置可能被打回顶部），
  *     见 list.vue 的说明
  */
-import { getStorage, setStorage } from '../store.js'
+import { getStorage, setStorage, KEY_PLAY_HIST } from '../store.js'
 import { log } from '../log.js'
 
-const KEY = 'bpncm_playhist'
+const KEY = KEY_PLAY_HIST
 const MAX = 200
 
 let items = [] // 新 → 旧

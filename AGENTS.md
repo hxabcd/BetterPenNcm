@@ -68,7 +68,8 @@ This file provides guidance to AI Agent when working with code in this repositor
 - 更新已装应用**直接 `miniapp_cli install` 覆盖即可**，不必先 uninstall（uninstall 会清空整个 data 目录）；`install.sh` 默认卸载重装并 `--backup` 备份/恢复 data，是为保全数据的项目选择，不是平台要求
 - **设备临时文件默认写 `/tmp`**（tmpfs，重启自清），不要在 `/userdisk` 根目录下建临时文件；`/tmp` 放不下的大文件才落 `/userdisk`；持久文件只进 `/userdisk/path/` 等既有子目录
 - 构建号写入生成物 `src/utils/buildInfo.js`（build.sh 生成，勿手改）并显示在首页顶栏，供核对设备版本
-- 平台能力的统一入口（别再各写各的）：可写路径一律走 `src/utils/paths.js`；`process.exec`/`curl`/`du`/`stat` 等能力探测走 `src/utils/exec.js`；`import('fs')` 句柄与 `fileSize` 等小工具走 `src/utils/fsutil.js`；单步超时护栏 `raceTimeout` 走 `src/utils/util.js`；**共享的 UI 视觉常量走 `src/utils/ui/tokens.js`**（唯一值表，改值改它再跑 `scripts/gen_tokens.py --write`；JS 用 `TOK.xxx`、LESS 用生成段里的 `@xxx`）。颜色字面量由 `theme_verify.py` 第五道强制拦截；字号/尺寸目前不巡，仍按值表与评审维护
+- 平台能力的统一入口（别再各写各的）：可写路径一律走 `src/utils/paths.js`；**文本/结构化数据的唯一写入通道是 `src/utils/db.js`（原生 `import('sqlite3')`，索引表 + kv + 每曲元数据/歌词）**；`process.exec`/`curl`/`du`/`stat` 等能力探测走 `src/utils/exec.js`；`import('fs')` 句柄与 `fileSize` 等小工具走 `src/utils/fsutil.js`（**没有写函数**）；单步超时护栏 `raceTimeout` 走 `src/utils/util.js`；**共享的 UI 视觉常量走 `src/utils/ui/tokens.js`**（唯一值表，改值改它再跑 `scripts/gen_tokens.py --write`；JS 用 `TOK.xxx`、LESS 用生成段里的 `@xxx`）。颜色字面量由 `theme_verify.py` 第五道强制拦截；字号/尺寸目前不巡，仍按值表与评审维护
+- **不要用 shell 重定向写文本文件**：`process.exec` 一次 = 一次 fork（真机 92~139ms），超 60KB 还得分片、每片再一次 fork。134KB 播放快照实测 2511ms，改走 SQLite 后 10ms。同理**不要用 `sqlite3` CLI**（每次一次 fork，且 SQL 走命令行参数会被代码页转成 GBK、中文变乱码）
 - **导航一律走 `src/utils/nav.js` 的 `go('<逻辑页名>')`**：不直接 `$falcon.navTo`、不写槽位 key、不传变量页名；参数用 `paramsFor()`。新增页面 / 调整层级见 [`docs/页面导航.md`](docs/页面导航.md)
 - **注释里别写 `**/`**：`*/` 会提前闭合块注释，rollup 报错且行号指向注释后一行
 
@@ -82,7 +83,7 @@ This file provides guidance to AI Agent when working with code in this repositor
 | `src/utils/player/` | 播放器与媒体：播放单例、下载引擎（**download.js 是门面**，内部拆为 source/files/progress/scheduler/tasks/fetcher，对外 API 不变）、curl 传输、下载/缓存两个目录与元数据、音质档位、历史、会话快照、歌词、本地库（localmeta.js）、**本地歌单索引/拉取同步（locallists.js）、下载归属标记（dlorigin.js）**、播放页几何常量、**定时播放单例（sleeptimer.js，跨页面存活、不持久化）** |
 | `src/utils/ncm/` | 网易云：接口归一化、歌单、喜欢、每日推荐、**歌曲评论（comments.js：读明文匿名可用的 `/api/v1/resource/comments/R_SO_4_<id>`，点赞/发评论走 weapi）**、weapi 加密与登录（二维码 / 验证码 / 密码） |
 | `src/utils/net/` | API 请求的唯一入口 + Cookie 维护；`src/utils/log.js` 为日志直连内建 http，是刻意例外（避免 request→cookies→log 递归、日志不带业务 Cookie） |
-| `src/utils/`（其余） | boot（启动序列：建目录 → 一次性迁移 → 开索引库）、cover（封面缓存：曲目单尺寸 + 浏览缩略图）、**artistavatar / artistmeta（歌手头像唯一来源与预热）**、**nav（导航层：逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）**、rail、theme、config、format、touch、multidl、**util（raceTimeout/sleep）、fsutil（fs 句柄、读写文本文件走 shell）、exec（process.exec 能力探测）、paths（可写路径唯一真源）、db（SQLite 索引库通道）、media（每 track 目录的读写）、migrate（旧布局一次性迁移）、store（顶层 JSON 文件 KV）** |
+| `src/utils/`（其余） | boot（启动序列：建目录 → 一次性迁移 → 开索引库）、cover（封面缓存：曲目单尺寸 + 浏览缩略图）、**artistavatar / artistmeta（歌手头像唯一来源与预热）**、**nav（导航层：逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）**、rail、theme、config、format、touch、multidl、**util（raceTimeout/sleep）、fsutil（原生 fs 句柄与建/删/读，**不写文件**）、exec（process.exec 能力探测）、paths（可写路径唯一真源）、db（SQLite 通道：索引表 + kv + 每曲元数据/歌词）、media（每 track 目录与曲目文档的读写）、migrate（旧布局一次性迁移）、store（KV，实现是本地的 kv 表）** |
 | `src/assets/` + `scripts/gen_icons.py` | 图标 = Lucide SVG → PNG（平台不能给 `<image>` 染色，颜色必须生成进 PNG）；**`icons.js` 注册表是纯生成物**（`gen_icons.py --emit-js` 生成、`--check` 逐字节校验——别手改） |
 | `src/styles/common.less` | 设计 token：颜色 / 字号阶梯 / 结构尺寸（1vh = 2.4px）；**令牌段是生成物**（源头 = `src/utils/ui/tokens.js`，生成/校验走 `scripts/gen_tokens.py`） |
 
@@ -139,7 +140,7 @@ This file provides guidance to AI Agent when working with code in this repositor
 4. **页面 data 动态 key + `$set` 不触发重渲染** → 增量更新走组件自己的普通属性
 5. **一次渲染 ≤50 行**，长列表分页加载
 6. **页面会挂两遍**：mounted 初始化必须幂等
-7. `$dataDir` 末尾自带 `/`；**`fs` 模块无写入接口**——普通文件写入走 `http.download({outPath})`，下载引擎通过 `process.exec` + 系统 curl 写 `.part`，登录 Cookie / weapi 临时文件由 `wecurl` 通过 shell 重定向写
+7. `$dataDir` 末尾自带 `/`；**`fs` 模块无写入接口**（`writeFile`/`rename`/`unlink` 都是 `undefined`）——但 `fs.mkdir` / `fs.rm` **是递归的**，建目录删目录不必走 shell。**结构化数据一律进 SQLite（`import('sqlite3')` 原生模块，见下条）**，二进制走 `http.download({outPath})`，下载引擎通过 `process.exec` + 系统 curl 写 `.part`，curl 的 cookie jar 由 curl 自己写
 8. 别名拆分只用 `/` `;` `；`（逗号顿号都不行）
 9. **`border-radius: 50%` 不生效** → 圆形写等价 vh 值
 10. **固定宽标签容器要按最长标签算宽度**：装不下会折行，把整块撑高并溢出
@@ -167,12 +168,12 @@ This file provides guidance to AI Agent when working with code in this repositor
 - **下载慢先查 WiFi 链路速率**（`iw dev wlan0 link` 的 rx bitrate）：这台笔须钉在 2.4GHz BSS，改配置走 `wpa_cli` + `save_config`，别直接编辑 `wpa_supplicant.conf`（会被回写覆盖）
 - **自动化探针**：用 `bash scripts/build_probe.sh` 构建**独立 appid** 的探针版（入口 = `pages/probe`；脚本临时改 appid 后自动还原源码），安装/启动用产物的探针 appid，不会卸载或清空正式应用数据；用完 `miniapp_cli uninstall <探针appid>` 清理。探针日志同样走 logserver（构建时注入 `BPNCM_LOG_SRV`）；安装命令见脚本头部注释
 - **导航层排查**：`[nav]` 日志（`go … (push|reuse|degrade)`、`page-load/unload`、`page-options`）走 logserver；返回落错层 / 页面被意外销毁时先看槽位与栈顺序；`bash scripts/nav_selftest.sh` 可在探针版上跑 push/pop 自测（不动正式应用数据）。详见 [`docs/页面导航.md`](docs/页面导航.md)
-- 设备保持已登录；`$dataDir/cookie.txt` 与 `cookie.json` 里有会话凭据，**日志/汇报中不要回显**
+- 设备保持已登录；登录态在 `$dataDir/local_index.db` 的 `kv` 表（`ncm_cookies` 行）与 `cookie.txt` 里，**日志/汇报中不要回显**
 
 ## 边界
 
-- **下载**（用户主动）→ `$dataDir/downloads/<id>/`，永久保留，计入「本地下载」；**缓存**（边听边存）→ `$dataDir/cache/<id>/`，受缓存上限 LRU 滚动，不计入本地下载。每 track 一个目录，目录内固定 `track.mp3|flac`、`cover.jpg`、`lyrics.json`（仅 downloads）、`metadata.json`；路径一律从 `src/utils/paths.js` 取，布局与不变式见 [`docs/存储重构.md`](docs/存储重构.md) §2
+- **下载**（用户主动）→ `$dataDir/downloads/<id>/`，永久保留，计入「本地下载」；**缓存**（边听边存）→ `$dataDir/cache/<id>/`，受缓存上限 LRU 滚动，不计入本地下载。每 track 一个目录，目录内只有 `track.mp3|flac` 与 `cover.jpg`；**元数据与歌词在 `local_index.db` 的 `track_meta` / `track_lyric` 表**（按 `id`，元数据另按 `kind` 1=download / 2=cache 区分）。路径一律从 `src/utils/paths.js` 取，布局与不变式见 [`docs/存储重构.md`](docs/存储重构.md) §2
 - **后台 JS 会冻结**：切后台时下载跑完当前片就停，别承诺「后台继续下载」；应用退出后无后台，会直接关闭
-- 退出登录会**删掉 `$dataDir/cookie.txt`**（否则 boot 会把会话灌回来）
+- 退出登录会**清空 `kv` 表的 `ncm_cookies` 行**（否则 boot 会把会话灌回来），并删掉 curl 的 jar 文件
 - 长列表按首屏批量渲染（口径见 `utils/ui/paging.js`），滚到底自动续批（`utils/ui/infinite.js`，每次 `AUTO_BATCH` 行）；仅在「内容超过一屏且用户已下滚」时自动触发，拿不到滚动位移则降级到原有「加载更多」按钮。网络游标见 `list.vue`；列表内搜索仍待定
 - 原生 `.so` 模块、官方虚拟列表等扩展方向未在当前代码中启用；`global` 已用于输入法与网络状态（`systemKeyboard.js` / `net/status.js`），其它能力动前先用探针页验证

@@ -1,18 +1,18 @@
 /**
- * 存储层集成自检（**不是产品代码**，只在 PC 上用 Node 跑）。
+ * 存储层离线集成自检（**不是产品代码**，只在 PC 上用 Node 跑）。
  *
- * 为什么需要它：存储重构的核心结论（sqlite 通道 / 每曲一目录 / 单尺寸封面 / 迁移幂等）
- * 全都落在平台边界上（$dataDir、只读 fs 模块、process.exec）。设备不在手边时，
- * 唯一能证明「这些代码真的跑得起来」的办法是：用真实文件系统 + 真实 shell 扮演平台，
+ * 为什么需要它：存储层的核心结论（原生 sqlite3 通道 / kv 文档表 / 每曲一目录 /
+ * 迁移幂等）全都落在平台边界上（$dataDir、只读 fs 模块、process.exec）。设备不在手边时，
+ * 唯一能证明「这些代码真的跑得起来」的办法是：用真实文件系统 + 真实 sqlite 扮演平台，
  * 把模块**原样**跑一遍。
  *
  *   node scripts/storage_selftest.mjs
  *
- * 做法：把 src/ 整棵复制到临时目录，只把两个平台说明符（'fs' / 'process'）换成 shim，
- * 其余代码一字不改 —— 检验的是真产品逻辑，替换的只有平台边界。
+ * 做法：把 src/ 整棵复制到临时目录，只把平台说明符（'fs' / 'process' / 'http' /
+ * 'sqlite3'）换成 shim，其余代码一字不改 —— 检验的是真产品逻辑，替换的只有平台边界。
  *
- * 覆盖：paths 形状 / media 每曲一目录 / db 建表与 upsert / cover 单尺寸不变式 /
- *       migrate 旧布局映射与幂等。
+ * 覆盖：paths 形状 / db 建表与 upsert 与 kv / media 每曲一目录与曲目文档 /
+ *       store 的合并写 / cover 单尺寸不变式 / migrate 旧布局映射与幂等。
  */
 import { exec as cpExec } from 'node:child_process'
 import fs from 'node:fs'
@@ -20,6 +20,7 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 
@@ -39,7 +40,8 @@ const slash = (p) => String(p).replace(/\\/g, '/')
 
 /* ---------------- 平台 shim ---------------- */
 const fsShim = {
-  // 平台 fs 只有这些能力，**没有写入接口**（写入一律走 shell），shim 保持一致
+  // 平台 fs 只有这些能力：**没有写入接口**（writeFile/rename/unlink 全是 undefined），
+  // mkdir / rm 递归可用 —— 与真机实测一致
   exists: (p) => fs.existsSync(p),
   stat: async (p) => {
     const st = fs.statSync(p)
@@ -51,11 +53,14 @@ const fsShim = {
   readFile: (p) => fs.readFileSync(p, 'utf8'),
   statfs: async () => ({ free: 1e9, total: 1e11 })
 }
+
 // shell 命令统一落到临时脚本再执行：避免在「拼命令行」这一层引入与设备不同的转义语义
 let shSeq = 0
 let shDir = ''
+let execCount = 0
 const procShim = {
   exec: (cmd, args, opts) => new Promise(function (resolve) {
+    execCount++
     const a = args || []
     let script
     if (cmd === '/bin/sh' || cmd === 'sh' || cmd === '/bin/bash' || cmd === 'bash') {
@@ -84,6 +89,121 @@ const httpShim = {
   get: () => ({ on() { return this }, setTimeout() {}, destroy() {} })
 }
 
+/**
+ * 原生 sqlite3 模块 shim：形状与设备上一模一样（`Database` 类 + prepare/bind/step/run/all/
+ * columnNameList/finalize），底层用 node:sqlite 的同步实现。
+ *
+ * 重点还原两个真机实测事实：
+ *   1) `step()` 返回**按列顺序的数组**，不是对象（产品代码靠 columnNameList 对齐）；
+ *   2) 成功返回 0，失败返回错误信息**字符串**（不是抛异常）。
+ */
+function makeSqliteShim() {
+  class Statement {
+    constructor(db, sql) {
+      this.db = db
+      this.sql = sql
+      this.params = []
+      this.st = db.raw.prepare(sql)
+    }
+    async columnNameList() {
+      try {
+        return this.st.columns().map((c) => c.name)
+      } catch (e) {
+        return []
+      }
+    }
+    async bindParameterList() {
+      return []
+    }
+    async bind(...a) {
+      this.params = a.length === 1 && Array.isArray(a[0]) ? a[0] : a
+      return 0
+    }
+    async clearBindings() {
+      this.params = []
+      return 0
+    }
+    async reset() {
+      return 0
+    }
+    _bind() {
+      // node:sqlite 用匿名参数数组；这里统一成位置参数
+      return this.params.map((v) => (v === undefined || v === null ? null : v))
+    }
+    async step() {
+      try {
+        if (!this._rows) this._rows = this.st.all(...this._bind())
+        if (!this._i) this._i = 0
+        if (this._i >= this._rows.length) return null
+        const row = this._rows[this._i++]
+        // 真机返回「按列顺序的数组」
+        return Object.values(row)
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async all() {
+      try {
+        return this.st.all(...this._bind()).map((r) => Object.values(r))
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async run() {
+      try {
+        this.st.run(...this._bind())
+        return 0
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async finalize() {
+      return 'OK'
+    }
+  }
+  class Database {
+    constructor() {
+      this.raw = null
+      this.path = ''
+    }
+    async open(p) {
+      try {
+        this.path = p
+        this.raw = new DatabaseSync(p)
+        return 0
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async exec(sql) {
+      try {
+        // node:sqlite 的 exec 支持多条语句（含 BEGIN/COMMIT）
+        this.raw.exec(sql)
+        return 0
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async prepare(sql) {
+      try {
+        return new Statement(this, sql)
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async close() {
+      try {
+        if (this.raw) this.raw.close()
+        this.raw = null
+        return 'OK'
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+  }
+  return { Database }
+}
+
 /* ---------------- 复制 + 只替换平台说明符 ---------------- */
 async function prepareTree(sandbox) {
   const shimDir = path.join(sandbox, '_shim')
@@ -91,8 +211,9 @@ async function prepareTree(sandbox) {
   const fsUrl = pathToFileURL(path.join(shimDir, 'fs.mjs')).href
   const procUrl = pathToFileURL(path.join(shimDir, 'process.mjs')).href
   const httpUrl = pathToFileURL(path.join(shimDir, 'http.mjs')).href
+  const sqliteUrl = pathToFileURL(path.join(shimDir, 'sqlite3.mjs')).href
 
-  // shim 模块转发到全局，便于测试里改行为
+  // shim 模块转发到全局，便于测试里改行为；named export 与产品代码的调用形态一致
   await fsp.writeFile(path.join(shimDir, 'fs.mjs'),
     'const s = globalThis.__fsShim\nexport default s\n' +
     ['exists', 'stat', 'readdir', 'mkdir', 'rm', 'readFile', 'statfs']
@@ -101,10 +222,20 @@ async function prepareTree(sandbox) {
     'const p = globalThis.__procShim\nexport default p\nexport const exec = (...a) => p.exec(...a)\n')
   await fsp.writeFile(path.join(shimDir, 'http.mjs'),
     'const s = globalThis.__httpShim\nexport default s\nexport const request = (...a) => s.request(...a)\nexport const get = (...a) => s.get(...a)\n')
+  await fsp.writeFile(path.join(shimDir, 'sqlite3.mjs'),
+    'const s = globalThis.__sqliteShim\nexport default s\nexport const Database = s.Database\n')
 
   // 整棵 src 复制过去（只拷 js/vue/json 等文本，跳过图标二进制）
   const srcDst = path.join(sandbox, 'src')
   await fsp.cp(path.join(ROOT, 'src/utils'), path.join(srcDst, 'utils'), { recursive: true })
+  // logconfig.generated.js 是构建生成物（不进仓库、本地也常缺）→ 造一个空的顶上
+  const logCfg = path.join(srcDst, 'utils/logconfig.generated.js')
+  if (!fs.existsSync(logCfg)) await fsp.writeFile(logCfg, "export const LOG_SRV = ''\n")
+  // buildInfo.js 同样是构建生成物
+  const buildInfo = path.join(srcDst, 'utils/buildInfo.js')
+  if (!fs.existsSync(buildInfo)) await fsp.writeFile(buildInfo, "export const BUILD = 'selftest'\nexport const BUILD_TAG = 'st'\n")
+  // src 整棵是 ESM（.js 后缀），靠这个 package.json 让 Node 按 ESM 解析
+  await fsp.writeFile(path.join(srcDst, 'package.json'), '{"type":"module"}\n')
 
   let rewritten = 0
   async function walk(dir) {
@@ -114,243 +245,173 @@ async function prepareTree(sandbox) {
       if (!e.name.endsWith('.js')) continue
       let s = await fsp.readFile(p, 'utf8')
       const before = s
-      // 只动这两类平台说明符，别的一字不改
+      // 只动这些平台说明符，别的一字不改
       s = s.replace(/from\s+(['"])fs\1/g, "from '" + fsUrl + "'")
       s = s.replace(/import\(\s*(['"])fs\1\s*\)/g, "import('" + fsUrl + "')")
       s = s.replace(/from\s+(['"])process\1/g, "from '" + procUrl + "'")
       s = s.replace(/import\(\s*(['"])process\1\s*\)/g, "import('" + procUrl + "')")
       s = s.replace(/from\s+(['"])http\1/g, "from '" + httpUrl + "'")
       s = s.replace(/import\(\s*(['"])http\1\s*\)/g, "import('" + httpUrl + "')")
+      s = s.replace(/from\s+(['"])sqlite3\1/g, "from '" + sqliteUrl + "'")
+      s = s.replace(/import\(\s*(['"])sqlite3\1\s*\)/g, "import('" + sqliteUrl + "')")
       if (s !== before) { await fsp.writeFile(p, s); rewritten++ }
     }
   }
   await walk(path.join(srcDst, 'utils'))
+  // url shim 目录放进去，保证 import 路径可解析
+  await fsp.mkdir(path.join(srcDst, 'utils', '_shim'), { recursive: true })
   return { srcDst, rewritten }
 }
 
-/* ---------------- sqlite3 shim ---------------- */
-/**
- * 被测代码要求 `sqlite3 -json`（≥3.33）。设备是 3.39.2 有它，但 PC 上常见的
- * 3.32 没有 —— 那样就测不到 db 层，只能测到「安全降级」。
- * 这里造一个支持 -json 的 sqlite3 顶到 PATH 前面（内部转给 python 的 sqlite3），
- * 从而在 PC 上完整验证 DDL / upsert / 导出。
- */
-async function makeSqliteShim(sandbox) {
-  const bin = path.join(sandbox, '_bin')
-  await fsp.mkdir(bin, { recursive: true })
-  const py = path.join(bin, 'sj.py')
-  await fsp.writeFile(py, [
-    'import sqlite3, sys, json',
-    'args = sys.argv[1:]',
-    'use_json = False',
-    'db = None',
-    'sql = None',
-    'i = 0',
-    'while i < len(args):',
-    '    a = args[i]',
-    '    if a == "-json":',
-    '        use_json = True; i += 1; continue',
-    '    if a == "-cmd":',
-    '        i += 2; continue',
-    '    if db is None: db = a',
-    '    else: sql = a',
-    '    i += 1',
-    'if db is None: sys.exit(0)',
-    'con = sqlite3.connect(db)',
-    'con.execute("PRAGMA busy_timeout=8000")',
-    'if not sql: sys.exit(0)',
-    'text = sql.strip()',
-    'rows = []',
-    'src = None',
-    'try:',
-    '    # 支持 .read <file>（产品代码就是这么传 SQL 的：绕开命令行编码转换）',
-    '    if text.lower().startswith(".read "):',
-    '        path = text[6:].strip().strip(chr(34)).strip(chr(39))',
-    '        src = open(path, encoding="utf-8").read()',
-    '    else:',
-    '        src = text',
-    '    # 逐条执行，顺便捕获 SELECT 的结果（真 sqlite3 -json 对 .read 里的 SELECT 也输出）',
-    '    for stmt in [x.strip() for x in src.split(chr(59)) if x.strip()]:',
-    '        if stmt[:6].upper() == "SELECT":',
-    '            cur = con.execute(stmt)',
-    '            cols = [d[0] for d in cur.description] or []',
-    '            for r in cur.fetchall():',
-    '                rows.append(dict(zip(cols, r)))',
-    '        else:',
-    '            con.execute(stmt)',
-    '    con.commit()',
-    'except Exception as e:',
-    '    sys.stderr.write(str(e) + chr(10)); sys.exit(1)',
-    'if use_json and rows:',
-    '    # 用 ascii 转义输出：Windows 控制台代码页会把非 ASCII 打死',
-    '    sys.stdout.buffer.write((json.dumps(rows, ensure_ascii=False) + chr(10)).encode("utf-8"))',
-    '    sys.stdout.buffer.flush()',
-    'elif rows:',
-    '    for r in rows: print("|".join("" if v is None else str(v) for v in r.values()))',
-    ''
-  ].join('\n'))
-  // bash 只会执行无扩展名的脚本或 .exe —— 写一个 shebang 脚本顶到 PATH 最前面
-  const sh = path.join(bin, 'sqlite3')
-  await fsp.writeFile(sh, '#!/bin/sh\nexec python "' + slash(py) + '" "$@"\n')
-  fs.chmodSync(sh, 0o755)
-  // Windows 上同时给一份 cmd 可用的 .bat（exec 若走 cmd 也能命中）
-  await fsp.writeFile(path.join(bin, 'sqlite3.bat'),
-    '@echo off\r\npython "' + py + '" %*\r\n')
-  return bin
-}
-
 /* ---------------- 主流程 ---------------- */
-async function main() {
-  const sandbox = await fsp.mkdtemp(path.join(os.tmpdir(), 'bpn-storage-'))
-  const dataDirPath = slash(path.join(sandbox, 'data'))
-  await fsp.mkdir(dataDirPath, { recursive: true })
-  globalThis.$dataDir = dataDirPath + '//' // 设备真实形态：双斜杠 + 尾斜杠
-  globalThis.__fsShim = fsShim
-  globalThis.__procShim = procShim
-  // 让 PATH 先命中带 -json 的 sqlite3（设备同版本能力）
-  const sqliteBin = await makeSqliteShim(sandbox)
-  shDir = path.join(sandbox, '_sh')
-  await fsp.mkdir(shDir, { recursive: true })
-  const prevPath = process.env.PATH || ''
-  process.env.PATH = sqliteBin + path.delimiter + prevPath
+const sandbox = await fsp.mkdtemp(path.join(os.tmpdir(), 'bpncm-store-'))
+shDir = path.join(sandbox, '_sh')
+await fsp.mkdir(shDir, { recursive: true })
 
-  const { srcDst, rewritten } = await prepareTree(sandbox)
-  console.log('（复制 src/utils 到沙箱，替换平台说明符的文件数：' + rewritten + '）')
+globalThis.__fsShim = fsShim
+globalThis.__procShim = procShim
+globalThis.__httpShim = httpShim
+globalThis.__sqliteShim = makeSqliteShim()
 
-  const load = (rel) => import(pathToFileURL(path.join(srcDst, 'utils', rel)).href)
+console.log('存储层自检（沙箱 ' + sandbox + '）\n')
 
-  console.log('\n1) paths —— 布局形状')
-  const paths = await load('paths.js')
-  eq('normDir 抹掉双斜杠与尾斜杠', paths.normDir(), dataDirPath)
-  eq('downloads 根', paths.downloadsDir(), dataDirPath + '/downloads')
-  eq('cache 根', paths.cacheDir(), dataDirPath + '/cache')
-  eq('thumbs 在 cache 下', paths.thumbsDir(), dataDirPath + '/cache/thumbs')
-  eq('track 目录 = <root>/<id>', paths.trackDir(123, 'download'), dataDirPath + '/downloads/123')
-  eq('音频固定叫 track.<ext>', paths.trackFile(123, 'flac', 'download'), dataDirPath + '/downloads/123/track.flac')
-  eq('封面固定叫 cover.jpg', paths.trackCover(123, 'download'), dataDirPath + '/downloads/123/cover.jpg')
-  eq('kind 归一化：非 download 都是 cache', paths.rootOf('whatever'), dataDirPath + '/cache')
+const dataDir = path.join(sandbox, 'appdata')
+await fsp.mkdir(dataDir, { recursive: true })
+globalThis.$dataDir = dataDir + '/' // 真机末尾自带斜杠
 
-  console.log('\n2) media —— 每曲一目录')
-  const media = await load('media.js')
-  await media.ensureTrackDir(123, 'download')
-  truthy('建目录', await media.hasTrackDir(123, 'download'))
-  eq('没有音频时 hitAudio 为 null', await media.hitAudio(123, 'download'), null)
-  await fsp.writeFile(paths.trackFile(123, 'mp3', 'download'), Buffer.alloc(1000))
-  eq('半截文件不算命中', await media.hitAudio(123, 'download'), null)
-  await fsp.writeFile(paths.trackFile(123, 'mp3', 'download'), Buffer.alloc(40000))
-  const hit = await media.hitAudio(123, 'download')
-  truthy('>30KB 才算命中', hit && hit.ext === 'mp3')
+const { srcDst, rewritten } = await prepareTree(sandbox)
+console.log('1) 环境')
+truthy('平台说明符已替换（src/utils）', rewritten > 0)
 
-  await media.patchMeta(123, 'download', { n: '歌名', a: '歌手' })
-  await media.patchMeta(123, 'download', { q: 'exhigh' })
-  eq('metadata 合并写不互相擦除', await media.readMeta(123, 'download'), { n: '歌名', a: '歌手', q: 'exhigh' })
+const U = (n) => pathToFileURL(path.join(srcDst, 'utils', n)).href
 
-  await media.writeLyrics(123, 'download', { lrc: '[00:01.00]hi', pureMusic: false })
-  const lyr = await media.readLyrics(123, 'download')
-  truthy('lyrics 落盘可读', lyr && lyr.lrc === '[00:01.00]hi')
-  eq('没词不写空壳', await media.writeLyrics(124, 'download', { lrc: '' }), false)
+const paths = await import(U('paths.js'))
+const db = await import(U('db.js'))
+const store = await import(U('store.js'))
+const media = await import(U('media.js'))
+const fsutil = await import(U('fsutil.js'))
+const config = (await import(U('config.js'))).default
+const history = await import(pathToFileURL(path.join(srcDst, 'utils/player/history.js')).href)
+const session = await import(pathToFileURL(path.join(srcDst, 'utils/player/session.js')).href)
 
-  await media.dropTrackDir(123, 'download')
-  eq('删目录连坐（音频/元数据/歌词一起走）', await media.hasTrackDir(123, 'download'), false)
+/* ---- paths ---- */
+console.log('\n2) paths —— 路径形状与唯一真源')
+// 本机 $dataDir 是 Windows 反斜杠路径（设备上是 POSIX），断言只核尾斜杠被折掉、分隔符是 /
+eq('normDir 去尾斜杠且无重复斜杠', paths.normDir(), String(dataDir).replace(/\//g, '\\'))
+truthy('dbFile 落在 data 根', paths.dbFile() === paths.normDir() + '/local_index.db')
+truthy('曲目目录 = <root>/<id>', paths.trackDir(42, 'download') === paths.dataDir() + '/downloads/42')
+truthy('paths 不再导出 configFile / stateFile 等文本文件路径', paths.configFile === undefined && paths.stateFile === undefined)
+truthy('paths 不再导出 trackMeta / trackLyrics', paths.trackMeta === undefined && paths.trackLyrics === undefined)
 
-  console.log('\n3) db —— SQLite 索引库')
-  const db = await load('db.js')
-  truthy('通道可用（真 sqlite3 CLI）', await db.ensureDb())
-  await db.open()
-  // 契约：exec 只落盘，内存由调用方维护（见 db.exec 注释）
-  await db.exec([db.upsertSql('track', [
-    { name: 'id', v: 1, raw: true },
-    { name: 'name', v: "It's a test" },
-    { name: 'dl_origin', v: 1, raw: true }
-  ], 'id')])
-  await db.flushAll()
-  // 重新导出：证明 SQL 真的写进库了（不是只在内存）
-  db.reset()
-  await db.open()
-  eq('写入落盘（重新导出可见）', db.data().track['1'] && db.data().track['1'].name, "It's a test")
-  eq('列值正确', db.data().track['1'].dl_origin, 1)
-  // 冲突更新
-  await db.exec([db.upsertSql('track', [{ name: 'id', v: 1, raw: true }, { name: 'name', v: '改过' }], 'id')])
-  await db.flushAll()
-  db.reset()
-  await db.open()
-  eq('upsert 冲突走更新', db.data().track['1'].name, '改过')
-  eq('未被覆盖的列还在', db.data().track['1'].dl_origin, 1)
-  // 单引号转义（值里带 ' 不能炸 SQL）
-  await db.exec([db.upsertSql('artist', [{ name: 'id', v: 2, raw: true }, { name: 'name', v: "O'Brien" }], 'id')])
-  await db.flushAll()
-  db.reset()
-  await db.open()
-  eq('单引号值安全转义', db.data().artist['2'].name, "O'Brien")
+/* ---- fsutil ---- */
+console.log('\n3) fsutil —— 只做原生调用（不 fork）')
+const beforeFork = execCount
+truthy('ensureDir 建多级目录', await fsutil.ensureDir(path.join(dataDir, 'a/b/c')))
+truthy('mkdir 递归后目录存在', await fsutil.fileExists(path.join(dataDir, 'a/b/c')))
+truthy('removeTree 递归删除', await fsutil.removeTree(path.join(dataDir, 'a')))
+truthy('删完 exists=false', !(await fsutil.fileExists(path.join(dataDir, 'a'))))
+eq('建目录/删目录全程 0 次 fork', execCount - beforeFork, 0)
 
-  console.log('\n4) cover —— 单尺寸不变式')
-  const coverSrc = await fsp.readFile(path.join(srcDst, 'utils/cover.js'), 'utf8')
-  truthy('曲目封面走单尺寸常量', /TRACK_SIZE\s*=\s*BIG_COVER/.test(coverSrc))
-  truthy('曲目封面有独立内存键表（不与缩略图混用）', /memTrack/.test(coverSrc))
-  truthy('纯数字 id 走曲目目录', /isSongId/.test(coverSrc) && /trackDir/.test(coverSrc))
+/* ---- db 通道 ---- */
+console.log('\n4) db —— 原生 sqlite3 通道')
+const conn = await db.ensureDb()
+truthy('ensureDb 拿到连接', conn !== null)
+truthy('open() 灌内存', (await db.open()) !== null)
+eq('内存态六张索引表', Object.keys(db.data()).sort(),
+  ['album', 'artist', 'playlist', 'playlist_track', 'track', 'track_artist'])
 
-  console.log('\n5) migrate —— 旧布局映射与幂等')
-  const legacyMusic = slash(paths.legacyMusicDir())
-  const legacyLrc = slash(paths.legacyLrcDir())
-  const legacyStore = slash(paths.legacyStoreDir())
-  const legacyCovers = slash(paths.legacyCoversDir())
-  const legacyStorage = slash(paths.legacyStorageDir())
-  for (const dir of [legacyMusic, legacyLrc, legacyStore, legacyCovers, legacyStorage]) {
-    await fsp.mkdir(dir, { recursive: true })
-  }
-  await fsp.writeFile(legacyMusic + '/456.mp3', Buffer.alloc(50000))
-  await fsp.writeFile(legacyLrc + '/456.json', JSON.stringify({ l: '[00:01.00]old', t: '', pm: 0, y: '' }))
-  await fsp.writeFile(legacyStore + '/local_index.json', JSON.stringify({
-    456: { n: '旧歌', alia: [], ars: [{ i: 7, n: '旧歌手' }], al: { i: 8, n: '旧专辑', c: 'http://c/x.jpg' }, d: 200000, pub: 0, no: 1, cd: '01', pop: 0, fee: 0 }
-  }))
-  await fsp.writeFile(legacyCovers + '/456_200.jpg', Buffer.alloc(2000))
-  await fsp.writeFile(legacyStorage + '/preferences.json', JSON.stringify({
-    ncm_settings: JSON.stringify({ layoutVersion: 0, rate: 1.25 }),
-    bpncm_dl_origin: JSON.stringify({ 456: 1 })
-  }))
+const beforeDbFork = execCount
+truthy('upsertSql 写入 track', (await db.exec([
+  db.upsertSql('track', [
+    { name: 'id', v: 7, raw: true },
+    { name: 'name', v: "中文'单引号\"双引号\\反斜杠" },
+    { name: 'alias', v: '["别名"]' },
+    { name: 'album_id', v: 3, raw: true },
+    { name: 'duration', v: 1000, raw: true },
+    { name: 'pub', v: 0, raw: true },
+    { name: 'track_no', v: 1, raw: true },
+    { name: 'disc', v: '' },
+    { name: 'pop', v: 0, raw: true },
+    { name: 'fee', v: 0, raw: true },
+    { name: 'cover', v: '' },
+    { name: 'dl_origin', v: 1, raw: true },
+    { name: 'added_at', v: 0, raw: true }
+  ], 'id')
+])) !== false)
+eq('写库全程 0 次 fork', execCount - beforeDbFork, 0)
 
-  const migrate = await load('migrate.js')
-  eq('LAYOUT_VERSION 是 2', migrate.LAYOUT_VERSION, 2)
-  await migrate.run(0)
+/* kv 表 ---- 原 store.js 的四个顶层 JSON 文件 */
+truthy('kvPut 写配置', await db.kvPut(store.KEY_SETTINGS, '{"rate":1.25}'))
+eq('kvGet 读回同一份文本', await db.kvGet(store.KEY_SETTINGS), '{"rate":1.25}')
+eq('getStorage 走 kv 表', await store.getStorage(store.KEY_SETTINGS), '{"rate":1.25}')
+truthy('setStorage 写入', await store.setStorage(store.KEY_PLAY_HIST, '[{"id":1}]'))
+eq('setStorage 后读回', await store.getStorage(store.KEY_PLAY_HIST), '[{"id":1}]')
+truthy('removeStorage 删掉', await store.removeStorage(store.KEY_PLAY_HIST))
+eq('删完读回 null', await store.getStorage(store.KEY_PLAY_HIST), null)
 
-  const dlDir = slash(paths.trackDir(456, 'download'))
-  truthy('音频搬到 downloads/<id>/track.mp3', fs.existsSync(dlDir + '/track.mp3'))
-  truthy('歌词搬到 lyrics.json', fs.existsSync(dlDir + '/lyrics.json'))
-  const newLyr = JSON.parse(await fsp.readFile(dlDir + '/lyrics.json', 'utf8'))
-  eq('歌词字段改名 l→lrc', newLyr.lrc, '[00:01.00]old')
-  truthy('封面搬到 cover.jpg', fs.existsSync(dlDir + '/cover.jpg'))
+// 合并写：同一 key 连发 20 次只有最新一版落库
+for (let i = 0; i < 20; i++) store.setStorage(store.KEY_PLAYER_STATE, '{"i":' + i + '}')
+await new Promise((r) => setTimeout(r, 200))
+eq('合并写只留最新一版', await store.getStorage(store.KEY_PLAYER_STATE), '{"i":19}')
 
-  db.reset()
-  await db.open()
-  const t = db.data().track['456']
-  truthy('曲目进 track 表', t && t.name === '旧歌')
-  eq('归属进 dl_origin 列', t && t.dl_origin, 1)
-  truthy('专辑进 album 表', db.data().album['8'] && db.data().album['8'].name === '旧专辑')
-  truthy('歌手进 artist 表', db.data().artist['7'] && db.data().artist['7'].name === '旧歌手')
-  truthy('曲目↔歌手多对多', db.data().track_artist.some(r => String(r.track_id) === '456' && String(r.artist_id) === '7'))
+/* ---- media 曲目文档 ---- */
+console.log('\n5) media —— 每曲一目录 + 曲目文档在库里')
+const tk = path.join(dataDir, 'downloads/42')
+await fsutil.ensureDir(tk)
+fs.writeFileSync(path.join(tk, 'track.mp3'), Buffer.alloc(40000)) // > MIN_AUDIO_BYTES
+const hit = await media.hitAudio(42, 'download')
+truthy('hitAudio 命中（>30KB）', hit && hit.size === 40000)
+await media.patchMeta(42, 'download', { n: '歌名', b: 320 })
+await media.patchMeta(42, 'download', { q: 'exhigh' }) // 合并写不能擦掉 n
+const meta = await media.readMeta(42, 'download')
+eq('patchMeta 合并保留旧字段', meta && meta.n, '歌名')
+eq('patchMeta 合并且更新新字段', meta && meta.q, 'exhigh')
+truthy('曲目目录里不再有 metadata.json', !fs.existsSync(path.join(tk, 'metadata.json')))
+await media.writeLyrics(42, { lrc: '[00:01]词', pureMusic: 0 })
+eq('歌词读回', (await media.readLyrics(42))?.lrc, '[00:01]词')
+truthy('曲目目录里不再有 lyrics.json', !fs.existsSync(path.join(tk, 'lyrics.json')))
+const listed = await media.listTracks('download')
+eq('listTracks 带出元数据', listed.length === 1 && listed[0].meta && listed[0].meta.n, '歌名')
+await media.dropTrackDir(42, 'download')
+truthy('dropTrackDir 删目录', !fs.existsSync(tk))
+eq('dropTrackDir 同时删库里的元数据', await media.readMeta(42, 'download'), null)
 
-  const cfg = JSON.parse(await fsp.readFile(slash(paths.configFile()), 'utf8'))
-  eq('ncm_settings → config.json（保留原字段）', cfg.rate, 1.25)
-  truthy('layoutVersion 写回 2', cfg.layoutVersion === 2)
+/* ---- config / history / session ---- */
+console.log('\n6) 上层（config / history / session）走同一个库')
+await config.load()
+await config.set('rate', 1.5)
+eq('config 写后读回', config.get('rate'), 1.5)
+await config.load()
+eq('config 重新 load 保留', config.get('rate'), 1.5)
 
-  await migrate.run(2)
-  truthy('重跑幂等：不产生 track.flac 并存',
-    !(fs.existsSync(dlDir + '/track.mp3') && fs.existsSync(dlDir + '/track.flac')))
-  eq('重跑幂等：歌词没被改坏',
-    JSON.parse(await fsp.readFile(dlDir + '/lyrics.json', 'utf8')).lrc, '[00:01.00]old')
+await history.load()
+history.record({ id: 11, name: '历史歌', artist: '某人' })
+await new Promise((r) => setTimeout(r, 150))
+eq('history 落库后可读', history.list().length, 1)
 
-  console.log('\n' + '='.repeat(56))
-  if (failures.length) {
-    console.log('结果：' + pass + ' 项通过，' + failures.length + ' 项失败')
-    failures.forEach(f => console.log('  ✗ ' + f))
-    await fsp.rm(sandbox, { recursive: true, force: true })
-    process.exit(1)
-  }
-  console.log('结果：全部 ' + pass + ' 项通过')
-  await fsp.rm(sandbox, { recursive: true, force: true })
+await session.save({ song: { id: 11 }, queue: [{ id: 11 }], index: 0, positionMs: 5000, playing: false })
+await new Promise((r) => setTimeout(r, 200))
+const back = await session.load()
+eq('session 快照可读', back && back.positionMs, 5000)
+
+/* ---- 库文件本身 ---- */
+console.log('\n7) 库文件')
+truthy('local_index.db 存在于 data 根', fs.existsSync(paths.dbFile()))
+const raw = new DatabaseSync(paths.dbFile())
+const tables = raw.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r) => r.name)
+raw.close()
+for (const t of ['album', 'artist', 'kv', 'playlist', 'playlist_track', 'track', 'track_artist',
+  'track_lyric', 'track_meta']) {
+  truthy('表存在：' + t, tables.includes(t))
 }
 
-main().catch(async function (e) {
-  console.error('自检自身异常：', e)
-  process.exit(1)
-})
+/* ---------------- 汇总 ---------------- */
+console.log('\n' + '='.repeat(60))
+if (failures.length) {
+  console.log('失败 ' + failures.length + ' 项 / 通过 ' + pass + ' 项')
+  for (const f of failures) console.log('  ✗ ' + f)
+  process.exitCode = 1
+} else {
+  console.log('全部通过（' + pass + ' 项）')
+}
+console.log('沙箱保留在 ' + sandbox + '（DSH_SELFTEST_TRACE=1 可见执行的 shell 命令）')

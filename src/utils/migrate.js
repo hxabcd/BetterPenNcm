@@ -5,67 +5,65 @@
  * （目标路径一律从 utils/paths.js 取，源路径一律走它的 legacy* 系列）。
  *
  * 触发：boot 调一次 `run(config.json 里的 layoutVersion)`，`< 2` 才迁；
- * **全部关键步骤成功**才把 `layoutVersion: 2` 写回 config.json，失败保持旧版本、下次启动重试。
+ * **全部关键步骤成功**才把 `layoutVersion: 2` 写回配置，失败保持旧版本、下次启动重试。
  *
- * ## 为什么要这么写
+ * ## 两条通道
  *
- *   - `process.exec` 不解析命令串，必须 `/bin/sh -c`（统一走 utils/exec.js 的 run）。
- *   - 一次 exec ≈50ms，几百首逐首 mv 会把启动拖成几十秒，所以**命令合并**：
- *     整份迁移计划先排成一串 shell 语句，再按单条命令串的大小上限分批执行，
- *     几百次 mv 通常合并成个位数次 exec。
- *   - 读旧数据用原生 fs（不分叉）；写 JSON 只能 shell 重定向，所以写也和搬文件一起合并。
- *   - 单步/单项失败只记日志，不抛、不阻塞启动；失败项记进临时日志，迁完汇总后删掉。
- *   - **只搬不改源**：旧目录（music lrc store covers storage）全部保留，确认无误后由用户手动清。
+ *   - **文件搬家**（音频/封面/缩略图）只能走 shell：`process.exec` 一次 ≈ 一次 fork
+ *     （真机 92~139ms），几百首逐首 mv 会把启动拖成几十秒，所以整份计划先排成命令行、
+ *     再按单条命令串的大小上限分批执行，几百次 mv 通常合并成个位数次 exec。
+ *   - **数据**（元数据/歌词/配置/会话/历史）全部写进 SQLite，**不写文本文件**：
+ *     平台 `fs` 没有写接口，写文件就得 fork，而一次 134KB 的分片写实测要 2511ms。
+ *     库里是一条 upsert，微秒级且天然原子。
  *
  * ## 幂等判据
  *
- * 一律看**目标文件是否已存在**，不看除版本号以外的任何标记：
  *   - 目标曲目目录里已有任一扩展名的正式文件（track.mp3 / track.flac）⇒ 整个 id 跳过，
  *     所以重跑不会产出 mp3 与 flac 并存；
- *   - cover.jpg / lyrics.json / metadata.json 已存在 ⇒ 跳过，不覆盖已迁好的内容；
- *   - 顶层 cookie.json / state.json / history.json 已存在 ⇒ 跳过（避免用旧 storage 的会话
- *     盖掉迁移失败后新写入的登录态）。
+ *   - cover.jpg 已在盘上 ⇒ 跳过；曲目元数据 / 歌词在库里已有行 ⇒ 跳过，
+ *     不覆盖已迁好的内容；
+ *   - 顶层 kv（ncm_cookies / bpncm_player_state / bpncm_playhist）已有值 ⇒ 跳过，
+ *     避免用旧 storage 的会话盖掉迁移失败后新写入的登录态。
  *
  * ## 已知限制
  *
  *   - `bpncm_dl_origin` 里若出现本地索引中没有的 songId，就没有 track 行可挂，归属标记丢弃
  *     （旧语义「没有标记按 user 处理」仍然成立，只是歌单归属会退化成用户单曲）；
- *   - `lrc/<id>.json` 若对应曲目已经不在 downloads/ 下（音频被删只留了歌词），不落盘
- *     （避免造出只有歌词没有音频的孤儿目录），只计数；
- *   - 平台若没有 sqlite3（utils/db.js 会降级为空库），索引表这一步算失败、**不写版本号**：
- *     旧 store/*.json 原样保留，下次启动重试（迁移本身幂等，重试只跑没做完的部分）。
- *     设备实测有 `/usr/bin/sqlite3` 3.39.2，这条是兜底；
- *   - 迁移不做 CRC/回读校验，只以 mv/cp 与重定向的返回值为准。
+ *   - `lrc/<id>.json` 若对应曲目已经不在 downloads/ 下（音频被删只留了歌词），不落库
+ *     （避免造出只有歌词没有音频的孤儿记录），只计数；
+ *   - 平台若没有 sqlite3 原生模块（utils/db.js 会降级为空库），索引与文档这一步算失败、
+ *     **不写版本号**：旧 store/*.json 原样保留，下次启动重试（迁移本身幂等）。
+ *   - 迁移不做 CRC/回读校验，只以 mv/cp 的返回值与库写入返回值为准。
+ *   - 单步/单项失败只记日志，不抛、不阻塞启动。
+ *   - **只搬不改源**：旧目录（music lrc store covers storage）全部保留，确认无误后由用户手动清。
  */
 import {
   cacheDir,
-  configFile,
-  cookiesFile,
   downloadsDir,
-  historyFile,
   legacyCoversDir,
   legacyLrcDir,
   legacyMusicDir,
   legacyStorageDir,
   legacyStoreDir,
   normDir,
-  stateFile,
   thumbsDir,
   trackCover,
-  trackFile,
-  trackLyrics,
-  trackMeta
+  trackFile
 } from './paths.js'
-import { fileExists, readNames, readTextFile, removePath, writeTextFile } from './fsutil.js'
+import { fileExists, readNames, readTextFile } from './fsutil.js'
 import { run as sh } from './exec.js'
 import {
   ensureDb,
   exec as dbExec,
   flushAll as dbFlush,
+  kvGet,
+  kvPut,
   num as dbNum,
   reset as dbReset,
   upsertSql
 } from './db.js'
+import { KEY_COOKIES, KEY_PLAYER_STATE, KEY_PLAY_HIST, KEY_SETTINGS } from './store.js'
+import { readMeta, readLyrics, writeMeta, writeLyrics } from './media.js'
 import { log } from './log.js'
 
 /** 当前布局版本。旧布局 = 1（没有 layoutVersion 字段），本次重构后的布局 = 2 */
@@ -75,11 +73,7 @@ const AUDIO_EXT = ['mp3', 'flac']
 
 /**
  * 单条 `/bin/sh -c` 命令串的字节上限。
- * Linux 单个 argv 上限 128KB，取 60KB 留足转义与路径余量（与 fsutil.writeTextFile 同口径）。
- */
-/**
- * 单条 `/bin/sh -c` 命令串的字节上限。
- * Linux 单个 argv 上限 128KB，取 60KB 留足转义与路径余量（与 fsutil.writeTextFile 同口径）。
+ * Linux 单个 argv 上限 128KB，取 60KB 留足转义与路径余量。
  * `run()` 的 opts.maxCmd 可覆盖（自检里本机 shell 对 -c 串另有更小的实际上限）。
  */
 export const MAX_CMD = 60000
@@ -132,66 +126,11 @@ function cpCmd(from, to, label) {
 }
 
 /**
- * 排一条**原子写文件**命令（先 `.tmp` 再 mv，读到的永远是完整一版）。
- * 形状与 fsutil.writeTextFile 一致，区别是这里能塞进批量命令里一起跑。
- * 内容超过单条命令的余量时自动分片（首片 `>`、后续 `>>`、最后一片带 mv），每片一条命令。
- */
-function pushWrite(cmds, path, text, label, maxCmd) {
-  const s = text === undefined || text === null ? '' : String(text)
-  const tmp = path + '.tmp'
-  const head = 'mkdir -p ' + shq(parentOf(path)) + ' && '
-  const tail = ' && mv -f ' + shq(tmp) + ' ' + shq(path) + ' || ' + failCmd(label)
-  const budget = (maxCmd || MAX_CMD) - byteCost(head) - byteCost(tail) - 200
-  const parts = splitByCost(s, budget > 4096 ? budget : 4096)
-  for (let i = 0; i < parts.length; i++) {
-    const last = i === parts.length - 1
-    let c = i === 0 ? head : ''
-    c += 'printf \'%s\' ' + shq(parts[i]) + (i === 0 ? ' > ' : ' >> ') + shq(tmp)
-    if (last) c += tail
-    cmds.push(c)
-  }
-}
-
-/** 按「转义后字节数」切片（别把代理对劈开；空串返回 ['']） */
-function splitByCost(s, max) {
-  const out = []
-  let buf = ''
-  let cost = 0
-  for (let i = 0; i < s.length; i++) {
-    let c = s.charAt(i)
-    let add = 0
-    const code = s.charCodeAt(i)
-    if (code >= 0xd800 && code <= 0xdbff && i + 1 < s.length) {
-      const next = s.charCodeAt(i + 1)
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        c += s.charAt(++i)
-        add = 4
-      } else add = 3
-    } else if (c === "'") {
-      add = 4
-    } else if (code < 0x80) {
-      add = 1
-    } else if (code < 0x800) {
-      add = 2
-    } else {
-      add = 3
-    }
-    if (cost + add > max && buf) {
-      out.push(buf)
-      buf = ''
-      cost = 0
-    }
-    buf += c
-    cost += add
-  }
-  out.push(buf)
-  return out
-}
-
-/**
  * 读一个 JSON 文件；不存在/损坏一律 null（不抛）。
  * 损坏只记日志并按空处理 —— 源文件坏了重试一万次也还是坏的，把它当失败会让
  * layoutVersion 永远写不上、每次启动都白跑一遍迁移。
+ *
+ * 只用于读**旧布局**遗留的 store/*.json 与 storage/preferences.json（新布局不再写文本文件）。
  */
 async function readJson(path) {
   const raw = await readTextFile(path)
@@ -280,17 +219,17 @@ async function doRun(currentVersion, opts) {
     }
     log('migrate', '检测到旧布局 v' + v + '，开始迁移到 v' + LAYOUT_VERSION)
 
-    // 计划：文件搬家 + JSON 改写一起排队，合并成几次 exec
+    // 文件搬家（音频/封面/缩略图）合并成几次 exec；数据一律写库，不进这批命令
     const stat = { audio: 0, covers: 0, thumbs: 0, lyrics: 0, orphan: 0, meta: 0 }
     const ids = { dl: {}, ca: {} }
     const cmds = []
     await buildFilePlan(cmds, ids, stat)
-    await buildWritePlan(cmds, ids, prefs, stat, maxCmd)
     const ran = await runBatched(cmds, maxCmd)
     const fail = await readFailures()
 
-    // 旧表 → SQLite；旧 storage 的 key → 顶层 JSON
+    // 旧表 → SQLite；旧 storage 的 key → 库里的 kv 行
     const db = await stepDb(prefs, maxCmd)
+    const docsOk = await stepDocs(ids, prefs, stat)
     const storeOk = await stepStore(prefs)
     await cleanupErrLog()
 
@@ -301,8 +240,8 @@ async function doRun(currentVersion, opts) {
       stat.thumbs + ' 张、歌词 ' + stat.lyrics + ' 首、元数据 ' + stat.meta + ' 条' +
       (stat.orphan ? '（无对应曲目的歌词 ' + stat.orphan + ' 首未迁）' : ''))
 
-    const cmdOk = ran.ok && !fail.A && !fail.C && !fail.T && !fail.L && !fail.M && !fail.P && !fail.X
-    const keyOk = cmdOk && db.ok && storeOk
+    const cmdOk = ran.ok && !fail.A && !fail.C && !fail.T && !fail.X
+    const keyOk = cmdOk && db.ok && docsOk && storeOk
     if (!keyOk) {
       log('migrate', '有关键步骤失败，layoutVersion 保持 ' + v + '，下次启动重试')
       return out
@@ -319,26 +258,39 @@ async function doRun(currentVersion, opts) {
 
 /* ---------------- 版本号 ---------------- */
 
-/** 当前版本：优先用 boot 传进来的，没有就自己读 config.json（读不到当 1 = 旧布局） */
+/** 当前版本：优先用 boot 传进来的，没有就自己读库里的 kv（读不到当 1 = 旧布局） */
 async function versionOf(passed) {
   const n = Number(passed)
   if (isFinite(n) && n > 0) return n
-  const cur = await readJson(configFile())
+  const cur = await readConfig()
   const v = cur ? Number(cur.layoutVersion) : 0
   return isFinite(v) && v > 0 ? v : 1
 }
 
+/** 读当前配置（库里的 kv 行 → 对象）；没有/坏了给空对象 */
+async function readConfig() {
+  const raw = await kvGet(KEY_SETTINGS)
+  if (!raw) return {}
+  try {
+    const o = JSON.parse(raw)
+    return o && typeof o === 'object' ? o : {}
+  } catch (e) {
+    log('migrate', '配置解析失败，按空处理')
+    return {}
+  }
+}
+
 /**
- * 回写 `layoutVersion`，顺带把 storage 的 ncm_settings 落到 config.json。
+ * 回写 `layoutVersion`，顺带把 storage 的 ncm_settings 合并进 kv 行。
  *
  * 合并规则：**旧 storage 的设置优先**（那才是用户迁移前的真实设置），
- * 只在 config.json 里有、storage 里没有的键保留原值，最后强制写 layoutVersion。
- * 之所以不让 config.json 盖住旧设置：迁移期 config.json 可能只存着默认值，
+ * 只在当前配置里有、storage 里没有的键保留原值，最后强制写 layoutVersion。
+ * 之所以不让当前配置盖住旧设置：迁移期配置可能只存着默认值，
  * 拿默认值覆盖用户的真实设置就是静默丢配置。迁移只会跑一次（版本号一写就不再进来），
  * 所以不存在「把迁移后改过的设置又改回去」。
  */
 async function commitVersion(prefs) {
-  const cur = (await readJson(configFile())) || {}
+  const cur = await readConfig()
   const legacy = parsePref(prefs, 'ncm_settings') || {}
   const next = {}
   const ck = Object.keys(cur)
@@ -349,7 +301,7 @@ async function commitVersion(prefs) {
     next[lk[i]] = legacy[lk[i]]
   }
   next.layoutVersion = LAYOUT_VERSION
-  const ok = await writeTextFile(configFile(), JSON.stringify(next))
+  const ok = await kvPut(KEY_SETTINGS, JSON.stringify(next))
   log('migrate', '写入 layoutVersion=' + LAYOUT_VERSION +
     (ok ? '（配置项 ' + Object.keys(next).length + ' 个）' : ' 失败（下次启动重试）'))
   return ok
@@ -510,51 +462,60 @@ async function buildFilePlan(cmds, ids, stat) {
   await planCovers(ids.dl, cmds, stat)
 }
 
-/* ---------------- 2. JSON 改写（歌词 / 元数据） ---------------- */
+/* ---------------- 2. 歌词 / 元数据 → SQLite 文档表 ---------------- */
 
 /**
- * 歌词：`lrc/<id>.json` {l,t,pm,y} → `downloads/<id>/lyrics.json` {v,lrc,tlyric,yrc,pureMusic}。
- * 落盘形状与 media.writeLyrics 一致（同 key 顺序），避免两处写出两种文件；
- * 「没词又不是纯音乐就不落盘」的规则也与它相同。
+ * 歌词：`lrc/<id>.json` {l,t,pm,y} → `track_lyric` 表 {v,lrc,tlyric,yrc,pureMusic}。
+ * 落库形状与 media.writeLyrics 一致，「没词又不是纯音乐就不写」的规则也与它相同。
+ * 库里已有该 id 的行 ⇒ 跳过（幂等）。
  */
-async function planLyrics(dlIds, cmds, stat, maxCmd) {
+async function stepLyrics(dlIds, stat) {
+  let ok = true
   const dir = legacyLrcDir()
   const names = await readNames(dir)
   for (let i = 0; i < names.length; i++) {
     const m = /^(\d+)\.json$/.exec(names[i] || '')
     if (!m) continue
     const id = m[1]
-    if (!dlIds[id]) { // 音频已不在下载目录：不造只有歌词的孤儿目录
+    if (!dlIds[id]) {
+      // 音频已不在下载目录：不造只有歌词的孤儿记录
       stat.orphan++
       continue
     }
-    if (await fileExists(trackLyrics(id, 'download'))) continue
+    if (await readLyrics(id)) continue
     const o = await readJson(dir + '/' + names[i])
     if (!o || (!o.l && !o.pm)) continue
-    pushWrite(cmds, trackLyrics(id, 'download'),
-      JSON.stringify({ v: 1, lrc: o.l || '', tlyric: o.t || '', yrc: o.y || '', pureMusic: o.pm ? 1 : 0 }),
-      'L|' + id, maxCmd)
-    stat.lyrics++
+    const wrote = await writeLyrics(id, {
+      lrc: o.l || '',
+      tlyric: o.t || '',
+      yrc: o.y || '',
+      pureMusic: o.pm ? 1 : 0
+    })
+    if (!wrote) ok = false
+    else stat.lyrics++
   }
+  return ok
 }
 
 /**
- * 元数据两套（结构一样、落点不同，见 §2）：
- *   `store/cache_meta.json`         → `downloads/<id>/metadata.json`（用户下载）
- *   storage `bpncm_playcache_meta`  → `cache/<id>/metadata.json`（播放缓存，多一个 u=lastUsed）
- * 记录**原样落盘**（不重排字段、不删 p/t），媒体层按「有就用、没有按默认」读。
+ * 元数据两套（结构一样、kind 不同，见 §2）：
+ *   `store/cache_meta.json`         → track_meta(kind=1)（用户下载）
+ *   storage `bpncm_playcache_meta`  → track_meta(kind=2)（播放缓存，多一个 u=lastUsed）
+ * 记录**原样写入**（不重排字段、不删 p/t），媒体层按「有就用、没有按默认」读。
+ * 库里已有该 (id,kind) 的行 ⇒ 跳过（幂等）。
  */
-async function planMeta(ids, prefs, cmds, stat, maxCmd) {
+async function stepMeta(ids, prefs, stat) {
+  let ok = true
   const dlMeta = (await readJson(legacyStoreDir() + '/cache_meta.json')) || {}
   const dk = Object.keys(dlMeta)
   for (let i = 0; i < dk.length; i++) {
     const id = dk[i]
     const rec = dlMeta[id]
     if (!rec || typeof rec !== 'object') continue
-    if (!ids.dl[id]) continue // 没有文件的不落盘（元数据不单独存在）
-    if (await fileExists(trackMeta(id, 'download'))) continue
-    pushWrite(cmds, trackMeta(id, 'download'), JSON.stringify(rec), 'M|' + id, maxCmd)
-    stat.meta++
+    if (!ids.dl[id]) continue // 没有文件的不落库（元数据不单独存在）
+    if (await readMeta(id, 'download')) continue
+    if (!(await writeMeta(id, 'download', rec))) ok = false
+    else stat.meta++
   }
   const pcMeta = parsePref(prefs, 'bpncm_playcache_meta') || {}
   const pk = Object.keys(pcMeta)
@@ -563,15 +524,28 @@ async function planMeta(ids, prefs, cmds, stat, maxCmd) {
     const rec = pcMeta[id]
     if (!rec || typeof rec !== 'object') continue
     if (!ids.ca[id]) continue
-    if (await fileExists(trackMeta(id, 'cache'))) continue
-    pushWrite(cmds, trackMeta(id, 'cache'), JSON.stringify(rec), 'P|' + id, maxCmd)
-    stat.meta++
+    if (await readMeta(id, 'cache')) continue
+    if (!(await writeMeta(id, 'cache', rec))) ok = false
+    else stat.meta++
   }
+  return ok
 }
 
-async function buildWritePlan(cmds, ids, prefs, stat, maxCmd) {
-  await planLyrics(ids.dl, cmds, stat, maxCmd)
-  await planMeta(ids, prefs, cmds, stat, maxCmd)
+/** 歌词 + 元数据一起迁（都写库，不再往 data 目录里写 JSON 文件） */
+async function stepDocs(ids, prefs, stat) {
+  let ok = true
+  try {
+    if (!(await ensureDb())) {
+      log('migrate', 'sqlite3 不可用，歌词/元数据迁移失败（旧文件保留，下次启动重试）')
+      return false
+    }
+    if (!(await stepLyrics(ids.dl, stat))) ok = false
+    if (!(await stepMeta(ids, prefs, stat))) ok = false
+  } catch (e) {
+    log('migrate', '文档迁移异常：' + ((e && e.message) || e))
+    ok = false
+  }
+  return ok
 }
 
 /* ---------------- 批量执行 ---------------- */
@@ -612,9 +586,13 @@ async function runBatched(cmds, maxCmd) {
   return { ok: ok, execs: execs }
 }
 
-/** 读失败项日志并按步骤计数 */
+/**
+ * 读失败项日志并按步骤计数。
+ * 只有文件搬家会写这份日志（音频 A / 曲目封面 C / 缩略图 T）；歌词与元数据已经走库，
+ * 失败由 stepDocs 自己返回，不进这个文件。
+ */
 async function readFailures() {
-  const out = { A: 0, C: 0, T: 0, L: 0, M: 0, P: 0, X: 0 }
+  const out = { A: 0, C: 0, T: 0, X: 0 }
   const raw = await readTextFile(errLogPath())
   if (!raw) return out
   const lines = raw.split('\n')
@@ -625,17 +603,17 @@ async function readFailures() {
     if (out[step] === undefined) out.X++
     else out[step]++
   }
-  const total = out.A + out.C + out.T + out.L + out.M + out.P + out.X
+  const total = out.A + out.C + out.T + out.X
   if (total) {
     log('migrate', '失败明细：音频 ' + out.A + '、曲目封面 ' + out.C + '、缩略图 ' + out.T +
-      '、歌词 ' + out.L + '、元数据 ' + (out.M + out.P) + (out.X ? '、未知 ' + out.X : ''))
+      (out.X ? '、未知 ' + out.X : ''))
   }
   return out
 }
 
 async function cleanupErrLog() {
   try {
-    await removePath(errLogPath())
+    await run('rm -f ' + shq(errLogPath()), 8000)
   } catch (e) {}
 }
 
@@ -817,7 +795,7 @@ async function stepDb(prefs, maxCmd) {
   }
 }
 
-/** 按大小分批提交 SQL（一批只 fork 一次），返回是否都没报错 */
+/** 按大小分批提交 SQL（一批一个事务），返回是否都没报错 */
 async function flushStmts(stmts, maxCmd) {
   if (!stmts.length) return true
   let batch = []
@@ -840,37 +818,32 @@ async function flushStmts(stmts, maxCmd) {
   return ok
 }
 
-/* ---------------- 4. 旧 storage 的 key → 顶层 JSON ---------------- */
+/* ---------------- 4. 旧 storage 的 key → 库里的 kv 行 ---------------- */
 
 /**
- * `ncm_cookies` / `bpncm_player_state` / `bpncm_playhist` → cookie.json / state.json / history.json。
- * 值是 JSON 文本，**原样落盘**（不经手 parse，避免格式漂移）。
- * 目标文件已存在就跳过：迁移失败后新写入的登录态/历史可能比旧 storage 里的新。
- * ncm_settings 不在这里写 —— 它与 layoutVersion 一起由 commitVersion 收尾（同一份文件）。
+ * `ncm_cookies` / `bpncm_player_state` / `bpncm_playhist` → kv 表的同名 key。
+ * 值是 JSON 文本，**原样存**（不经手 parse，避免格式漂移）。
+ * 目标 key 已有值就跳过：迁移失败后新写入的登录态/历史可能比旧 storage 里的新。
+ * ncm_settings 不在这里写 —— 它与 layoutVersion 一起由 commitVersion 收尾（同一行）。
  */
 async function stepStore(prefs) {
   try {
-    const plan = [
-      ['ncm_cookies', cookiesFile()],
-      ['bpncm_player_state', stateFile()],
-      ['bpncm_playhist', historyFile()]
-    ]
+    const plan = [KEY_COOKIES, KEY_PLAYER_STATE, KEY_PLAY_HIST]
     let n = 0
     let ok = true
     for (let i = 0; i < plan.length; i++) {
-      const key = plan[i][0]
-      const dest = plan[i][1]
+      const key = plan[i]
       const raw = prefs && prefs[key] !== undefined && prefs[key] !== null ? String(prefs[key]) : ''
       if (!raw) continue
-      if (await fileExists(dest)) continue
-      if (await writeTextFile(dest, raw)) n++
+      if ((await kvGet(key)) !== null) continue
+      if (await kvPut(key, raw)) n++
       else ok = false
     }
-    if (!ok) log('migrate', '顶层 JSON 有写入失败，' + n + ' 个已写入')
-    else log('migrate', '顶层 JSON：写入 ' + n + ' 个（config.json 在收尾时写）')
+    if (!ok) log('migrate', 'kv 有写入失败，' + n + ' 个已写入')
+    else log('migrate', 'kv：写入 ' + n + ' 个（配置在收尾时写）')
     return ok
   } catch (e) {
-    log('migrate', '顶层 JSON 迁移异常：' + ((e && e.message) || e))
+    log('migrate', 'kv 迁移异常：' + ((e && e.message) || e))
     return false
   }
 }

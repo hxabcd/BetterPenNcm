@@ -5,9 +5,9 @@
  * 响应也不会自动存。所以这里手工维护一个 jar：
  *   收：响应头 set-cookie（字符串或数组都处理）；登录接口还会在响应体里回一个 cookie 串
  *   发：每次请求前把 jar 拼成 Cookie 头（由 net/request.js 注入）
- *   存：序列化进 storage（裸模块 `storage`，见 utils/store.js），应用重启不丢登录态
+ *   存：序列化进 SQLite（kv 表的 ncm_cookies 行，见 utils/store.js），应用重启不丢登录态
  *
- * 值会被写进 $dataDir 之外的地方吗？不会——storage 由运行时管理，不落明文文件。
+ * 值不落明文文件：库里只存 JSON 串，日志里也从不回显（存量在 `data/local_index.db`）。
  */
 import { log } from '../log.js'
 import { getStorage, setStorage } from '../store.js'
@@ -44,14 +44,13 @@ export async function load() {
 }
 
 /**
- * 写回 storage，失败退避重试。
+ * 写回 SQLite，失败退避重试。
  *
- * 实测：应用**刚启动那一瞬**调用 setStorage 会失败（同一份数据几十秒后再存就正常，
- * 与长度无关——探测到 2000 字符都能存），所以在启动早期写入必须重试，
- * 否则登录态在重启后就丢了。
+ * 写库已经是单行 upsert（不再走 shell），失败通常是通道还没起来（库文件在建）。
+ * 仍在启动早期重试两次，避免登录态在重启后丢掉。
  *
- * 注意：运行时的 setStorage 失败时会把 **整个 value** 回显在错误里，而 value 里是
- * MUSIC_U 之类的登录凭据 —— 所以绝不能把 e.message 写进日志（会泄漏凭据）。
+ * 注意：日志里**绝不回显 jar 内容** —— 里面是 MUSIC_U 之类的登录凭据，
+ * 会顺着 logserver 进 PC 的明文日志。
  */
 export async function save(attempt) {
   const n = typeof attempt === 'number' ? attempt : 0
@@ -161,19 +160,18 @@ export function isLoaded() {
 }
 
 /**
- * 会话引导 / 持久化：$dataDir/cookie.txt 里放一份 cookie 串，启动时导入。
+ * 调试通道：`$dataDir/cookie.txt` 里放一份 cookie 串，启动时导入（**只在开发时存在**）。
  *
- * 为什么走文件而不是 storage：本应用的 storage.setStorage 实测**整体写不进去**
- * （启动后 0/5/15/30/60 秒、10~2000 字符、纯文本/JSON 全部失败，
- * 同机其他应用的 storage 正常），所以文件就是本应用的会话持久化载体。
- * 文件内容与其他应用的 preferences.json 同级，都躺在应用自己的 data 目录里。
+ * 登录态的正式载体是 SQLite 的 `kv` 表 ncm_cookies 行（`save()` 写）。这个文件只用于
+ * 「从 PC 递一份有效 MUSIC_U 进来」：adb push 一个文本文件到应用自己的 data 目录，
+ * 重启即导入一次，随后由 save() 落库。
  *
  * 关于 8821 的最终结论（换了号、补了 NMTID 都拦）：
  *   扫码「确认授权」时被**环境风控**拦（801/802 全程正常、服务端认得出账号），
  *   与接口加密、会话 cookie 均无关 —— 官方客户端能过靠的是设备指纹上报。
  *   可靠路径 = 从 PC 递一份有效 MUSIC_U 进来（MusicVault config.json 的 cookie 字段
  *   → adb push 本文件）。登录链路已改走系统 curl（utils/ncm/wecurl.js），
- *   能回收 NMTID 等响应 cookie，且 803 成功后 persistSession() 会自动落盘本文件，
+ *   能回收 NMTID 等响应 cookie，且 803 成功后 persistSession() 会自动落库，
  *   重启不再需要重新扫码。
  *
  * 返回导入的 cookie 项数（0 = 没有文件）。
@@ -186,7 +184,7 @@ export async function importFromFile() {
     const raw = await fs.readFile(path)
     const n = absorbCookieString(raw)
     if (n) {
-      await save() // storage 多半会失败，但不影响本次会话可用
+      await save()
       log('cookie', '已从 cookie.txt 导入 ' + n + ' 项会话')
     }
     return n

@@ -21,8 +21,7 @@
  * 那种行的 name 是空的 —— 不能把它们当成「有详情可用的曲目」。
  */
 import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, deleteSql, num } from '../db.js'
-import { readLyrics, writeLyrics, dropFile } from '../media.js'
-import { trackLyrics } from '../paths.js'
+import { readLyrics, writeLyrics, dropLyrics } from '../media.js'
 import { fetchSongInfo, fetchLyric } from '../ncm/api.js'
 import { enqueueCovers } from '../cover.js'
 import { enqueueArtistPortraits } from '../artistavatar.js'
@@ -404,12 +403,12 @@ async function clearIndex() {
 
 /**
  * 取本地歌词；返回 {l, t, pm, y} 或 null（没有/坏了都算 null；y 是可选 YRC 原文）。
- * 只读 downloads 通道 —— cache 通道的歌不存歌词。
+ * 只对 downloads 通道的曲目有歌词 —— cache 通道的歌不存歌词。
  */
 export async function lyricOf(id) {
   if (!id) return null
   try {
-    const j = await readLyrics(id, 'download')
+    const j = await readLyrics(id)
     if (!j) return null
     return { l: j.lrc || '', t: j.tlyric || '', pm: j.pureMusic ? 1 : 0, y: j.yrc || '' }
   } catch (e) {
@@ -421,7 +420,7 @@ export async function putLyric(id, l, t, pm, y) {
   if (!id) return
   if (!l && !pm) return // 没词又不是纯音乐：没有可存的
   try {
-    await writeLyrics(id, 'download', { lrc: l || '', tlyric: t || '', yrc: y || '', pureMusic: pm ? 1 : 0 })
+    await writeLyrics(id, { lrc: l || '', tlyric: t || '', yrc: y || '', pureMusic: pm ? 1 : 0 })
   } catch (e) {
     log('local', '写歌词失败 ' + id + '：' + ((e && e.message) || e))
   }
@@ -429,7 +428,7 @@ export async function putLyric(id, l, t, pm, y) {
 
 export async function dropLyric(id) {
   try {
-    await dropFile(trackLyrics(id, 'download'))
+    await dropLyrics(id)
   } catch (e) {}
 }
 

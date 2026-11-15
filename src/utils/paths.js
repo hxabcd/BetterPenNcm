@@ -75,39 +75,15 @@ export function trackCover(id, kind) {
   return trackDir(id, kind) + '/cover.jpg'
 }
 
-/** 曲目歌词（只有 downloads/ 有；cache/ 的歌会被 LRU 滚掉，存词即孤儿数据） */
-export function trackLyrics(id, kind) {
-  return trackDir(id, kind) + '/lyrics.json'
-}
-
-/** 曲目元数据（显示信息 + 档位 + 下载归属 + LRU 时间） */
-export function trackMeta(id, kind) {
-  return trackDir(id, kind) + '/metadata.json'
-}
-
 /* ---------------- 顶层文件 ---------------- */
 
-/** 应用配置（原 storage 的 ncm_settings） */
-export function configFile() {
-  return normDir() + '/config.json'
-}
-
-/** 登录 Cookie（原 storage 的 ncm_cookies） */
-export function cookiesFile() {
-  return normDir() + '/cookie.json'
-}
-
-/** 播放会话快照（原 storage 的 bpncm_player_state；高频小块，留 JSON 文件） */
-export function stateFile() {
-  return normDir() + '/state.json'
-}
-
-/** 播放历史（原 storage 的 bpncm_playhist；高频小块，留 JSON 文件） */
-export function historyFile() {
-  return normDir() + '/history.json'
-}
-
-/** SQLite 索引库（表：album/artist/track/track_artist/playlist/playlist_track） */
+/**
+ * SQLite 库（索引表 + kv 文档表 + 曲目元数据/歌词都在这里）。
+ *
+ * ⚠ 元数据、歌词、配置、Cookie、播放快照/历史**都不落 JSON 文件**：
+ *   平台 `fs` 没有写接口，写文件只能借 shell 重定向（一次 fork，真机 92~139ms），
+ *   134KB 的播放快照分片写实测 2511ms。全部改走本库的 upsert（10ms 量级）。
+ */
 export function dbFile() {
   return normDir() + '/local_index.db'
 }

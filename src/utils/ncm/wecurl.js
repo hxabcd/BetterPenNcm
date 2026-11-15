@@ -192,7 +192,11 @@ export async function post(path, payload, opts) {
 }
 
 /**
- * 用 /bin/sh 重定向写文本文件（fs 模块在本机只读）。
+ * 用 /bin/sh 重定向写文本文件（**只剩这一处**：curl 的 `-c` 自己也要写同一个 jar 文件，
+ * 而我们只读它，由 curl 负责写）。
+ *
+ * ⚠ 不要把这个通道用在别处：产品数据一律进 SQLite（utils/db.js）。写文本文件必须借 shell，
+ *   一次就是一次 fork（真机 92~139ms），而 fs 模块只有读接口。
  * 内容用单引号包裹，内部的单引号会被逐字转义 —— cookie 值里不会出现单引号。
  */
 export async function shellWrite(path, content) {

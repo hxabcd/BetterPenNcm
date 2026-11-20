@@ -75,7 +75,7 @@ import { go, paramsFor } from '../../core/infra/nav.js'
 import { player } from '../../services/player/player.js'
 import { listSongs } from '../../services/player/cache.js'
 import { deleteCached, dlText } from '../../services/player/download.js'
-import { bindDl } from '../../services/player/dlvis.js'
+import { bindDl } from '../../ui/mixins/dlsub.js'
 import { markUser } from '../../services/player/dlorigin.js'
 import { playlistView, pullList, syncList, splitDownloads } from '../../services/player/locallists.js'
 import { isOffline } from '../../core/infra/net/status.js'
@@ -213,7 +213,7 @@ export default {
   mounted() {
     this._dead = false
     const self = this
-    // 下载活动订阅（可见性门控 + 首帧快照，见 utils/player/dlvis.js）
+    // 下载活动订阅（可见性门控 + 首帧快照，见 ui/mixins/dlsub.js）
     this._dlOff = bindDl(this, function (s) {
       self.syncDl(s)
     })

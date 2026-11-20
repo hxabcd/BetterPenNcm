@@ -117,7 +117,7 @@ import {
   applyHistoryRemoved as cursorApplyHistRemoved,
 } from '../../services/player/listcursor.js';
 import { downloadSongs, dlText, startText, resultText, spaceCheck } from '../../services/player/download.js';
-import { bindDl } from '../../services/player/dlvis.js';
+import { bindDl } from '../../ui/mixins/dlsub.js';
 import { downloadAll, isIndexed, addList, removeList } from '../../services/player/locallists.js';
 import { toPlaylist, playNext, playNextText } from '../../services/player/acts.js';
 import config from '../../core/infra/config.js';
@@ -516,7 +516,7 @@ export default {
       log("list", "$page.on(show) 订阅失败 " + ((e && e.message) || e));
     }
     // 下载活动订阅（多选批量下载的进度显示在顶栏副题；页面会挂两遍 → 每实例各订各退）。
-    // bindDl = 订阅 + 可见性门控 + 首帧快照（被上层页盖住时不落 data，见 utils/player/dlvis.js）
+    // bindDl = 订阅 + 可见性门控 + 首帧快照（被上层页盖住时不落 data，见 ui/mixins/dlsub.js）
     this._dlOff = bindDl(this, function (s) {
       self.syncDl(s);
     });

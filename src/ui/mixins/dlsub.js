@@ -1,21 +1,27 @@
 /**
- * 下载活动订阅的「可见性门控」封装 —— 给页面用的一行式订阅入口。
+ * 下载活动订阅 mixin —— bindDl + 可见性门控的页面侧接线（S3 从 services/player/dlvis.js
+ * 改造而来：UI 订阅职责归 ui 层，services 只发布事件流，不再感知 UI）。
  *
  * 背景：`onDl(fn)` 是下载引擎的广播（进度节流 ~400ms、结构变化立即发）。页面被上层页盖住后
  * 订阅仍在跑，每个回调都会写 data 触发一次重渲染；而这些页面显示的无非是顶栏副题里的
  * 「下载中 k/N」——看不见的时候全是白花的帧预算。
  *
+ * 用法（页面）：
+ *   mixins: [..., dlSubscriberMixin]        // 依赖 pageFrameMixin 的 beforeDestroy 时序
+ *   this._dlOff = bindDl(this, function (s) { self.syncDl(s) })
+ *   beforeDestroy() { if (this._dlOff) this._dlOff() }
+ *
  * 语义（省渲染，不省数据）：
  *   - 订阅立刻建立，回调只在**页面可见**时转给页面；
  *   - 隐藏期间的事件直接丢（页面看不到），重新可见时用 `dlState()` 补一次最新快照，
  *     所以状态不会停在旧值；
- *   - 挂载时也由本函数调一次（替代页面原来手写的 `this.syncDl(dlState())`）。
+ *   - 挂载时也由 bindDl 调一次（替代页面原来手写的 `this.syncDl(dlState())`）。
  *
- * 返回取消订阅函数（callable，直接塞进 beforeDestroy）。
- * 取不到页面对象时退化为「不门控」（等同原来的裸订阅），功能不受影响。
+ * bindDl 返回取消订阅函数（callable，直接塞进 beforeDestroy）。
+ * 取不到页面对象时退化为「不门控」（等同裸订阅），功能不受影响。
  */
-import { onDl, offDl, dlState } from './download.js'
-import { bindPageVis } from '../../ui/vis.js'
+import { onDl, offDl, dlState } from '../services/player/download.js'
+import { bindPageVis } from './vis.js'
 
 export function bindDl(vm, fn) {
   /* 页面会挂两遍（平台坑 6）：mounted 再跑一次时，`this._dlOff = bindDl(...)` 只会覆盖字段，
@@ -53,5 +59,18 @@ export function bindDl(vm, fn) {
     } catch (e) {}
     visOff()
     fn = null
+  }
+}
+
+export const dlSubscriberMixin = {
+  beforeDestroy() {
+    // bindDl 的订阅不随 mixin 自动退（页面 mounted 里自己拿 _dlOff）——
+    // 这里兜一层：页面忘了写 if (this._dlOff) this._dlOff() 也不泄漏
+    if (this._dlOff) {
+      try {
+        this._dlOff()
+      } catch (e) {}
+      this._dlOff = null
+    }
   }
 }

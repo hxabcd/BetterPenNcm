@@ -67,7 +67,7 @@ import { isOffline } from '../../core/infra/net/status.js'
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
 import { fmtDate, fmtSize, clipText } from '../../core/infra/format.js'
 import { downloadSongs, dlText, startText, resultText, spaceCheck } from '../../services/player/download.js'
-import { bindDl } from '../../services/player/dlvis.js'
+import { bindDl } from '../../ui/mixins/dlsub.js'
 import { selPicked } from '../../ui/dlselect.js'
 import { log } from '../../core/infra/log.js'
 import { accentMixin } from '../../ui/theme.js'
@@ -180,7 +180,7 @@ export default {
     this.localOnly = !!p.local
     if (p.name) this.album.name = p.name
     // 下载活动订阅（顶栏副题显示进度）；页面会挂两遍 → 每实例各订各退。
-    // bindDl = 订阅 + 可见性门控 + 首帧快照（见 utils/player/dlvis.js）
+    // bindDl = 订阅 + 可见性门控 + 首帧快照（见 ui/mixins/dlsub.js）
     this._dlOff = bindDl(this, function (s) {
       self.syncDl(s)
     })

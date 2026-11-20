@@ -103,7 +103,7 @@ import config from '../../core/infra/config.js';
 import { openTextEdit, available as skAvailable } from '../../core/platform/systemKeyboard.js';
 import { player } from '../../services/player/player.js';
 import { countToday as histToday, isLoaded as histLoaded } from '../../services/player/history.js';
-import { bindDl } from '../../services/player/dlvis.js';
+import { bindDl } from '../../ui/mixins/dlsub.js';
 import { stats } from '../../services/player/cache.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js';
@@ -297,7 +297,7 @@ export default {
     this.syncLogin();
 
     // ---- 本地下载卡：下载活动订阅（进度）+ 计数（文件系统的真相；exec 一次别频繁调）----
-    // bindDl = 订阅 + 可见性门控 + 首帧快照（主页被上层页盖住时不落 data，见 utils/player/dlvis.js）
+    // bindDl = 订阅 + 可见性门控 + 首帧快照（主页被上层页盖住时不落 data，见 ui/mixins/dlsub.js）
     this._dlOff = bindDl(this, function (s) {
       self.syncDl(s);
     });

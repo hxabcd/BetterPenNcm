@@ -40,7 +40,7 @@ function truthy(name, v) {
 
 /**
  * 去掉注释再做静态扫描：注释里出现的 `player.on(...)` / `onDl(...)` 只是文档示例
- * （player.js 头部用法说明、dlvis.js 背景说明），算进调用条数会让断言误报。
+ * （player.js 头部用法说明、dlsub.js 背景说明），算进调用条数会让断言误报。
  * 不追求完整 JS 词法，只处理块注释、行注释和字符串字面量这三类会把代码「藏起来」的情况。
  */
 function stripComments(src) {
@@ -236,7 +236,7 @@ const read = (p) => fs.readFileSync(p, 'utf8')
 {
   const users = allFiles.filter((p) => {
     const t = read(p)
-    return /ui\/vis\.js|player\/dlvis\.js/.test(t) && !/utils\/(ui\/vis|player\/dlvis)\.js$/.test(p)
+    return /ui\/vis\.js|mixins\/dlsub\.js/.test(t)
   })
   truthy('vis: 至少有 5 个文件接入可见性通道（实际 ' + users.length + '）', users.length >= 5)
   const sigUsers = allFiles.filter((p) => /player\/sig\.js/.test(read(p)) && !/player\/sig\.js$/.test(rel(p)))
@@ -272,7 +272,7 @@ const PLAYER_ALLOW = {
 }
 
 const DL_ALLOW = {
-  'services/player/dlvis.js': ['封装层自己', 1],
+  'ui/mixins/dlsub.js': ['封装层自己', 1],
   'services/player/tasks.js': ['发射端自己', 1],
   'services/player/download.js': ['门面转出', 0]
 }
@@ -295,7 +295,7 @@ const DL_ALLOW = {
   const users = allFiles.filter((p) => /\bbindDl\s*\(/.test(read(p)))
   let loose = []
   for (const p of users) {
-    if (rel(p) === 'services/player/dlvis.js') continue // 定义处自己
+    if (rel(p) === 'ui/mixins/dlsub.js') continue // 定义处自己
     const t = read(p)
     if (!/this\._dlOff\s*\(\)/.test(t)) loose.push(rel(p))
   }
@@ -306,7 +306,7 @@ const DL_ALLOW = {
 {
   const users = allFiles.filter((p) => /\bbindPageVis\s*\(/.test(read(p)) &&
     !/utils\/ui\/vis\.js$/.test(rel(p)) &&
-    rel(p) !== 'services/player/dlvis.js') // 封装层自己负责释放
+    rel(p) !== 'ui/mixins/dlsub.js') // 封装层自己负责释放
   const loose = []
   for (const p of users) {
     const t = read(p)
@@ -371,7 +371,7 @@ const SLEEP_ALLOW = {
 {
   // 每项 = [文件, 必须出现的「先释放上一组」片段]
   const targets = [
-    ['services/player/dlvis.js', 'vm._dlOff()'],
+    ['ui/mixins/dlsub.js', 'vm._dlOff()'],
     ['ui/vis.js', 'vm._visOff()'],
     ['ui/theme.js', 'unbindTheme(vm._accentOff)']
   ]

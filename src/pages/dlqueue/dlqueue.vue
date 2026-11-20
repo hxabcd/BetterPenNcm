@@ -59,7 +59,7 @@ import EmptyHint from '../../components/EmptyHint.vue'
 import HintToast from '../../components/HintToast.vue'
 import { ICON, railBack } from '../../ui/rail.js'
 import { dlTasks, ackFinished, cancelTask } from '../../services/player/download.js'
-import { bindDl } from '../../services/player/dlvis.js'
+import { bindDl } from '../../ui/mixins/dlsub.js'
 import { log } from '../../core/infra/log.js'
 import { accentMixin } from '../../ui/theme.js'
 import { TOK } from '../../ui/tokens.js'
@@ -125,7 +125,7 @@ export default {
   mounted() {
     this._dead = false
     const self = this
-    // 下载活动订阅（可见性门控，见 utils/player/dlvis.js；回调体是整页刷新，门控收益最大）
+    // 下载活动订阅（可见性门控，见 ui/mixins/dlsub.js；回调体是整页刷新，门控收益最大）
     this._dlOff = bindDl(this, function () {
       self.refresh()
     })

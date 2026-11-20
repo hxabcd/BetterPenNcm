@@ -51,7 +51,7 @@ import { go } from '../../core/infra/nav.js'
 import { stats, freeBytes, listSongs, putMeta } from '../../services/player/cache.js'
 import { localStats, loadIndex, indexOf, saveSongExtras } from '../../services/player/localmeta.js'
 import { indexedCount } from '../../services/player/locallists.js'
-import { bindDl } from '../../services/player/dlvis.js'
+import { bindDl } from '../../ui/mixins/dlsub.js'
 import { dlText } from '../../services/player/download.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { isOffline } from '../../core/infra/net/status.js'
@@ -120,7 +120,7 @@ export default {
   mounted() {
     this._dead = false
     const self = this
-    // 下载活动订阅（可见性门控 + 首帧快照，见 utils/player/dlvis.js）
+    // 下载活动订阅（可见性门控 + 首帧快照，见 ui/mixins/dlsub.js）
     this._dlOff = bindDl(this, function (s) {
       self.syncDl(s)
     })

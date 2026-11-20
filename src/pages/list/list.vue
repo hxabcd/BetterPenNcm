@@ -62,19 +62,18 @@
 
     <hint-toast :text="toast" />
 
-    <!-- 排序浮窗（仅可写列表；搜索页的分类改由右侧侧栏承担，只读歌单的排序在「更多」里）：
-         浮窗**贴着左栏下部**展示（样式里的几何推导：bottom:24vh 正对最下面那个按钮的上沿），
-         不是屏幕居中，且向上生长。遮罩用浅色（纯透明层在部分渲染器上点不到），
-         挂关闭；面板挂空方法挡穿透 —— 平台不支持 stopPropagation / @click.stop（PenMusic 同款做法）。
-         4 项的列表高度已接近屏高，**贴底**是唯一能完整显示的摆法。 -->
-    <div class="lst-mask" v-if="panel === 'sort'" @click="closePanel">
-      <div class="lst-sheet" @click="stop">
-        <text class="lst-st">排序方式</text>
-        <div class="lst-opt" v-for="o in panelOptions" :key="o.key" :style="optStyle(o.key)" @click="pickSort(o.key)">
-          <text class="lst-opt-t" :style="optTextStyle(o.key)">{{ o.label }}{{ mark(o.key) }}</text>
-        </div>
-      </div>
-    </div>
+    <!-- 排序浮窗：ContextSheet 声明式组件（与 dlartists/dlalbums 同一实现，S2 统一）。
+         artistsongs 的选中项判定走 order（服务端排序键），无方向箭头（mark-text=''）。 -->
+    <context-sheet
+      v-if="panel === 'sort'"
+      title="排序方式"
+      :options="sortOptions"
+      :active-key="panelActiveSortKey"
+      :asc="panelSortAsc"
+      :mark-text="panelSortMark"
+      @pick="pickSort"
+      @close="closePanel"
+    />
 
     <!-- 只读歌单的「更多」面板 / 多选态的「更多」面板：共用 ContextSheet（贴左栏下部向上升） -->
     <context-sheet
@@ -320,11 +319,19 @@ export default {
       return this.songs.length + this.items.length;
     },
     /** 排序浮窗的选项（搜索页没有排序，故只有非搜索的 kind 会用到） */
-    panelOptions() {
-      return SORTS[this.kind] || [];
-    },
     sortOptions() {
       return SORTS[this.kind] || [];
+    },
+    /** 排序面板的选中项：artistsongs 判 order（服务端排序键），其余判 sortKey */
+    panelActiveSortKey() {
+      return this.kind === "artistsongs" ? this.order : this.sortKey;
+    },
+    /** 排序面板的方向箭头：artistsongs 是服务端排序，没有方向 */
+    panelSortAsc() {
+      return this.sortAsc;
+    },
+    panelSortMark() {
+      return this.kind === "artistsongs" ? "" : null; // null = ContextSheet 默认 ↑/↓
     },
     /**
      * 完整视图序列：本地排序**作用在已取回的全量上**（未全量时 pickSort 会先拉满，
@@ -1637,33 +1644,9 @@ export default {
       log("list", "移除 " + removed + " 首（选 " + ids.length + "）pid=" + this.pid + "，剩 " + this.trackIds.length);
       this.exitMulti();
     },
-    /* ---- 排序浮窗（非搜索的曲目列表；搜索分类已改到右侧侧栏）---- */
-    stop() {},
-    /** 选项尾巴的标记：升降序箭头（artistsongs 是服务端排序，没有方向） */
-    mark(k) {
-      if (this.kind === "artistsongs") return "";
-      if (k !== this.sortKey) return "";
-      return this.sortAsc ? " ↑" : " ↓";
-    },
-    /** 该选项是不是当前生效的那个 */
-    isOn(k) {
-      if (this.kind === "artistsongs") return k === this.order;
-      return k === this.sortKey;
-    },
+    /* ---- 排序浮窗（ContextSheet 版：选中项/箭头见 panel* computed，pickSort 见下）---- */
     closePanel() {
       this.panel = "";
-    },
-    optStyle(k) {
-      const on = this.isOn(k);
-      return {
-        backgroundColor: on ? this.accent.a18 : TOK.panel2,
-        borderWidth: on ? "1px" : "0px",
-        borderStyle: "solid",
-        borderColor: on ? this.accent.c : "transparent",
-      };
-    },
-    optTextStyle(k) {
-      return { color: this.isOn(k) ? this.accent.light : TOK.text2 };
     },
     async pickSort(k) {
       if (this.kind === "artistsongs") {
@@ -1822,51 +1805,4 @@ export default {
   color: @accent-2; /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
 }
 
-/* ---- 排序浮窗 ----
-   绝对定位基准是 .psh-body（PageShell 设了 position:relative）：只盖内容区、不盖左栏。
-   浮窗位置「贴着触发它的按钮」——左栏**返回在顶、上下文按钮贴底**，
-   所以排序键的上沿在 76vh（100 − 4 底边距 − 20 按钮），见 NavRail.vue 的几何注释。
-   浮窗因此**向上生长**（bottom 锚定，不用 top）：本页有 4 个排序项、浮窗高约 66vh，
-   若还按按钮上沿往下排会被屏幕底裁掉。bottom = 100 − 76 = 24vh。 */
-.lst-mask {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  height: 100%;
-  background-color: @scrim;
-  z-index: 900;
-}
-.lst-sheet {
-  position: absolute;
-  left: 1.4vh;
-  bottom: 24vh;
-  width: 52vh;
-  background-color: @surface-4;
-  border-radius: @radius;
-  border-width: 1px;
-  border-style: solid;
-  border-color: @surface-3;
-  padding: 2.4vh;
-}
-.lst-st {
-  font-size: @fs-mute;
-  color: @text-3;
-  margin-bottom: 1.6vh;
-  margin-left: 1vh;
-}
-/* 行高 12vh(≈29px) —— 屏幕物理高仅 2.5cm，点击区尽量给大 */
-.lst-opt {
-  height: 12vh;
-  border-radius: 1.8vh;
-  justify-content: center;
-  padding-left: 3vh;
-  margin-bottom: 1.4vh;
-}
-.lst-opt-t {
-  font-size: @fs-dim;
-  color: @text-2;
-}
 </style>

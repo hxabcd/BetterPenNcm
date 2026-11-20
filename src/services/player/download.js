@@ -568,3 +568,14 @@ export async function spaceCheck(songs) {
   }
   return { est: est, free: free, tight: free > 0 && est > free }
 }
+
+/**
+ * 下载活动快照的签名（判重用）：快照 ~400ms 一发，页面不判重就是持续重渲染
+ * （平台坑 16 同族）。字段口径 = 页面显示的全部来源：active/total/三态计数/
+ * stopping/pct；finished 只进「本地下载总览」的刷新判定（那里自己在 sig 外补）。
+ */
+export function dlSig(d) {
+  d = d || {}
+  return (d.active ? 1 : 0) + '|' + d.total + '|' +
+    (d.done + d.failed + (d.cancelled || 0)) + '|' + (d.stopping ? 1 : 0) + '|' + d.pct
+}

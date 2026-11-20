@@ -105,6 +105,7 @@ import { player } from '../../services/player/player.js';
 import { countToday as histToday, isLoaded as histLoaded } from '../../services/player/history.js';
 import { bindDl } from '../../ui/mixins/dlsub.js';
 import { stats } from '../../services/player/cache.js';
+import { dlSig } from '../../services/player/download.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js';
 import { coverPair, glowGradient } from '../../services/cover/color.js';
@@ -588,18 +589,10 @@ export default {
      */
     syncDl(s) {
       const d = s || {};
-      const sig =
-        (d.active ? 1 : 0) +
-        "|" +
-        d.total +
-        "|" +
-        (d.done + d.failed + (d.cancelled || 0)) +
-        "|" +
-        (d.stopping ? 1 : 0);
-      if (sig !== this._dlSig) {
-        this._dlSig = sig;
-        this.dl = d;
-      }
+      const sig = dlSig(d);
+      if (sig === this._dlSig) return;
+      this._dlSig = sig;
+      this.dl = d;
       const active = !!d.active;
       if (this._wasActive && !active) this.loadDownloads();
       this._wasActive = active;

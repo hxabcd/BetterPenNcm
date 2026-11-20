@@ -85,7 +85,7 @@ import {
 import { addList, removeList, removeListLocal, isIndexed, downloadAll } from '../../services/player/locallists.js'
 import { player } from '../../services/player/player.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
-import { dlText } from '../../services/player/download.js'
+import { dlText, dlSig } from '../../services/player/download.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
 import { openTextEdit, available as imeAvailable } from '../../core/platform/systemKeyboard.js'
@@ -288,8 +288,7 @@ export default {
     },
     syncDl(s) {
       const d = s || {}
-      const sig = (d.active ? 1 : 0) + '|' + d.total + '|' +
-        (d.done + d.failed + (d.cancelled || 0)) + '|' + (d.stopping ? 1 : 0) + '|' + d.pct
+      const sig = dlSig(d)
       if (sig === this._dlSig) return
       this._dlSig = sig
       this.dl = d

@@ -66,7 +66,7 @@ import { localAlbumView } from '../../services/player/localmeta.js'
 import { isOffline } from '../../core/infra/net/status.js'
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
 import { fmtDate, fmtSize, clipText } from '../../core/infra/format.js'
-import { downloadSongs, dlText, startText, resultText, spaceCheck } from '../../services/player/download.js'
+import { downloadSongs, dlText, startText, resultText, spaceCheck, dlSig } from '../../services/player/download.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
 import { selPicked } from '../../ui/dlselect.js'
 import { log } from '../../core/infra/log.js'
@@ -329,8 +329,7 @@ export default {
     /** 下载活动 → this.dl（签名判重：快照 ~400ms 一发，不判重就是持续重渲染，坑 16 同族） */
     syncDl(s) {
       const d = s || {}
-      const sig = (d.active ? 1 : 0) + '|' + d.total + '|' + (d.done + d.failed + (d.cancelled || 0)) +
-        '|' + (d.stopping ? 1 : 0) + '|' + d.pct
+      const sig = dlSig(d)
       if (sig === this._dlSig) return
       this._dlSig = sig
       this.dl = d

@@ -116,7 +116,7 @@ import {
   applyRemoved as cursorApplyRemoved,
   applyHistoryRemoved as cursorApplyHistRemoved,
 } from '../../services/player/listcursor.js';
-import { downloadSongs, dlText, startText, resultText, spaceCheck } from '../../services/player/download.js';
+import { downloadSongs, dlText, startText, resultText, spaceCheck, dlSig } from '../../services/player/download.js';
 import { bindDl } from '../../ui/mixins/dlsub.js';
 import { downloadAll, isIndexed, addList, removeList } from '../../services/player/locallists.js';
 import { toPlaylist, playNext, playNextText } from '../../services/player/acts.js';
@@ -1259,16 +1259,7 @@ export default {
     /** 下载活动 → this.dl（签名判重：快照 ~400ms 一发，不判重就是持续重渲染，坑 16 同族） */
     syncDl(s) {
       const d = s || {};
-      const sig =
-        (d.active ? 1 : 0) +
-        "|" +
-        d.total +
-        "|" +
-        (d.done + d.failed + (d.cancelled || 0)) +
-        "|" +
-        (d.stopping ? 1 : 0) +
-        "|" +
-        d.pct;
+      const sig = dlSig(d);
       if (sig === this._dlSig) return;
       this._dlSig = sig;
       this.dl = d;

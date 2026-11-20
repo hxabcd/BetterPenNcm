@@ -52,7 +52,7 @@ import { stats, freeBytes, listSongs, putMeta } from '../../services/player/cach
 import { localStats, loadIndex, indexOf, saveSongExtras } from '../../services/player/localmeta.js'
 import { indexedCount } from '../../services/player/locallists.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
-import { dlText } from '../../services/player/download.js'
+import { dlText, dlSig } from '../../services/player/download.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { isOffline } from '../../core/infra/net/status.js'
 import { log } from '../../core/infra/log.js'
@@ -254,12 +254,10 @@ export default {
     },
     syncDl(s) {
       const d = s || {}
-      const sig = (d.active ? 1 : 0) + '|' + d.total + '|' +
-        (d.done + d.failed + (d.cancelled || 0)) + '|' + (d.stopping ? 1 : 0) + '|' + (d.finished || 0)
-      if (sig !== this._dlSig) {
-        this._dlSig = sig
-        this.dl = d
-      }
+      const sig = dlSig(d)
+      if (sig === this._dlSig) return
+      this._dlSig = sig
+      this.dl = d
       const active = !!d.active
       if (this._wasActive && !active) this.refresh()
       this._wasActive = active

@@ -74,7 +74,7 @@ import { railBack, railBtn, ICON } from '../../ui/rail.js'
 import { go, paramsFor } from '../../core/infra/nav.js'
 import { player } from '../../services/player/player.js'
 import { listSongs } from '../../services/player/cache.js'
-import { deleteCached, dlText } from '../../services/player/download.js'
+import { deleteCached, dlText, dlSig } from '../../services/player/download.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
 import { markUser } from '../../services/player/dlorigin.js'
 import { playlistView, pullList, syncList, splitDownloads } from '../../services/player/locallists.js'
@@ -563,8 +563,7 @@ export default {
     },
     syncDl(s) {
       const d = s || {}
-      const sig = (d.active ? 1 : 0) + '|' + d.total + '|' +
-        (d.done + d.failed + (d.cancelled || 0)) + '|' + (d.stopping ? 1 : 0) + '|' + d.pct
+      const sig = dlSig(d)
       if (sig === this._dlSig) return
       this._dlSig = sig
       this.dl = d

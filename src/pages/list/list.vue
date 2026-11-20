@@ -39,17 +39,13 @@
           </div>
         </scroller>
       </div>
-      <!-- 右侧分类侧栏：搜索页专有（分类来自 SEARCH_TYPES，后续加分类只改那张表）。
-           外壳宽度由 sideStyle 控制（0 = 收起/非搜索页），内容固定宽、超出部分被裁。 -->
-      <div class="lst-side" :style="sideStyle">
-        <scroller class="lst-side-scroll">
-          <div class="lst-side-in">
-            <div class="lst-cat" v-for="c in cats" :key="c.key" :style="catStyle(c.key)" @click="pickCat(c.key)">
-              <text class="lst-cat-t" :style="catTextStyle(c.key)">{{ c.label }}</text>
-            </div>
-          </div>
-        </scroller>
-      </div>
+      <!-- 右侧分类侧栏：搜索页专有（拆解件 SearchSidebar；开合宽度/选中态都在组件内） -->
+      <search-sidebar
+        v-if="isSearch"
+        :search-type="searchType"
+        :open="catOpen"
+        @pick="pickCat"
+      />
     </div>
 
     <!-- 分类侧栏的收起/展开提示：展开时「收起 >」贴在侧栏左缘；收起时「[图标] 展开分类」贴屏幕右缘。
@@ -62,19 +58,18 @@
 
     <hint-toast :text="toast" />
 
-    <!-- 排序浮窗（仅可写列表；搜索页的分类改由右侧侧栏承担，只读歌单的排序在「更多」里）：
-         浮窗**贴着左栏下部**展示（样式里的几何推导：bottom:24vh 正对最下面那个按钮的上沿），
-         不是屏幕居中，且向上生长。遮罩用浅色（纯透明层在部分渲染器上点不到），
-         挂关闭；面板挂空方法挡穿透 —— 平台不支持 stopPropagation / @click.stop（PenMusic 同款做法）。
-         4 项的列表高度已接近屏高，**贴底**是唯一能完整显示的摆法。 -->
-    <div class="lst-mask" v-if="panel === 'sort'" @click="closePanel">
-      <div class="lst-sheet" @click="stop">
-        <text class="lst-st">排序方式</text>
-        <div class="lst-opt" v-for="o in panelOptions" :key="o.key" :style="optStyle(o.key)" @click="pickSort(o.key)">
-          <text class="lst-opt-t" :style="optTextStyle(o.key)">{{ o.label }}{{ mark(o.key) }}</text>
-        </div>
-      </div>
-    </div>
+    <!-- 排序浮窗：ContextSheet 声明式组件（与 dlartists/dlalbums 同一实现，S2 统一）。
+         artistsongs 的选中项判定走 order（服务端排序键），无方向箭头（mark-text=''）。 -->
+    <context-sheet
+      v-if="panel === 'sort'"
+      title="排序方式"
+      :options="sortOptions"
+      :active-key="panelActiveSortKey"
+      :asc="panelSortAsc"
+      :mark-text="panelSortMark"
+      @pick="pickSort"
+      @close="closePanel"
+    />
 
     <!-- 只读歌单的「更多」面板 / 多选态的「更多」面板：共用 ContextSheet（贴左栏下部向上升） -->
     <context-sheet
@@ -106,30 +101,33 @@ import HintToast from "../../components/HintToast.vue";
 import { go, paramsFor } from '../../core/infra/nav.js';
 import { railBack, railBtn, ICON } from '../../ui/rail.js';
 import { player } from '../../services/player/player.js';
-import { list as histList, load as histLoad, remove as histRemove } from '../../services/player/history.js';
 import {
-  fetchPlaylistTracks,
-  fetchTracksMore,
   removeFromPlaylist,
   cachedPlaylistRole,
   fetchPlaylistInfo,
   setSubscribed,
 } from '../../services/ncm/playlist.js';
-import { markUnliked } from '../../services/ncm/like.js';
-import { loadDailyRecommend } from '../../services/ncm/recommend.js';
-import { searchByType, SEARCH_TYPES, fetchArtistSongs } from '../../services/ncm/api.js';
+import { KINDS, appendUnique } from '../../services/player/listkinds.js';
+import {
+  loadMore as cursorLoadMore,
+  sorted as cursorSorted,
+  loadAllSongs as cursorLoadAll,
+  ensureAllSongs as cursorEnsureAll,
+  applyRemoved as cursorApplyRemoved,
+  applyHistoryRemoved as cursorApplyHistRemoved,
+} from '../../services/player/listcursor.js';
 import { downloadSongs } from '../../services/player/download.js';
 import { bindDl } from '../../services/player/dlvis.js';
 import { downloadAll, isIndexed, addList, removeList } from '../../services/player/locallists.js';
 import { toPlaylist, playNext, playNextText } from '../../services/player/acts.js';
 import config from '../../core/infra/config.js';
 import ContextSheet from "../../components/ContextSheet.vue";
+import SearchSidebar from "../../components/list/SearchSidebar.vue";
 import { selPicked, selAllIds, dlText, startText, resultText, spaceCheck } from '../../ui/dlselect.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { evtJson } from '../../core/infra/events.js';
 import { log } from '../../core/infra/log.js';
 import { accentMixin } from '../../ui/theme.js';
-import { TOK } from '../../ui/tokens.js';
 import { toastMixin } from '../../ui/mixins/toast.js';
 import { armMixin } from '../../ui/mixins/arm.js';
 import { multiSelectMixin } from '../../ui/mixins/multi.js';
@@ -142,9 +140,6 @@ import { openTextEdit, available as skAvailable } from '../../core/platform/syst
 /* 每批条数（首屏 + 加载更多一批）：200 行一次性渲染会拖垮渲染器
    （实测：打开一个数百首规模的歌单、封面入队后应用崩溃），统一取 paging.js 的 50。 */
 const PAGE = PAGE_SONG;
-
-/* 右侧分类侧栏的宽度（vh）。1vh = 2.4px → 62.5vh ≈ 150px，与 .lst-side-in 的 width 成对维护。 */
-const SIDE_W = 62.5;
 
 /* 顶栏标题里关键词的显示上限：侧栏展开时标题区约 600px 宽（@fs-strong 下约 29 个汉字），
    超出截断加省略号 —— 完整关键词仍在 this.keyword 里，点顶栏编辑时用的是完整值。 */
@@ -185,18 +180,14 @@ const SORTS = {
   ],
 };
 
-/* 搜索分类（右侧分类侧栏的选项）。
-   选项表直接用 api.js 的 SEARCH_TYPES（那里同时带着 result 数组名与计数名，两处不能各写一份）：
-   key 是网易云的 type 值（1 单曲 / 100 歌手 / 1000 歌单 / 10 专辑），顺序即侧栏里的显示顺序；
-   以后加分类只改 SEARCH_TYPES，侧栏 v-for 自动跟上。 */
-const CATS = SEARCH_TYPES;
-
-/** 分类 key → 选项（拿 label / unit 用）；认不出就当单曲 */
+/* 搜索分类表（SEARCH_TYPES）归 SearchSidebar 组件与 api.js；页面只用 catOf 取 label/unit。 */
+import { SEARCH_TYPES as searchCats } from '../../services/ncm/api.js';
+/** 搜索分类 → 选项（拿 label / unit 用；表在 SearchSidebar 与 api.js 的 SEARCH_TYPES） */
 function catOf(type) {
-  for (let i = 0; i < CATS.length; i++) {
-    if (CATS[i].key === Number(type)) return CATS[i];
+  for (let i = 0; i < searchCats.length; i++) {
+    if (searchCats[i].key === Number(type)) return searchCats[i];
   }
-  return CATS[0];
+  return searchCats[0];
 }
 
 /** 搜索页顶栏标题：搜索：<关键词>（过长截断，避免撑破定高顶栏；完整值在 this.keyword） */
@@ -205,17 +196,6 @@ function searchTitle(kw) {
   return "搜索：" + (s.length > TITLE_KW_MAX ? s.slice(0, TITLE_KW_MAX) + "…" : s);
 }
 
-
-/** 名称比较：优先 localeCompare（快速 JS 引擎里退化为码位序，中文不是拼音序，够用），异常时退回手写比较 */
-function cmpName(a, b) {
-  const x = String(a || "");
-  const y = String(b || "");
-  try {
-    return x.localeCompare(y);
-  } catch (e) {
-    return x < y ? -1 : x > y ? 1 : 0;
-  }
-}
 
 export default {
   name: "list",
@@ -228,6 +208,7 @@ export default {
     "hint-toast": HintToast,
     "empty-hint": EmptyHint,
     "context-sheet": ContextSheet,
+    "search-sidebar": SearchSidebar,
   },
   data() {
     return {
@@ -238,8 +219,8 @@ export default {
       items: [], // 搜索结果里**非歌曲**的三类（歌手/歌单/专辑）的行数据；与 songs 互斥
       searchType: 1, // 当前搜索分类（SEARCH_TYPES 的 key）；只对 kind='search' 有效
       keyword: "", // 搜索词（切分类 / 顶栏改词都要拿它重搜）
-      cats: CATS, // 右侧分类侧栏的选项（来自 api.js 的 SEARCH_TYPES）
       catOpen: false, // 右侧分类侧栏是否展开（默认收起；只表示侧栏的收起/展开状态）
+      autoBatch: AUTO_BATCH, // 渲染分片步长（listcursor 本地展开用；值来自 ui/paging.js）
       ICON: ICON, // 模板里取图标（分类侧栏的展开/收起图标）
       hint: "加载中...",
       trackIds: [], // 歌单全量 id（liked/playlist；history 时 = 历史全量 id）
@@ -304,27 +285,32 @@ export default {
     catSideOn() {
       return this.showCatToggle && this.catOpen;
     },
-    /** 侧栏外壳宽度：收起时 0（不挤占列表），展开时 SIDE_W；结构常驻、只改宽度 */
-    sideStyle() {
-      return {
-        width: this.catSideOn ? SIDE_W + "vh" : "0px",
-        borderLeftWidth: this.catSideOn ? "1px" : "0px",
-      };
+    /** 侧栏宽（SearchSidebar 开合时让顶栏提示让位用）：与组件内 SIDE_W 同值成对维护 */
+    sideW() {
+      return this.catSideOn ? 62.5 : 0;
     },
     /** 收起/展开提示的 right：展开时贴侧栏左缘，收起时贴屏幕右缘（绝对定位在 .psh-body） */
     toggleStyle() {
-      return { right: this.catSideOn ? SIDE_W + "vh" : "0px" };
+      return { right: this.sideW + "vh" };
     },
     /** 列表里的总行数（歌曲行 + 条目行）：「暂无结果」的判据不能只看 songs */
     rowCount() {
       return this.songs.length + this.items.length;
     },
     /** 排序浮窗的选项（搜索页没有排序，故只有非搜索的 kind 会用到） */
-    panelOptions() {
-      return SORTS[this.kind] || [];
-    },
     sortOptions() {
       return SORTS[this.kind] || [];
+    },
+    /** 排序面板的选中项：artistsongs 判 order（服务端排序键），其余判 sortKey */
+    panelActiveSortKey() {
+      return this.kind === "artistsongs" ? this.order : this.sortKey;
+    },
+    /** 排序面板的方向箭头：artistsongs 是服务端排序，没有方向 */
+    panelSortAsc() {
+      return this.sortAsc;
+    },
+    panelSortMark() {
+      return this.kind === "artistsongs" ? "" : null; // null = ContextSheet 默认 ↑/↓
     },
     /**
      * 完整视图序列：本地排序**作用在已取回的全量上**（未全量时 pickSort 会先拉满，
@@ -684,116 +670,19 @@ export default {
       this.noMore = false;
       this.allLoaded = false;
       try {
-        if (p.kind === "search") {
-          const kw = p.keyword || self.keyword || "";
-          self.keyword = kw; // 存下来：切分类时没有新的 nav 参数，只能用它重搜
-          self.title = searchTitle(kw);
-          const t = self.searchType;
-          const cat = catOf(t);
-          const r = await searchByType(kw, t, 0, SEARCH_LIMIT);
-          if (loadToken !== self._loadToken) return;
-          // 单曲走 songs（带播放器要的全部字段），其余三类走 items（行显示用的轻量结构）
-          if (t === 1) {
-            self.songs = r.items || [];
-            self.items = [];
-            self.total = self.songs.length;
-          } else {
-            self.items = r.items || [];
-            self.songs = [];
-            self.total = 0;
-          }
-          const n = t === 1 ? self.songs.length : self.items.length;
-          const tot = Number(r.total) || n;
-          /* 每类只取前 SEARCH_LIMIT 条（默认 50，见 ui/paging.js）且不翻页
-             （老端点 offset 对非单曲类不可靠）——但**总数要露出来**：只说「50 首」
-             会让用户以为搜到 50 首，其实是几百首里的前 50 首。 */
-          self.sub =
-            cat.label +
-            " · " +
-            (tot > n ? "共 " + tot + cat.unit + " · 显示前 " + n : n + cat.unit);
-          self.shown = self.songs.length;
-          self.cursor = self.songs.length;
-          self.allLoaded = true;
-          self.hint = "没有结果";
-          log("list", '搜索 "' + kw + '" ' + cat.label + " " + n + "/" + r.total);
-        } else if (p.kind === "artistsongs") {
-          // 歌手曲目完整列表：服务端排序（order=hot 是接口默认），分页
-          const r = await fetchArtistSongs(this.artistId, this.order, 0, PAGE);
-          if (loadToken !== self._loadToken) return;
-          self.songs = r.songs || [];
-          self.total = r.total || self.songs.length;
-          self.cursor = self.songs.length; // 服务端 offset 的已消费位置
-          self.shown = self.songs.length;
-          self.allLoaded = self.cursor >= self.total;
-          self.title = self.artistName + " · 热门曲目";
-          self.sub = self.total + " 首 · " + (this.order === "hot" ? "按热度" : "按时间");
-          self.hint = "没有曲目";
-          log(
-            "list",
-            "歌手 " + this.artistId + " 曲目 " + self.songs.length + "/" + self.total + " order=" + this.order,
-          );
-        } else if (p.kind === "history") {
-          // 播放历史（纯本地）：先等模块载入完再读，避免闪「暂无记录」
-          await histLoad();
-          if (loadToken !== self._loadToken) return;
-          const all = histList();
-          const ids = [];
-          for (let i = 0; i < all.length; i++) ids.push(all[i].id);
-          self.fullSongs = all;
-          self.trackIds = ids;
-          // 本地全量已在内存：songs 放全量，渲染只取前 PAGE 行（loadMore 只加 shown）
-          self.songs = all;
-          self.cursor = ids.length;
-          self.allLoaded = true;
-          self.shown = Math.min(PAGE, all.length);
-          self.title = p.name || "播放历史";
-          self.sub = all.length + " 首";
-          self.hint = "还没有播放记录";
-          log("list", "历史 " + all.length + " 首（显示 " + self.shown + "）");
-        } else if (p.kind === "recommend") {
-          // 每日推荐：服务端**一次给全**（30 余首，没有分页参数）→ 全量在内存、不分页
-          const songs = await loadDailyRecommend();
-          if (loadToken !== self._loadToken) return;
-          const d = new Date();
-          self.songs = songs || [];
-          self.cursor = self.songs.length;
-          self.allLoaded = true;
-          self.shown = self.songs.length;
-          self.title = p.name || "每日推荐";
-          self.sub = d.getMonth() + 1 + "月" + d.getDate() + "日 · " + self.songs.length + " 首";
-          self.hint = "暂无推荐";
-          log("list", "每日推荐 " + self.songs.length + " 首");
-        } else {
-          // liked / playlist：按歌单取曲目（n=PAGE 内联，全量 id 供加载更多）
-          const r = await fetchPlaylistTracks(p.id, PAGE);
-          if (loadToken !== self._loadToken) return;
-          self.addTimes = r.addTimes || {};
-          self.songs = self.dedupe(self.attachTimes(r.songs || []));
-          self.trackIds = r.trackIds || [];
-          /* 首屏内联了 inline 条 → trackIds 的前 inline 个已被消费。
-             **不能写 songs.length**：内联曲目里取不回的下架歌会被接口丢掉，
-             用显示条数当游标会少算、下一页从偏小的下标开始（重复行）。 */
-          const inline = r.inline != null ? Number(r.inline) : self.songs.length;
-          self.cursor = Math.min(Math.max(0, inline), self.trackIds.length);
-          self.allLoaded = self.cursor >= self.trackIds.length;
-          self.shown = self.songs.length;
-          self.title = p.name || r.name || "歌单";
-          self.sub = r.trackCount + " 首";
-          self.hint = "歌单为空";
-          log(
-            "list",
-            "歌单 " + p.id + " 曲目 " + self.songs.length + "/" + self.trackIds.length + " inline=" + inline,
-          );
-        }
+        // 六-kind 取数路由表（services/player/listkinds.js）：kind → 首屏取数 + 文案
+        const out = await KINDS[p.kind].load(self, p, {
+          searchTitle,
+          catOf,
+          SEARCH_LIMIT,
+        });
+        if (loadToken !== self._loadToken) return;
+        if (out && out.log) log("list", out.log);
       } catch (e) {
         if (loadToken !== self._loadToken) return;
         self.hint = "加载失败: " + ((e && e.message) || e);
         log("list", "加载失败 " + ((e && e.message) || e));
       }
-    },
-    /** 「加载更多」文案（模板里只能用 methods/data 暴露的方法，import 的 helper 不能裸调） */
-    moreLabel(n, unit) {
-      return moreText(n, unit);
     },
     /** 把「收藏时间」挂到曲目上（时间戳在 trackIds 条目里，不在曲目对象里） */
     attachTimes(songs) {
@@ -803,90 +692,20 @@ export default {
       }
       return songs;
     },
-    /** 追加去重：同一 id 只留第一次（分页重叠、歌单里重复添加都不该渲染成两行） */
-    appendUnique(base, add) {
-      const seen = {};
-      const out = (base || []).slice();
-      for (let i = 0; i < out.length; i++) {
-        if (out[i] && out[i].id != null) seen[out[i].id] = 1;
-      }
-      const more = add || [];
-      for (let i = 0; i < more.length; i++) {
-        const s = more[i];
-        if (!s || s.id == null || seen[s.id]) continue;
-        seen[s.id] = 1;
-        out.push(s);
-      }
-      return out;
-    },
+    /** 追加去重（listkinds 的 applyPlaylistPage / loadTracksBatch 经 self 调用） */
     dedupe(list) {
-      return this.appendUnique([], list);
+      return appendUnique([], list);
     },
+    appendUnique(base, add) {
+      return appendUnique(base, add);
+    },
+    /** 「加载更多」文案（模板里只能用 methods/data 暴露的方法，import 的 helper 不能裸调） */
+    moreLabel(n, unit) {
+      return moreText(n, unit);
+    },
+    /** 「加载更多」：三路分派与并发/生命周期守卫在 ui/listcursor.js */
     async loadMore() {
-      if (this.loadingMore || this._loadingFull || !this.hasMore) return;
-      // 已取回的还有没渲染的：纯本地展开（历史 / 全量排序后的分片），不发请求
-      if (this.shown < this.viewAll.length) {
-        this.shown = Math.min(this.shown + AUTO_BATCH, this.viewAll.length);
-        return;
-      }
-      if (this.allLoaded) return;
-      const loadToken = this._loadToken;
-      this.loadingMore = true;
-      try {
-        if (this.kind === "artistsongs") {
-          const r = await fetchArtistSongs(this.artistId, this.order, this.cursor, PAGE);
-          if (this._dead || loadToken !== this._loadToken) return;
-          const got = r.songs || [];
-          if (!got.length) {
-            // 服务端没有更多（total 可能偏大）→ 停掉按钮，别对着空页反复请求
-            this.noMore = true;
-            return;
-          }
-          this.cursor += got.length;
-          const merged = this.appendUnique(this.songs, got);
-          const grew = merged.length > this.songs.length;
-          this.songs = merged;
-          this.shown = this.songs.length;
-          if (!grew) this.noMore = true; // 返回的全是重复/取不回
-          if (this.cursor >= this.total) this.allLoaded = true;
-        } else {
-          await this.loadMoreTracks(loadToken);
-        }
-      } catch (e) {
-        this.showToast("加载更多失败：" + ((e && e.message) || e));
-        log("list", "加载更多失败 " + ((e && e.message) || e));
-      } finally {
-        this.loadingMore = false;
-      }
-    },
-    /**
-     * liked/playlist 的下一批：按 trackIds 的**已消费下标**取，取完就推进游标。
-     * 旧实现用 songs.length 当起点：接口丢掉一首下架歌后起点偏小，上一批末尾会被再取一遍
-     * （重复行），且 trackIds.length > songs.length 恒成立 →「加载更多」永远点不完。
-     */
-    async loadMoreTracks(loadToken) {
-      const ids = this.trackIds;
-      let tries = 0;
-      while (this.cursor < ids.length && tries < 5) {
-        const batch = ids.slice(this.cursor, this.cursor + PAGE);
-        if (!batch.length) {
-          this.allLoaded = true;
-          return;
-        }
-        // 请求成功后再推进游标：失败时保持原位置，用户重试不会跳过这一批
-        const more = await fetchTracksMore(batch);
-        if (this._dead || loadToken !== this._loadToken) return;
-        this.cursor += batch.length;
-        const merged = this.appendUnique(this.songs, this.attachTimes(more || []));
-        if (merged.length > this.songs.length) {
-          this.songs = merged;
-          this.shown = this.songs.length;
-          break;
-        }
-        tries++; // 整批不可用：继续取下一批（一次点击最多连跳 5 批）
-      }
-      if (this.cursor >= ids.length) this.allLoaded = true;
-      this.shown = this.songs.length;
+      await cursorLoadMore(this);
     },
     /** 点行的分派：多选态下是勾选，否则是播这一首（对齐 PenMusic onRowTap 的写法） */
     onRow(i) {
@@ -955,92 +774,17 @@ export default {
         本地排序键生效前 pickSort 会先拉全量——所以这里排的始终是完整列表，不是前 50 首。
         ⚠ 「默认」（sortKey=''）也带方向：降序 = 接口/收藏原顺序，升序 = 整段反转
         （「默认」也要能切升降序，所以不能按 !k 直接原样返回）。 */
+    /** 本地排序（实现在 services/player/listcursor.js；artistsongs 服务端排序原样透出） */
     sorted(arr) {
-      const k = this.sortKey;
-      if (this.kind === "artistsongs") return arr;
-      if (!k) return this.sortAsc ? arr.slice().reverse() : arr;
-      const out = arr.slice();
-      const dir = this.sortAsc ? 1 : -1;
-      out.sort(function (a, b) {
-        if (k === "name") return dir * cmpName(a.name, b.name);
-        if (k === "artist") return dir * cmpName(a.artist, b.artist);
-        if (k === "at") return dir * ((a.at || 0) - (b.at || 0));
-        return 0;
-      });
-      return out;
+      return cursorSorted(this, arr);
     },
-    /**
-     * 取回整份列表的**全量曲目**（默认序）并返回，**不写页面状态** ——
-     * 「播放全部」/「点行起播」只把它交给播放器，页面仍只渲染前 shown 行（坑 5：一次渲染 ≤50 行）。
-     * 需要把全量装进页面（本地排序 / 整单全选）走 ensureAllSongs()。
-     */
+    /** 取全量（默认序）但不写页面状态——「播放全部」/「点行起播」用；实现在 listcursor.js */
     async loadAllSongs(token) {
-      const want = token != null ? token : this._loadToken;
-      if (this.allLoaded) return this.songs.slice();
-      if (this.kind === "history") return this.fullSongs.slice(); // 本地全量，无需请求
-      if (this.kind === "artistsongs") {
-        // 服务端分页：从 0 按 PAGE 拉到底（off = 已消费的 offset，与 loadMore 同一约定）
-        this.showToast("正在载入全部曲目...", 60000);
-        let out = [];
-        let off = 0;
-        let guard = 0;
-        while (off < this.total && guard++ < 500) {
-          const r = await fetchArtistSongs(this.artistId, this.order, off, PAGE);
-          if (this._dead || want !== this._loadToken) return out;
-          const got = r.songs || [];
-          if (!got.length) break;
-          out = this.appendUnique(out, got);
-          off += got.length;
-          this.showToast("载入中 " + out.length + "/" + this.total + " 首", 60000);
-        }
-        return out;
-      }
-      // liked / playlist：按 trackIds 从 0 整批重拉（fetchTracksMore 内部 300/批）。
-      // 不复用已加载的 songs 续拉：歌单里的下架歌曲会让「songs 是 trackIds 前缀」错位，
-      // 从 0 重拉保证队列顺序与 trackIds 一致、且不重不漏（再用 appendUnique 兜一次重复）。
-      const ids = this.trackIds;
-      this.showToast("正在载入全部曲目...", 60000);
-      let out = [];
-      let off = 0;
-      while (off < ids.length) {
-        const batch = ids.slice(off, off + 300);
-        off += batch.length;
-        const more = await fetchTracksMore(batch);
-        if (this._dead || want !== this._loadToken) return out;
-        out = this.appendUnique(out, this.attachTimes(more || []));
-        this.showToast("载入中 " + out.length + "/" + ids.length + " 首", 60000);
-      }
-      return out;
+      return cursorLoadAll(this, token);
     },
-    /**
-     * 确保**全量在页面状态里**（本地排序、整单全选的前置条件）。
-     * 只把 songs 换成全量、**不改 shown**：渲染量不变，不会突然铺出几百行；
-     * 之后 viewAll 的排序作用在完整列表上，loadMore 只是把 shown 往前推。
-     */
+    /** 确保**全量在页面状态里**（本地排序、整单全选的前置条件）；实现在 listcursor.js */
     async ensureAllSongs() {
-      if (this.allLoaded) return true;
-      if (this._loadingFull) return false;
-      const loadToken = this._loadToken;
-      this._loadingFull = true;
-      try {
-        const all = await this.loadAllSongs(loadToken);
-        // 载入期间切了列表（openList/pickCat 改了 token）→ 这份全量不属于当前列表，丢弃
-        if (this._dead || loadToken !== this._loadToken) return false;
-        this.songs = this.dedupe(this.attachTimes(all || []));
-        this.cursor = this.idsTotal;
-        this.allLoaded = true;
-        this.noMore = false;
-        if (this.shown > this.songs.length) this.shown = this.songs.length;
-        if (!this.shown) this.shown = Math.min(PAGE, this.songs.length);
-        log("list", "全量就绪 " + this.songs.length + " 首（kind=" + this.kind + "）");
-        return true;
-      } catch (e) {
-        if (!this._dead) this.showToast("载入全部曲目失败：" + ((e && e.message) || e));
-        log("list", "载入全部失败 " + ((e && e.message) || e));
-        return false;
-      } finally {
-        this._loadingFull = false;
-      }
+      return cursorEnsureAll(this);
     },
     /**
      * 「播放全部」（左栏播放键）：把**整份列表**设为当前播放队列 —— 顺序/循环模式从第一首起播，
@@ -1367,20 +1111,6 @@ export default {
       this.catOpen = !this.catOpen;
       log("list", "搜索分类侧栏" + (this.catOpen ? "展开" : "收起"));
     },
-    /** 分类项选中底色（平台不支持复合选择器 → 状态色走内联 style） */
-    catStyle(k) {
-      const on = Number(k) === this.searchType;
-      return {
-        backgroundColor: on ? this.accent.a18 : TOK.none,
-        borderWidth: on ? "1px" : "0px",
-        borderStyle: "solid",
-        borderColor: on ? this.accent.c : TOK.none,
-      };
-    },
-    /** 分类项文字色：选中 = 主题浅色，未选中 = 次要文字 */
-    catTextStyle(k) {
-      return { color: Number(k) === this.searchType ? this.accent.light : TOK.text2 };
-    },
     /* ---- 多选模式（下载 / 删除选中）——状态机在 ui/multi.js，本页只给范围与计数口径 ---- */
     /**
      * 多选范围 = **整单**（viewAll 的当前视图序）。未全量时 toggleAll 会先载入全量再全选；
@@ -1521,43 +1251,10 @@ export default {
         log("list", "下载结果 " + JSON.stringify(r));
       });
     },
-    /**
-     * 历史的「删除」：本地移除（history.remove），再把三份数据按同一批 id 过滤 ——
-     * songs 恒为 fullSongs/trackIds 前缀的不变量必须保持（否则 loadMore 的下标错位、
-     * 会把删掉的条目又 concat 回来，见 applyRemoved 的同款说明）。
-     */
+    /** 历史的「删除选中」：本地移除 + 三份数据同批过滤（收敛实现在 listcursor.js） */
     doRemoveHistory() {
       this.disarm();
-      const ids = this.selIds.slice();
-      const drop = {};
-      for (let i = 0; i < ids.length; i++) drop[String(ids[i])] = 1;
-      const n = histRemove(ids);
-      const keepSongs = function (arr) {
-        const out = [];
-        for (let i = 0; i < arr.length; i++) {
-          if (!drop[String(arr[i].id)]) out.push(arr[i]);
-        }
-        return out;
-      };
-      const keepIds = function (arr) {
-        const out = [];
-        for (let i = 0; i < arr.length; i++) {
-          if (!drop[String(arr[i])]) out.push(arr[i]);
-        }
-        return out;
-      };
-      this.fullSongs = keepSongs(this.fullSongs);
-      this.trackIds = keepIds(this.trackIds); // trackIds 是**裸 id 数组**（不是对象），单独过滤
-      this.songs = keepSongs(this.songs);
-      // 历史是本地全量：游标跟着新总数走，渲染量不因删除而变多
-      this.cursor = this.trackIds.length;
-      this.allLoaded = true;
-      if (this.shown > this.songs.length) this.shown = this.songs.length;
-      this.sub = this.fullSongs.length + " 首";
-      this.hint = "还没有播放记录";
-      this.showToast("已从播放历史移除 " + n + " 首");
-      log("list", "历史移除 " + n + " 首（剩 " + this.fullSongs.length + "）");
-      this.exitMulti();
+      cursorApplyHistRemoved(this, this.selIds.slice());
     },
     /** 下载活动 → this.dl（签名判重：快照 ~400ms 一发，不判重就是持续重渲染，坑 16 同族） */
     syncDl(s) {
@@ -1596,74 +1293,13 @@ export default {
       }
       this.applyRemoved(ids);
     },
-    /**
-     * 删成功后的本地收敛。
-     * songs / trackIds / cursor **必须一起收敛**：游标记的是「已消费的 trackIds 前缀」，
-     * 删掉前缀里的歌后要同步回退，否则下一次 loadMore 会从偏大的下标开始（漏歌）。
-     * 整体替换（filter 出新数组）而不是就地 splice：player.playList 拿过 this.songs 的引用当队列，
-     * 就地删除会让正在播放的队列索引漂移。
-     */
+    /** 删成功后的本地收敛（songs/trackIds/cursor 一起收敛；实现在 listcursor.js） */
     applyRemoved(ids) {
-      const drop = {};
-      for (let i = 0; i < ids.length; i++) drop[ids[i]] = 1;
-      // 选中项里有多少落在已消费前缀内 → 游标要回退多少
-      let consumed = 0;
-      const upto = Math.min(this.cursor, this.trackIds.length);
-      for (let i = 0; i < upto; i++) {
-        if (drop[this.trackIds[i]]) consumed++;
-      }
-      const ids2 = [];
-      for (let i = 0; i < this.trackIds.length; i++) {
-        if (!drop[this.trackIds[i]]) ids2.push(this.trackIds[i]);
-      }
-      const songs2 = [];
-      for (let i = 0; i < this.songs.length; i++) {
-        const s = this.songs[i];
-        if (s && !drop[s.id]) songs2.push(s);
-      }
-      const removed = this.trackIds.length - ids2.length;
-      this.trackIds = ids2;
-      this.songs = songs2;
-      this.cursor = Math.max(0, this.cursor - consumed);
-      if (this.shown > this.songs.length) this.shown = this.songs.length;
-      if (this.cursor >= this.trackIds.length) this.allLoaded = true;
-      if (this.addTimes) {
-        for (let k in drop) delete this.addTimes[k]; // addTimes 只供排序查表，不参与渲染
-      }
-      if (this.kind === "liked") markUnliked(ids); // 播放页的心形读的是 like 缓存
-      this.sub = this.trackIds.length + " 首";
-      this.hint = this.hasMore ? "本页已清空，点下方「加载更多」继续" : "歌单已空";
-      this.showToast((this.kind === "liked" ? "已取消喜欢 " : "已从歌单移除 ") + removed + " 首");
-      log("list", "移除 " + removed + " 首（选 " + ids.length + "）pid=" + this.pid + "，剩 " + this.trackIds.length);
-      this.exitMulti();
+      cursorApplyRemoved(this, ids);
     },
-    /* ---- 排序浮窗（非搜索的曲目列表；搜索分类已改到右侧侧栏）---- */
-    stop() {},
-    /** 选项尾巴的标记：升降序箭头（artistsongs 是服务端排序，没有方向） */
-    mark(k) {
-      if (this.kind === "artistsongs") return "";
-      if (k !== this.sortKey) return "";
-      return this.sortAsc ? " ↑" : " ↓";
-    },
-    /** 该选项是不是当前生效的那个 */
-    isOn(k) {
-      if (this.kind === "artistsongs") return k === this.order;
-      return k === this.sortKey;
-    },
+    /* ---- 排序浮窗（ContextSheet 版：选中项/箭头见 panel* computed，pickSort 见下）---- */
     closePanel() {
       this.panel = "";
-    },
-    optStyle(k) {
-      const on = this.isOn(k);
-      return {
-        backgroundColor: on ? this.accent.a18 : TOK.panel2,
-        borderWidth: on ? "1px" : "0px",
-        borderStyle: "solid",
-        borderColor: on ? this.accent.c : "transparent",
-      };
-    },
-    optTextStyle(k) {
-      return { color: this.isOn(k) ? this.accent.light : TOK.text2 };
     },
     async pickSort(k) {
       if (this.kind === "artistsongs") {
@@ -1713,8 +1349,8 @@ export default {
 @import "../../styles/common.less";
 
 /* ---- 主列 + 右侧分类侧栏 ----
-   外壳宽度由内联 sideStyle 控制（收起 / 非搜索 = 0），内容固定宽、超出被 overflow 裁掉；
-   结构常驻是为了搜索页与其它 kind 共用同一套 DOM（切 kind 时不增删节点）。 */
+   侧栏（搜索页）是独立组件 search-sidebar，开合宽度在其内部；
+   外壳 flex:row 常驻是为了搜索页与其它 kind 共用同一套 DOM（切 kind 时不增删节点）。 */
 .lst-wrap {
   flex: 1;
   flex-direction: row;
@@ -1726,48 +1362,6 @@ export default {
   flex-direction: column;
   overflow: hidden;
 }
-.lst-side {
-  flex: none;
-  height: 100vh;
-  overflow: hidden;
-  background-color: @panel;
-  border-left-style: solid;
-  border-left-color: @line;
-}
-/* 内容固定 62.5vh（≈150px）——外壳收窄时由 overflow:hidden 裁掉，而不是重排文字。
-   宽度与 script 里的 SIDE_W 成对维护。
-   分类区套 scroller：4 项目前放得下、不滚动；以后加分类超出高度时可滚（别把高度写死在内层）。 */
-.lst-side-scroll {
-  width: 62.5vh;
-  height: 100vh;
-}
-.lst-side-in {
-  /* 平台把 width 当 border-box：62.5vh 已含 padding。
-     左 5vh、右 7.5vh（右侧 = 左侧 1.5 倍），按钮宽 = 62.5 - 5 - 7.5 = 50vh。
-     不要再用「内容宽 + 两侧 padding = 侧栏宽」的写法，否则右侧会多出一大块空白。 */
-  width: 62.5vh;
-  flex-direction: column;
-  padding-top: 5vh;
-  padding-bottom: 5vh;
-  padding-left: 5vh;
-  padding-right: 7.5vh;
-}
-/* 分类行：高 20vh，4 项 + 间距排满可用高度（后续加项要同时调高度，或改成滚动）。
-   文字水平居中；按钮宽度 = 上面的内容宽，不再额外写左右 margin/padding。 */
-.lst-cat {
-  height: 20vh;
-  flex: none;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  border-radius: 2vh;
-  margin-bottom: 1.4vh;
-}
-.lst-cat-t {
-  font-size: @fs-strong;
-  color: @text-2; /* 默认（未选中）的书面值；选中态由模板内联 style 给主题色 */
-}
-
 /* 收起/展开提示：盖在顶栏右端那一块，right 由 toggleStyle 给（展开时让出侧栏宽度） */
 .lst-cat-toggle {
   position: absolute;
@@ -1822,51 +1416,4 @@ export default {
   color: @accent-2; /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
 }
 
-/* ---- 排序浮窗 ----
-   绝对定位基准是 .psh-body（PageShell 设了 position:relative）：只盖内容区、不盖左栏。
-   浮窗位置「贴着触发它的按钮」——左栏**返回在顶、上下文按钮贴底**，
-   所以排序键的上沿在 76vh（100 − 4 底边距 − 20 按钮），见 NavRail.vue 的几何注释。
-   浮窗因此**向上生长**（bottom 锚定，不用 top）：本页有 4 个排序项、浮窗高约 66vh，
-   若还按按钮上沿往下排会被屏幕底裁掉。bottom = 100 − 76 = 24vh。 */
-.lst-mask {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  height: 100%;
-  background-color: @scrim;
-  z-index: 900;
-}
-.lst-sheet {
-  position: absolute;
-  left: 1.4vh;
-  bottom: 24vh;
-  width: 52vh;
-  background-color: @surface-4;
-  border-radius: @radius;
-  border-width: 1px;
-  border-style: solid;
-  border-color: @surface-3;
-  padding: 2.4vh;
-}
-.lst-st {
-  font-size: @fs-mute;
-  color: @text-3;
-  margin-bottom: 1.6vh;
-  margin-left: 1vh;
-}
-/* 行高 12vh(≈29px) —— 屏幕物理高仅 2.5cm，点击区尽量给大 */
-.lst-opt {
-  height: 12vh;
-  border-radius: 1.8vh;
-  justify-content: center;
-  padding-left: 3vh;
-  margin-bottom: 1.4vh;
-}
-.lst-opt-t {
-  font-size: @fs-dim;
-  color: @text-2;
-}
 </style>

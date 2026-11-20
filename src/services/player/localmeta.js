@@ -25,6 +25,7 @@ import { readLyrics, writeLyrics, dropLyrics } from '../../services/player/media
 import { fetchSongInfo, fetchLyric } from '../ncm/api.js'
 import { enqueueCovers } from '../../services/cover/cover.js'
 import { enqueueArtistPortraits } from '../../services/cover/artistavatar.js'
+import { runStmts, replaceRowsSql } from './meta/sqlkit.js'
 import { log } from '../../core/infra/log.js'
 import { raceTimeout } from '../../core/infra/util.js'
 
@@ -40,67 +41,6 @@ const T_ARTIST = 'artist'
  * 但语句仍是拼成一整串交给 `db.exec()`，所以保留分箱：一批太大时出错会更难定位，
  * 而且单批变小能让写落在多个事务里、主线程不至于长时间不返回。
  */
-const SQL_BATCH_BYTES = 6000
-
-/** 一条语句的近似体积（保留原口径，只用于分箱，不要求精确） */
-function escapedLen(sql) {
-  return sql.length + 2
-}
-
-/** 顺序提交一批 SQL，按字节装箱。单条超限时自己成批，不连带整批。 */
-async function runStmts(stmts) {
-  let batch = []
-  let bytes = 0
-  for (let i = 0; i < stmts.length; i++) {
-    const b = escapedLen(stmts[i])
-    if (batch.length && bytes + b > SQL_BATCH_BYTES) {
-      await dbExec(batch)
-      batch = []
-      bytes = 0
-    }
-    batch.push(stmts[i])
-    bytes += b
-  }
-  if (batch.length) await dbExec(batch)
-}
-
-/**
- * 多行 `INSERT OR REPLACE`：一行元组只要 ~20B。
- * 逐条写 upsert 要 ~90B/行（每条都重复列名与 ON CONFLICT 子句），
- * 几百首的库在 6KB 预算下会多分几箱。
- */
-function replaceRowsSql(table, cols, rows) {
-  if (!rows.length) return []
-  const head = 'INSERT OR REPLACE INTO ' + table + ' (' + cols.join(',') + ') VALUES '
-  const out = []
-  let tuples = []
-  let bytes = escapedLen(head) + 8
-  for (let i = 0; i < rows.length; i++) {
-    const vals = []
-    for (let k = 0; k < rows[i].length; k++) {
-      const v = rows[i][k]
-      vals.push(typeof v === 'number' ? num(v) : qv(v))
-    }
-    const t = '(' + vals.join(',') + ')'
-    const cost = t.length + 1
-    if (tuples.length && bytes + cost > SQL_BATCH_BYTES) {
-      out.push(head + tuples.join(',') + ';')
-      tuples = []
-      bytes = escapedLen(head) + 8
-    }
-    tuples.push(t)
-    bytes += cost
-  }
-  if (tuples.length) out.push(head + tuples.join(',') + ';')
-  return out
-}
-
-/** SQL 字符串字面量（与 utils/db.js 的 q 同语义：单引号包裹、内部 ' 翻倍） */
-function qv(v) {
-  if (v === undefined || v === null) return 'NULL'
-  return "'" + String(v).replace(/'/g, "''") + "'"
-}
-
 /* ---------------- 类型归一 ---------------- */
 
 /** 数字列：非有限数一律 0（避免把 NaN 写进 SQL 造成语法错误） */

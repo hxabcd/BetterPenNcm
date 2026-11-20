@@ -110,7 +110,12 @@ import {
 } from '../../services/ncm/playlist.js';
 import { markUnliked } from '../../services/ncm/like.js';
 import { KINDS, appendUnique } from '../../services/player/listkinds.js';
-import { loadMore as cursorLoadMore } from '../../services/player/listcursor.js';
+import {
+  loadMore as cursorLoadMore,
+  sorted as cursorSorted,
+  loadAllSongs as cursorLoadAll,
+  ensureAllSongs as cursorEnsureAll,
+} from '../../services/player/listcursor.js';
 import { downloadSongs } from '../../services/player/download.js';
 import { bindDl } from '../../services/player/dlvis.js';
 import { downloadAll, isIndexed, addList, removeList } from '../../services/player/locallists.js';
@@ -191,17 +196,6 @@ function searchTitle(kw) {
   return "搜索：" + (s.length > TITLE_KW_MAX ? s.slice(0, TITLE_KW_MAX) + "…" : s);
 }
 
-
-/** 名称比较：优先 localeCompare（快速 JS 引擎里退化为码位序，中文不是拼音序，够用），异常时退回手写比较 */
-function cmpName(a, b) {
-  const x = String(a || "");
-  const y = String(b || "");
-  try {
-    return x.localeCompare(y);
-  } catch (e) {
-    return x < y ? -1 : x > y ? 1 : 0;
-  }
-}
 
 export default {
   name: "list",
@@ -780,92 +774,17 @@ export default {
         本地排序键生效前 pickSort 会先拉全量——所以这里排的始终是完整列表，不是前 50 首。
         ⚠ 「默认」（sortKey=''）也带方向：降序 = 接口/收藏原顺序，升序 = 整段反转
         （「默认」也要能切升降序，所以不能按 !k 直接原样返回）。 */
+    /** 本地排序（实现在 services/player/listcursor.js；artistsongs 服务端排序原样透出） */
     sorted(arr) {
-      const k = this.sortKey;
-      if (this.kind === "artistsongs") return arr;
-      if (!k) return this.sortAsc ? arr.slice().reverse() : arr;
-      const out = arr.slice();
-      const dir = this.sortAsc ? 1 : -1;
-      out.sort(function (a, b) {
-        if (k === "name") return dir * cmpName(a.name, b.name);
-        if (k === "artist") return dir * cmpName(a.artist, b.artist);
-        if (k === "at") return dir * ((a.at || 0) - (b.at || 0));
-        return 0;
-      });
-      return out;
+      return cursorSorted(this, arr);
     },
-    /**
-     * 取回整份列表的**全量曲目**（默认序）并返回，**不写页面状态** ——
-     * 「播放全部」/「点行起播」只把它交给播放器，页面仍只渲染前 shown 行（坑 5：一次渲染 ≤50 行）。
-     * 需要把全量装进页面（本地排序 / 整单全选）走 ensureAllSongs()。
-     */
+    /** 取全量（默认序）但不写页面状态——「播放全部」/「点行起播」用；实现在 listcursor.js */
     async loadAllSongs(token) {
-      const want = token != null ? token : this._loadToken;
-      if (this.allLoaded) return this.songs.slice();
-      if (this.kind === "history") return this.fullSongs.slice(); // 本地全量，无需请求
-      if (this.kind === "artistsongs") {
-        // 服务端分页：从 0 按 PAGE 拉到底（off = 已消费的 offset，与 loadMore 同一约定）
-        this.showToast("正在载入全部曲目...", 60000);
-        let out = [];
-        let off = 0;
-        let guard = 0;
-        while (off < this.total && guard++ < 500) {
-          const r = await fetchArtistSongs(this.artistId, this.order, off, PAGE);
-          if (this._dead || want !== this._loadToken) return out;
-          const got = r.songs || [];
-          if (!got.length) break;
-          out = this.appendUnique(out, got);
-          off += got.length;
-          this.showToast("载入中 " + out.length + "/" + this.total + " 首", 60000);
-        }
-        return out;
-      }
-      // liked / playlist：按 trackIds 从 0 整批重拉（fetchTracksMore 内部 300/批）。
-      // 不复用已加载的 songs 续拉：歌单里的下架歌曲会让「songs 是 trackIds 前缀」错位，
-      // 从 0 重拉保证队列顺序与 trackIds 一致、且不重不漏（再用 appendUnique 兜一次重复）。
-      const ids = this.trackIds;
-      this.showToast("正在载入全部曲目...", 60000);
-      let out = [];
-      let off = 0;
-      while (off < ids.length) {
-        const batch = ids.slice(off, off + 300);
-        off += batch.length;
-        const more = await fetchTracksMore(batch);
-        if (this._dead || want !== this._loadToken) return out;
-        out = this.appendUnique(out, this.attachTimes(more || []));
-        this.showToast("载入中 " + out.length + "/" + ids.length + " 首", 60000);
-      }
-      return out;
+      return cursorLoadAll(this, token);
     },
-    /**
-     * 确保**全量在页面状态里**（本地排序、整单全选的前置条件）。
-     * 只把 songs 换成全量、**不改 shown**：渲染量不变，不会突然铺出几百行；
-     * 之后 viewAll 的排序作用在完整列表上，loadMore 只是把 shown 往前推。
-     */
+    /** 确保**全量在页面状态里**（本地排序、整单全选的前置条件）；实现在 listcursor.js */
     async ensureAllSongs() {
-      if (this.allLoaded) return true;
-      if (this._loadingFull) return false;
-      const loadToken = this._loadToken;
-      this._loadingFull = true;
-      try {
-        const all = await this.loadAllSongs(loadToken);
-        // 载入期间切了列表（openList/pickCat 改了 token）→ 这份全量不属于当前列表，丢弃
-        if (this._dead || loadToken !== this._loadToken) return false;
-        this.songs = this.dedupe(this.attachTimes(all || []));
-        this.cursor = this.idsTotal;
-        this.allLoaded = true;
-        this.noMore = false;
-        if (this.shown > this.songs.length) this.shown = this.songs.length;
-        if (!this.shown) this.shown = Math.min(PAGE, this.songs.length);
-        log("list", "全量就绪 " + this.songs.length + " 首（kind=" + this.kind + "）");
-        return true;
-      } catch (e) {
-        if (!this._dead) this.showToast("载入全部曲目失败：" + ((e && e.message) || e));
-        log("list", "载入全部失败 " + ((e && e.message) || e));
-        return false;
-      } finally {
-        this._loadingFull = false;
-      }
+      return cursorEnsureAll(this);
     },
     /**
      * 「播放全部」（左栏播放键）：把**整份列表**设为当前播放队列 —— 顺序/循环模式从第一首起播，

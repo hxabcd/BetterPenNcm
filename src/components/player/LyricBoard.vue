@@ -44,7 +44,7 @@
 import LyricTrack from './LyricTrack.vue'
 import { touchAxis } from '../../core/platform/touch.js'
 import { log } from '../../core/infra/log.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { TOK } from '../../ui/tokens.js'
 import { bindPageVis } from '../../ui/vis.js'
 import { player } from '../../services/player/player.js'

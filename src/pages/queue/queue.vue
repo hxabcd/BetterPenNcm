@@ -81,7 +81,7 @@ import { toPlaylist } from '../../services/player/acts.js';
 import { selPicked } from '../../ui/dlselect.js';
 import { fmtDur } from '../../core/infra/format.js';
 import { log } from '../../core/infra/log.js';
-import { accentMixin } from '../../ui/theme.js';
+import { accentMixin } from '../../ui/mixins/accent.js';
 import { TOK } from '../../ui/tokens.js';
 import { toastMixin } from '../../ui/mixins/toast.js';
 import { armMixin } from '../../ui/mixins/arm.js';

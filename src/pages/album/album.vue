@@ -70,7 +70,7 @@ import { downloadSongs, dlText, startText, resultText, spaceCheck, dlSig } from 
 import { bindDl } from '../../ui/mixins/dlsub.js'
 import { selPicked } from '../../ui/dlselect.js'
 import { log } from '../../core/infra/log.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { toastMixin } from '../../ui/mixins/toast.js'
 import { armMixin } from '../../ui/mixins/arm.js'
 import { multiSelectMixin } from '../../ui/mixins/multi.js'

@@ -60,7 +60,7 @@ import { fetchArtistAlbums } from '../../services/ncm/api.js';
 import { openTextEdit, available as imeAvailable } from '../../core/platform/systemKeyboard.js';
 import config from '../../core/infra/config.js';
 import { log } from '../../core/infra/log.js';
-import { accentMixin } from '../../ui/theme.js';
+import { accentMixin } from '../../ui/mixins/accent.js';
 import { TOK } from '../../ui/tokens.js';
 import { toastMixin } from '../../ui/mixins/toast.js';
 import { pageFrameMixin } from '../../ui/mixins/frame.js';

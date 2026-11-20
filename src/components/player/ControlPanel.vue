@@ -97,7 +97,7 @@
  */
 import { TOK } from '../../ui/tokens.js'
 import { ICON, aIcon } from '../../assets/icons.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { fmtDur } from '../../core/infra/format.js'
 
 export default {

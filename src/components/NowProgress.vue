@@ -22,7 +22,7 @@
  *   （实测 v-if 换结构会让 slot 插错位）。
  */
 import { player } from '../services/player/player.js'
-import { accentMixin } from '../ui/theme.js'
+import { accentMixin } from '../ui/mixins/accent.js'
 import { bindPageVis } from '../ui/vis.js'
 
 export default {

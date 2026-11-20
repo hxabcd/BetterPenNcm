@@ -16,12 +16,13 @@ PROJ = os.path.normpath(os.path.join(HERE, '..'))
 
 # (文件, [必须出现的片段...])
 CHECKS = [
+    # S3 拆分后：theme.js 只守状态本体（PRESETS/ACCENTS/换色广播）；mixin 面在 ui/mixins/accent.js
     ('src/ui/theme.js', ['export const ACCENTS', 'export function currentAccent(', 'export async function setAccent(',
-                            'export function currentAccentKey(', 'export const accentMixin',
-                            'vm.accent = currentAccent()',
+                            'export function currentAccentKey(', 'export const THEME_EVENT',
                             # 亮色预设的对比度兜底（Vocaloid 七色里 6 个是亮色）
                             'export const FG_LIGHT', 'export const FG_DARK', 'function pickOn(',
                             'a.on = pickOn(a.c)', "key: 'red'", "c: '#D93A49'"]),
+    ('src/ui/mixins/accent.js', ['export const accentMixin', 'vm.accent = currentAccent()', 'THEME_EVENT', 'fgIcon']),
     ('src/core/infra/config.js', ["accentColor: 'red'"]),
     ('src/styles/common.less', ['默认主题色 = 重音红', '@accent-2: #F58A93']),
     ('src/core/infra/boot.js', ['背景色/主题色同理']),
@@ -147,8 +148,8 @@ SYMBOLS = ['currentBg', 'currentAccent', 'currentAccentKey', 'bindTheme', 'unbin
 import re
 
 for rel, _ in CHECKS:
-    if rel.startswith(('src/ui/theme.js', 'src/assets/icons.js', 'scripts/')):
-        continue  # theme.js / icons.js 是符号**定义处**；gen_icons.py 是 Python（自带 ACCENTS 定义）
+    if rel.startswith(('src/ui/theme.js', 'src/ui/mixins/accent.js', 'src/assets/icons.js', 'scripts/')):
+        continue  # theme.js / accent.js / icons.js 是符号**定义处**；gen_icons.py 是 Python（自带 ACCENTS 定义）
     src = io.open(os.path.join(PROJ, rel), encoding='utf-8').read()
     # 只看 <script> 段（模板里的同名字符串不算）
     m = re.search(r'<script>(.*?)</script>', src, re.S)
@@ -231,7 +232,7 @@ def group_map(text):
 
 
 MIXIN_SOURCES = {
-    'accentMixin': 'src/ui/theme.js',
+    'accentMixin': 'src/ui/mixins/accent.js',
     'toastMixin': 'src/ui/mixins/toast.js',
     'armMixin': 'src/ui/mixins/arm.js',
     'multiSelectMixin': 'src/ui/mixins/multi.js',

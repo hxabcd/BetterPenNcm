@@ -109,7 +109,7 @@ import { dlSig } from '../../services/player/download.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js';
 import { coverPair, glowGradient } from '../../services/cover/color.js';
-import { accentMixin } from '../../ui/theme.js';
+import { accentMixin } from '../../ui/mixins/accent.js';
 import { aIcon } from "../../assets/icons.js";
 import { BUILD_TAG } from "../../core/infra/buildInfo.js";
 import { evtJson } from '../../core/infra/events.js';

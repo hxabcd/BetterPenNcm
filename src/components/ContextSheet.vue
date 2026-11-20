@@ -34,7 +34,7 @@
  *   - 本组件没有 slot，结构切换（columns 有无）是安全的；仍尽量保持节点简单。
  */
 import OptChip from './OptChip.vue'
-import { accentMixin } from '../ui/theme.js'
+import { accentMixin } from '../ui/mixins/accent.js'
 import { TOK } from '../ui/tokens.js'
 
 export default {

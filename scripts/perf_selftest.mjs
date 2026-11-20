@@ -373,7 +373,7 @@ const SLEEP_ALLOW = {
   const targets = [
     ['ui/mixins/dlsub.js', 'vm._dlOff()'],
     ['ui/vis.js', 'vm._visOff()'],
-    ['ui/theme.js', 'unbindTheme(vm._accentOff)']
+    ['ui/mixins/accent.js', 'unbindTheme(vm._accentOff)']
   ]
   const bad = []
   for (const [file, needle] of targets) {

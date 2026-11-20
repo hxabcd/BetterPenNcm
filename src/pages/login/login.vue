@@ -84,7 +84,7 @@
  */
 import QRCode from '../../vendor/qrcode.js'
 import PageShell from '../../components/PageShell.vue'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { TOK } from '../../ui/tokens.js'
 import { railBack } from '../../ui/rail.js'
 import {

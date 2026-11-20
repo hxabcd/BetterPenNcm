@@ -55,7 +55,7 @@ import { stats, freeBytes, clearSongs, clearPlayCache, clearCoverCache } from '.
 import { cancelDownload, forgetAll, invalidateLocalPaths } from '../../services/player/download.js'
 import { player } from '../../services/player/player.js'
 import { log } from '../../core/infra/log.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { TOK } from '../../ui/tokens.js'
 import { toastMixin } from '../../ui/mixins/toast.js'
 import { armMixin } from '../../ui/mixins/arm.js'

@@ -77,7 +77,7 @@ import { player } from '../../services/player/player.js'
 import { downloadSongs } from '../../services/player/download.js'
 import { toPlaylist, playNext, playNextText } from '../../services/player/acts.js'
 import { log } from '../../core/infra/log.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { toastMixin } from '../../ui/mixins/toast.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
 

@@ -45,7 +45,7 @@
  *
  * 事件：@action(key) —— 各页自己处理（返回也由各页处理，组件里 $page 不可靠）。
  */
-import { accentMixin } from '../ui/theme.js'
+import { accentMixin } from '../ui/mixins/accent.js'
 import { TOK } from '../ui/tokens.js'
 import { log } from '../core/infra/log.js'
 

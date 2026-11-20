@@ -24,7 +24,7 @@
  * 不再依赖页面 script 里的常量（拆解前是 list.vue 的 SIDE_W）。
  */
 import { SEARCH_TYPES } from '../../services/ncm/api.js'
-import { accentMixin } from '../theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { TOK } from '../tokens.js'
 
 const SIDE_W = 62.5

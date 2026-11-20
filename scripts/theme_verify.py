@@ -36,7 +36,6 @@ CHECKS = [
     ('src/components/NavRail.vue', ['accentMixin', 'this.accent.c', 'TOK.btnBg', 'width: 25vh']),
     # SongRow：showQuality 列；勾选圈两态（TOK.markBorder）也在这
     ('src/components/SongRow.vue', ['accentMixin', 'this.accent.a12', 'this.accent.c', 'showQuality', 'TOK.markBorder']),
-    ('src/components/LyricPanel.vue', ['accentMixin', 'this.accent.c : ']),
     # keyboard.vue 已弃用移除，不再校验
 
     ('src/pages/index/index.vue', ['accentMixin', '{ color: accent.c }', '{ backgroundColor: accent.c }',
@@ -189,7 +188,7 @@ for rel, _ in CHECKS:
 #   ① 全工程找不到定义（原 artist.vue moreStyle 类）→ 警示；
 #   ② **只有 methods 提供** → 硬失败。模板 `:x="name"` 编译出来是「取字段」
 #      （字节码实证：get_field rail），method 版取到的是函数——轻则静默失效
-#      （LyricPanel.transStyle），重则组件炸掉、整块 UI 消失（pageFrameMixin.rail
+#      （原 LyricPanel.transStyle），重则组件炸掉、整块 UI 消失（pageFrameMixin.rail
 #      写进 methods → NavRail 拿函数 slice 报错 → 11 个页面左栏全没）。
 # 判法：按缩进把 mixin / 页面 script 的 computed·methods·data·props 成员归组。
 GROUP_LINE = re.compile(r'^  (computed|methods|data|props)\s*[:(]')

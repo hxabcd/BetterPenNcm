@@ -57,7 +57,7 @@ import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import EmptyHint from '../../components/EmptyHint.vue'
 import HintToast from '../../components/HintToast.vue'
-import { ICON } from '../../utils/rail.js'
+import { ICON, railBack } from '../../utils/rail.js'
 import { dlTasks, ackFinished, cancelTask } from '../../utils/player/download.js'
 import { bindDl } from '../../utils/player/dlvis.js'
 import { log } from '../../utils/log.js'
@@ -116,6 +116,10 @@ export default {
     },
     emptyText() {
       return '无下载任务'
+    },
+    /** 显式给出左栏（只有返回键）——不依赖 pageFrameMixin 的默认实现 */
+    rail() {
+      return [railBack()]
     }
   },
   mounted() {

@@ -85,7 +85,7 @@ import {
 import { addList, removeList, removeListLocal, isIndexed, downloadAll } from '../../services/player/locallists.js'
 import { player } from '../../services/player/player.js'
 import { bindDl } from '../../services/player/dlvis.js'
-import { dlText } from '../../ui/dlselect.js'
+import { dlText } from '../../services/player/download.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
 import { openTextEdit, available as imeAvailable } from '../../core/platform/systemKeyboard.js'

@@ -116,14 +116,14 @@ import {
   applyRemoved as cursorApplyRemoved,
   applyHistoryRemoved as cursorApplyHistRemoved,
 } from '../../services/player/listcursor.js';
-import { downloadSongs } from '../../services/player/download.js';
+import { downloadSongs, dlText, startText, resultText, spaceCheck } from '../../services/player/download.js';
 import { bindDl } from '../../services/player/dlvis.js';
 import { downloadAll, isIndexed, addList, removeList } from '../../services/player/locallists.js';
 import { toPlaylist, playNext, playNextText } from '../../services/player/acts.js';
 import config from '../../core/infra/config.js';
 import ContextSheet from "../../components/ContextSheet.vue";
 import SearchSidebar from "../../components/list/SearchSidebar.vue";
-import { selPicked, selAllIds, dlText, startText, resultText, spaceCheck } from '../../ui/dlselect.js';
+import { selPicked, selAllIds } from '../../ui/dlselect.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { evtJson } from '../../core/infra/events.js';
 import { log } from '../../core/infra/log.js';

@@ -52,7 +52,7 @@ import { stats, freeBytes, listSongs, putMeta } from '../../services/player/cach
 import { localStats, loadIndex, indexOf, saveSongExtras } from '../../services/player/localmeta.js'
 import { indexedCount } from '../../services/player/locallists.js'
 import { bindDl } from '../../services/player/dlvis.js'
-import { dlText } from '../../ui/dlselect.js'
+import { dlText } from '../../services/player/download.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { isOffline } from '../../core/infra/net/status.js'
 import { log } from '../../core/infra/log.js'

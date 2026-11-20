@@ -459,16 +459,12 @@ else:
 #   pages → {components, ui, services, core}
 #   components → {ui, core, services, assets, vendor}（域组件编码域知识，§5 明示允许；
 #                components/chrome/ 追加禁止 → services，chrome 是跨应用框架候选）
-#   ui → {core, assets}；禁止 ui → services / components（dlselect.js 的过渡违例在豁免表）
+#   ui → {core, assets}；禁止 ui → services / components（multidl 拆分后 ui 无 services 边）
 #   services → {core, services}（跨 services 子域优先走门面）
 #   core → core：infra→platform 允许；platform→infra 限 log.js（万能底座，
 #          平台适配层也打日志，方案 §2.2 R6 的 DDL 式妥协同源）；其余禁止
 # 豁免清单：一行一条 (文件, 说明符)。出现新违例要么改代码，要么带理由登记。
 LAYER_EXEMPT = {
-    # S1 过渡位：multidl 整文件暂落 ui/dlselect.js，S3 拆分时消除（§6.3.3）
-    ('src/ui/dlselect.js', '../services/player/download.js'),
-    ('src/ui/dlselect.js', '../services/player/cache.js'),
-    ('src/ui/dlselect.js', '../services/player/quality.js'),
     # S3 改造目标：bindDl 的可见性门控移页面 mixin 后撤销（§6.3.4）
     ('src/services/player/dlvis.js', '../../ui/vis.js'),
     # 启动序列是全应用的装配点（建目录/开库/灌会话/换肤广播），引域模块装配是它的职责；

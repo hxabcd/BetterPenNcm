@@ -2,7 +2,7 @@
  * 网易云 API 封装：歌词/搜索/直链/歌曲详情等读取全部走明文 /api/；
  * 登录与写操作走 weapi（weapiPost 把 /api/ 换成 /weapi/，本文件不再直接用它，见 weapi.js 的调用方）。
  */
-import { request } from '../net/request.js'
+import { request } from '../../core/infra/net/request.js'
 
 const BASE = 'https://music.163.com'
 const UA =

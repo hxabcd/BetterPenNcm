@@ -26,7 +26,7 @@
  */
 // 与 player.js 同目录；契约指定写 ../player/player.js（相对本文件归一后即本目录的 player.js）
 import { player } from '../player/player.js'
-import { log } from '../log.js'
+import { log } from '../../core/infra/log.js'
 
 const MIN_MS = 60000
 const TICK_MS = 1000

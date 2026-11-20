@@ -16,15 +16,15 @@ PROJ = os.path.normpath(os.path.join(HERE, '..'))
 
 # (文件, [必须出现的片段...])
 CHECKS = [
-    ('src/utils/theme.js', ['export const ACCENTS', 'export function currentAccent(', 'export async function setAccent(',
+    ('src/ui/theme.js', ['export const ACCENTS', 'export function currentAccent(', 'export async function setAccent(',
                             'export function currentAccentKey(', 'export const accentMixin',
                             'vm.accent = currentAccent()',
                             # 亮色预设的对比度兜底（Vocaloid 七色里 6 个是亮色）
                             'export const FG_LIGHT', 'export const FG_DARK', 'function pickOn(',
                             'a.on = pickOn(a.c)', "key: 'red'", "c: '#D93A49'"]),
-    ('src/utils/config.js', ["accentColor: 'red'"]),
+    ('src/core/infra/config.js', ["accentColor: 'red'"]),
     ('src/styles/common.less', ['默认主题色 = 重音红', '@accent-2: #F58A93']),
-    ('src/utils/boot.js', ['背景色/主题色同理']),
+    ('src/core/infra/boot.js', ['背景色/主题色同理']),
     ('src/assets/icons.js', ['export const ACCENT_ICON', 'export function aIcon', 'icon-pl-teal.png?base64',
                              'icon-chevright.png?base64',
                              # 实心主题色上的图标：亮色预设要深色版
@@ -57,8 +57,8 @@ CHECKS = [
                                                 'postComment', "this.$emit('toast'"]),
     ('src/components/player/TimerPanel.vue', ['accentMixin', 'fgIcon', 'sleepTimer', 'TOK.cardBg']),
     ('src/components/player/SeekPanel.vue', ['accentMixin', 'touchAxis', 'TRACK_W', 'timer']),
-    ('src/utils/ncm/comments.js', ['fetchComments', 'likeComment', 'postComment', 'threadId']),
-    ('src/utils/player/sleeptimer.js', ['sleepTimer', 'setKeepTrack', 'beginTail', 'onPlayer']),
+    ('src/services/ncm/comments.js', ['fetchComments', 'likeComment', 'postComment', 'threadId']),
+    ('src/services/player/sleeptimer.js', ['sleepTimer', 'setKeepTrack', 'beginTail', 'onPlayer']),
     ('src/pages/account/account.vue', ['accentMixin', '{ backgroundColor: accent.c }', 'this.accent.c } : { backgroundColor']),
     ('src/pages/album/album.vue', ['accentMixin', '{ color: accent.light }']),
     ('src/pages/artist/artist.vue', ['accentMixin', '{ color: accent.light }']),
@@ -95,11 +95,11 @@ CHECKS = [
 
     # 左栏兜底判据：frame.js 的 rail 必须在 computed；PageShell 必须兜底
     # 非数组。语义判据在第四道（mixin 分组），这两条防的是「兜底/分组被改回去」。
-    ('src/utils/ui/frame.js', ['computed: {', 'return [railBack()]']),
+    ('src/ui/mixins/frame.js', ['computed: {', 'return [railBack()]']),
     ('src/components/PageShell.vue', ['Array.isArray(this.rail)', 'railItems', 'railBack']),
 
     # 导航层：逻辑页 → 实例槽位（页面代码只认逻辑页名；槽位表与 app.json 由第六道交叉校验）
-    ('src/utils/nav.js', ['const PAGES = {', 'export function go(', 'export function paramsFor(',
+    ('src/core/infra/nav.js', ['const PAGES = {', 'export function go(', 'export function paramsFor(',
                           'export function attachPage(', 'export function noteLifeCycle(',
                           # 连点合并 / 槽位耗尽的退化策略不能悄悄丢掉（第六道只查调用点，查不到行为）
                           'DEDUPE_MS', 'dup-ignore', 'topLiveSlot(']),
@@ -142,7 +142,7 @@ SYMBOLS = ['currentBg', 'currentAccent', 'currentAccentKey', 'bindTheme', 'unbin
 import re
 
 for rel, _ in CHECKS:
-    if rel.startswith(('src/utils/theme.js', 'src/assets/icons.js', 'scripts/')):
+    if rel.startswith(('src/ui/theme.js', 'src/assets/icons.js', 'scripts/')):
         continue  # theme.js / icons.js 是符号**定义处**；gen_icons.py 是 Python（自带 ACCENTS 定义）
     src = io.open(os.path.join(PROJ, rel), encoding='utf-8').read()
     # 只看 <script> 段（模板里的同名字符串不算）
@@ -226,12 +226,12 @@ def group_map(text):
 
 
 MIXIN_SOURCES = {
-    'accentMixin': 'src/utils/theme.js',
-    'toastMixin': 'src/utils/ui/toast.js',
-    'armMixin': 'src/utils/ui/arm.js',
-    'multiSelectMixin': 'src/utils/ui/multi.js',
-    'pageFrameMixin': 'src/utils/ui/frame.js',
-    'pageBusMixin': 'src/utils/ui/pagebus.js',
+    'accentMixin': 'src/ui/theme.js',
+    'toastMixin': 'src/ui/mixins/toast.js',
+    'armMixin': 'src/ui/mixins/arm.js',
+    'multiSelectMixin': 'src/ui/mixins/multi.js',
+    'pageFrameMixin': 'src/ui/mixins/frame.js',
+    'pageBusMixin': 'src/ui/mixins/pagebus.js',
 }
 MIXIN_GROUPS = {mx: group_map(io.open(os.path.join(PROJ, rel), encoding='utf-8').read())
                 for mx, rel in MIXIN_SOURCES.items()}
@@ -302,7 +302,7 @@ for rel in sorted(_view_files):
                       '（Vue 保留 mixin 那份 → 页面这份整个失效）' % (rel, _name, _mx))
                 break
 # ---- 第五道：token 值字面量巡检（硬失败）----
-# 规则：token 的**颜色值**只能待在 src/utils/ui/tokens.js（唯一来源）；
+# 规则：token 的**颜色值**只能待在 src/ui/tokens.js（唯一来源）；
 # 消费走 TOK（JS）或 common.less 的生成段（LESS 用 @名）。
 # 为什么只巡颜色不巡尺寸：尺寸值（6vh / 15vh…）与普通内边距/字号撞车，巡了必误报；
 # 颜色是 8 位十六进制/rgba，唯一性足够。新增 token 时把它的颜色值加进下表即可。
@@ -311,7 +311,7 @@ TOKEN_VALUES = ['#1a1b1f', '#232428', 'rgba(255, 255, 255, 0.08)', '#ffffff', '#
                 'rgba(4, 7, 10, 0.6)', 'rgba(0, 0, 0, 0)', 'rgba(255, 255, 255, 0.85)',
                 # 播放页重构（PlayerPage 14:1570）新增的 4 个面/槽色
                 '#242424', '#272727', '#373737', '#282828']
-TOKEN_VALUE_OK = {'src/utils/ui/tokens.js', 'src/styles/common.less', 'scripts/gen_tokens.py'}
+TOKEN_VALUE_OK = {'src/ui/tokens.js', 'src/styles/common.less', 'scripts/gen_tokens.py'}
 TOKEN_VALUE_DEFERRED = set()  # 当前没有豁免文件
 
 import glob as _glob
@@ -340,7 +340,7 @@ for rel in sorted(_scan):
         print('✗ %-42s token 值字面量：%s（改走 TOK / LESS 生成段）' % (rel, ', '.join(hits)))
 
 # ---- 第六道：导航路由表自检（逻辑页 / 实例槽位 / app.json 三者一致 + 调用点只写逻辑页名）----
-# 导航层（src/utils/nav.js）按「逻辑页 → 实例槽位 key」分配页面实例：页面代码只写逻辑页名，
+# 导航层（src/core/infra/nav.js）按「逻辑页 → 实例槽位 key」分配页面实例：页面代码只写逻辑页名，
 # 每次 go() 会 navTo 一个**当前不在栈里**的槽位 key（= 真正压栈）。三者不一致会静默退化：
 #   - 新页面没登记进 PAGES / app.json → 导航回落平台语义（层级退回）或直接断链；
 #   - 槽位 key 没注册 / 指向别的 .vue → 压栈时黑屏或跑错页面；
@@ -348,7 +348,7 @@ for rel in sorted(_scan):
 # 这些构建期都不报错，所以必须在自检里兜住。
 import json as _json
 
-_nav_js = io.open(os.path.join(PROJ, 'src/utils/nav.js'), encoding='utf-8').read()
+_nav_js = io.open(os.path.join(PROJ, 'src/core/infra/nav.js'), encoding='utf-8').read()
 _logic_slots = {}
 for _m in re.finditer(r'^\s{2}([A-Za-z][\w]*):\s*\{\s*slots:\s*\[([^\]]+)\]', _nav_js, re.M):
     _logic_slots[_m.group(1)] = [s.strip().strip('\'"') for s in _m.group(2).split(',') if s.strip()]
@@ -356,7 +356,7 @@ for _m in re.finditer(r'^\s{2}([A-Za-z][\w]*):\s*\{\s*slots:\s*\[([^\]]+)\]', _n
 _app_pages = _json.load(io.open(os.path.join(PROJ, 'src/app.json'), encoding='utf-8'))['pages']
 _nav_bad = []
 if not _logic_slots:
-    _nav_bad.append('src/utils/nav.js 的 PAGES 表解析为空（表结构变了？同步本条自检）')
+    _nav_bad.append('src/core/infra/nav.js 的 PAGES 表解析为空（表结构变了？同步本条自检）')
 if 'index' not in _app_pages:
     _nav_bad.append('src/app.json 缺少入口页 key = index')
 
@@ -389,7 +389,7 @@ for _key in sorted(_app_pages):
 
 # 调用点：go() 第一参必须是已登记逻辑页的字符串字面量；页面不得出现旧别名 / 旧适配 / 直连 navTo
 _nav_files = []
-for _base in ('src/pages', 'src/components', 'src/utils'):
+for _base in ('src/pages', 'src/components', 'src/core', 'src/ui', 'src/services'):
     for _p in _glob.glob(os.path.join(PROJ, _base, '**', '*.*'), recursive=True):
         _rel2 = os.path.relpath(_p, PROJ).replace('\\', '/')
         if not _rel2.endswith(('.vue', '.js')):
@@ -403,7 +403,7 @@ for _rel2 in sorted(_nav_files):
     _text = re.sub(r'^\s*//.*$', '', _text, flags=re.M)
     if re.search(r'songinfonested|artistlist|playlistpick', _text):
         _nav_bad.append('%s 仍引用旧别名 key（已由逻辑页 + 实例槽位取代）' % _rel2)
-    if _rel2 == 'src/utils/nav.js':
+    if _rel2 == 'src/core/infra/nav.js':
         continue  # 定义处：本身含 go()/navTo 定义，不扫
     if 'onPageParams' in _text:
         _nav_bad.append('%s 仍引用已废弃的 onPageParams（导航层只做压栈，不再复用页面实例）' % _rel2)

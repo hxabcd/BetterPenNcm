@@ -8,12 +8,12 @@
  * 没有迁移步骤：应用只认当前布局，旧布局的数据一律不读、不搬。
  */
 import config from './config.js'
-import { notify as themeNotify } from './theme.js'
+import { notify as themeNotify } from '../../ui/theme.js'
 import { loadPlayerSettings, loadLastState } from '../../services/player/player.js'
 import { load as loadHistory } from '../../services/player/history.js'
-import { ensureDir } from './fsutil.js'
+import { ensureDir } from '../../core/platform/fsutil.js'
 import { downloadsDir, cacheDir, thumbsDir } from './paths.js'
-import { open as openDb, ensureStateDb as openStateDb } from './db.js'
+import { open as openDb, ensureStateDb as openStateDb } from '../../core/platform/db.js'
 import { importFromFile, load as loadCookies, names as cookieNames } from './net/cookies.js'
 import { cachedProfile, loggedIn, fetchProfile } from '../../services/ncm/login.js'
 import { pullAll as autoPullLocalLists } from '../../services/player/locallists.js'

@@ -60,12 +60,12 @@ import PageTopbar from '../../components/PageTopbar.vue'
 import OptChip from '../../components/OptChip.vue'
 import OptToggle from '../../components/OptToggle.vue'
 import CueRow from '../../components/CueRow.vue'
-import { go } from '../../../core/infra/nav.js'
-import { QUALITIES, qualityInfo, currentQuality, DEFAULT_QUALITY } from '../../../services/player/quality.js'
-import { enforceCacheLimit } from '../../../services/player/cache.js'
-import config from '../../../core/infra/config.js'
-import { log } from '../../../core/infra/log.js'
-import { pageFrameMixin } from '../../../ui/mixins/frame.js'
+import { go } from '../../core/infra/nav.js'
+import { QUALITIES, qualityInfo, currentQuality, DEFAULT_QUALITY } from '../../services/player/quality.js'
+import { enforceCacheLimit } from '../../services/player/cache.js'
+import config from '../../core/infra/config.js'
+import { log } from '../../core/infra/log.js'
+import { pageFrameMixin } from '../../ui/mixins/frame.js'
 
 /** 「缓存上限」可选档位（MB）；mb=0 表示不限 */
 const CACHE_LIMITS = [

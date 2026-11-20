@@ -13,7 +13,7 @@
  * 与 armMixin 的耦合：选择变化 / 进入 / 退出多选时自动 disarm()（有则调）——
  * 「选择变了，二次确认作废」这条语义从此不用在五个页面里各写一遍。
  */
-import { selHas, selToggle, selAllPicked, selAllIds } from '../multidl.js'
+import { selHas, selToggle, selAllPicked, selAllIds } from '../../ui/dlselect.js'
 
 export const multiSelectMixin = {
   data() {

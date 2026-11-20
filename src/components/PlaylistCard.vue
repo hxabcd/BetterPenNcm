@@ -11,7 +11,7 @@
 </template>
 
 <script>
-import { ensureCover } from '../../services/cover/cover.js'
+import { ensureCover } from '../services/cover/cover.js'
 
 /**
  * 横向封面卡：封面 + 名称 + 曲目数

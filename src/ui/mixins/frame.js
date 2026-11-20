@@ -17,7 +17,7 @@
  *   页面 onBack 写一行 `if (this.exitMultiIfAny()) return` 即可。
  */
 import { railBack } from '../rail.js'
-import { attachPage } from '../nav.js'
+import { attachPage } from '../../core/infra/nav.js'
 
 export const pageFrameMixin = {
   mounted() {

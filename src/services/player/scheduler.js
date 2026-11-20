@@ -20,7 +20,7 @@
  * 前者由 download.js 门面经 wireScheduler 注入，后两者经 tasks.js 的公开函数写入，
  * 避免循环依赖。
  */
-import { log } from '../log.js'
+import { log } from '../../core/infra/log.js'
 import { purgeInDir } from './files.js'
 import { playCacheDir } from './cache.js'
 import { addProgressHook, dropProgressHooks, fireProgress } from './progress.js'

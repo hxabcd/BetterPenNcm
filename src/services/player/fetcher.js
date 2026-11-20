@@ -25,11 +25,11 @@
  *   - **低速检测**：curl `--speed-limit/--speed-time` 在传输层掐掉卡死连接（退出码 28）
  *   - exec/curl 不可用时回退内建 http.download（整文件一次，无续传）
  */
-import { download as httpDownload } from '../net/request.js'
-import { log } from '../log.js'
-import { sleep } from '../util.js'
-import { fileExists, fileSize, getFs, rmQuiet } from '../fsutil.js'
-import { has, run as shRun } from '../exec.js'
+import { download as httpDownload } from '../../core/infra/net/request.js'
+import { log } from '../../core/infra/log.js'
+import { sleep } from '../../core/infra/util.js'
+import { fileExists, fileSize, getFs, rmQuiet } from '../../core/platform/fsutil.js'
+import { has, run as shRun } from '../../core/platform/exec.js'
 
 /* ---- 参数 ---- */
 /* 分片尺寸（调优）：每片一次 curl 进程 + 一次 cat 追加，片太小则连接建立

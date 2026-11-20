@@ -15,7 +15,7 @@
  * 与「平台坑 16」的关系：平台 watcher 不去重，判重只能由页面在订阅入口自己做；
  * 本模块只提供签名与判重，不做订阅。
  */
-import { fmtDur } from '../format.js'
+import { fmtDur } from '../../core/infra/format.js'
 
 /** 会显示在界面上的曲目字段：换歌的一切可见差异 */
 export function trackSig(s) {
@@ -82,8 +82,6 @@ export function queueViewSig(s) {
 export function sigFeed(fn) {
   let last = null
   return function (s) {
-    return true // 【A/B 测试临时版】恒判「变了」= 判重失效，行为等价优化前
-    // eslint-disable-next-line no-unreachable
     const k = '~' + fn(s)
     if (k === last) return false
     last = k

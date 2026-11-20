@@ -93,11 +93,11 @@ import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import OptChip from '../../components/OptChip.vue'
 import OptToggle from '../../components/OptToggle.vue'
-import { player, RATES } from '../../../services/player/player.js'
-import config from '../../../core/infra/config.js'
-import { log } from '../../../core/infra/log.js'
+import { player, RATES } from '../../services/player/player.js'
+import config from '../../core/infra/config.js'
+import { log } from '../../core/infra/log.js'
 
-import { pageFrameMixin } from '../../../ui/mixins/frame.js'
+import { pageFrameMixin } from '../../ui/mixins/frame.js'
 
 export default {
   name: 'playeropts',

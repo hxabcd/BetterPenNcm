@@ -84,9 +84,9 @@
  */
 import QRCode from '../../vendor/qrcode.js'
 import PageShell from '../../components/PageShell.vue'
-import { accentMixin } from '../../../ui/theme.js'
-import { TOK } from '../../../ui/tokens.js'
-import { railBack } from '../../../ui/rail.js'
+import { accentMixin } from '../../ui/theme.js'
+import { TOK } from '../../ui/tokens.js'
+import { railBack } from '../../ui/rail.js'
 import {
   createQr,
   pollQr,
@@ -98,10 +98,10 @@ import {
   loginByPassword,
   CODE,
   loggedIn
-} from '../../../services/ncm/login.js'
-import { openTextEdit } from '../../../core/platform/systemKeyboard.js'
-import { log } from '../../../core/infra/log.js'
-import { pageFrameMixin } from '../../../ui/mixins/frame.js'
+} from '../../services/ncm/login.js'
+import { openTextEdit } from '../../core/platform/systemKeyboard.js'
+import { log } from '../../core/infra/log.js'
+import { pageFrameMixin } from '../../ui/mixins/frame.js'
 
 const POLL_MS = 2000
 const MAX_POLLS = 90 // 3 分钟不扫就停

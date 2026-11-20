@@ -22,7 +22,7 @@
  * 用法：player.js 模块加载时 `bindEvents({...})` 登记回调（同步、幂等）；
  * 真正的 .on() 在实例创建后由 getInst() 自动补挂。
  */
-import { log } from '../log.js'
+import { log } from '../../core/infra/log.js'
 
 let inst = null
 let handlers = null

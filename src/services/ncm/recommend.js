@@ -18,7 +18,7 @@
  */
 import { weapiPost } from './weapi.js'
 import { normalizeSong } from './api.js'
-import { log } from '../log.js'
+import { log } from '../../core/infra/log.js'
 
 const PATH = '/api/v3/discovery/recommend/songs'
 

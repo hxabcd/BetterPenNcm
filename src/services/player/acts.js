@@ -9,8 +9,8 @@
  * 这里只做「发起动作 + 返回结果」，不碰 UI 状态（不 showToast、不改 multi）——
  * 页面拿返回值自己决定提示什么、要不要退出多选。
  */
-import { go } from './nav.js'
-import { player } from './player/player.js'
+import { go } from '../../core/infra/nav.js'
+import { player } from '../../services/player/player.js'
 
 /**
  * 跳到歌单选择页（pages/playlists 的 pick 模式），把这几首加进去。

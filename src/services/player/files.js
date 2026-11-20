@@ -14,9 +14,9 @@
  *
  * 删一首歌 = 删整个 `<id>/` 目录（音频 + 封面 + 歌词 + 元数据一次 rm -rf）。
  */
-import { rootOf, trackDir } from '../paths.js'
-import { audioPath, otherAudioPath, hitAudio } from '../media.js'
-import { getFs, fileExists, readNames, statOf, removeTree } from '../fsutil.js'
+import { rootOf, trackDir } from '../../core/infra/paths.js'
+import { audioPath, otherAudioPath, hitAudio } from '../../services/player/media.js'
+import { getFs, fileExists, readNames, statOf, removeTree } from '../../core/platform/fsutil.js'
 
 /** kind → 通道根目录（cache = 边听边存，download = 用户下载） */
 export function dirOf(kind) {

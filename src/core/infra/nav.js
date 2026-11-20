@@ -31,7 +31,7 @@
  * pending 覆盖式、不消费，以兼容「页面会挂两遍」。
  */
 import { log } from './log.js'
-import { markVisible, dropPage } from './ui/vis.js'
+import { markVisible, dropPage } from '../../ui/vis.js'
 
 /**
  * 逻辑页 → 实例槽位表。

@@ -11,7 +11,7 @@
  *      是手写段，生成器不管，保留原「书面默认值」语义）。
  *
  * 消费方式：
- *   - JS：`import { TOK } from '../../utils/ui/tokens.js'` → `{ backgroundColor: TOK.panel2 }`
+ *   - JS：`import { TOK } from '../../ui/tokens.js'` → `{ backgroundColor: TOK.panel2 }`
  *   - 模板：需要时按老规矩把 TOK 放进 data（同 `ICON: ICON` 的做法；平台模板不解析模块作用域）
  *   - LESS：直接用生成段里的 `@panel-2` 等
  *   - **不要再写这些共享值的字面量**：theme_verify.py 第五道在 `src/{pages,components,styles}` 内按 TOK 的颜色值巡检（白名单：本文件、

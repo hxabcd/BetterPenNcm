@@ -21,9 +21,9 @@
  *   而且**始终不改结构**（用高度 0 收起，不上 v-if）：首页卡片里的兄弟节点结构是敏感的
  *   （实测 v-if 换结构会让 slot 插错位）。
  */
-import { player } from '../../services/player/player.js'
-import { accentMixin } from '../../ui/theme.js'
-import { bindPageVis } from '../../ui/vis.js'
+import { player } from '../services/player/player.js'
+import { accentMixin } from '../ui/theme.js'
+import { bindPageVis } from '../ui/vis.js'
 
 export default {
   name: 'NowProgress',

@@ -13,8 +13,8 @@
 
 <script>
 import NavRail from './NavRail.vue'
-import { accentMixin } from '../../ui/theme.js'
-import { railBack } from '../../ui/rail.js'
+import { accentMixin } from '../ui/theme.js'
+import { railBack } from '../ui/rail.js'
 
 /**
  * 页面外壳：左侧全局操作栏 + 右侧内容列。

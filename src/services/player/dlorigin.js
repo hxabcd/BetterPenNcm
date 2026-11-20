@@ -29,8 +29,8 @@
  *   - 反过来，清标记只把列置 0，不删行（行里的索引数据仍有效）。
  * 读写模型见 utils/db.js：内存态是读的真相，写走批量 upsert（一批一个事务）。
  */
-import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, num } from '../db.js'
-import { log } from '../log.js'
+import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, num } from '../../core/platform/db.js'
+import { log } from '../../core/infra/log.js'
 
 const T_TRACK = 'track'
 export const ORIGIN_USER = 1

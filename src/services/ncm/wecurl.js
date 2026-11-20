@@ -17,11 +17,11 @@
  * 持久化会话（cookie.txt）的唯一办法（http.download 不适合写这么点内容）。
  */
 import { weapiBody } from './crypto.js'
-import { absorbCookieString, get as getCookie, header as cookieHeader } from '../net/cookies.js'
-import { log, brief } from '../log.js'
-import { fileExists, getFs } from '../fsutil.js'
-import { has, run as shRun } from '../exec.js'
-import { wecurlJarFile } from '../paths.js'
+import { absorbCookieString, get as getCookie, header as cookieHeader } from '../../core/infra/net/cookies.js'
+import { log, brief } from '../../core/infra/log.js'
+import { fileExists, getFs } from '../../core/platform/fsutil.js'
+import { has, run as shRun } from '../../core/platform/exec.js'
+import { wecurlJarFile } from '../../core/infra/paths.js'
 
 const BASE = 'https://music.163.com'
 const UA =

@@ -20,7 +20,7 @@
  * 降级链：从选定档位往下取，最低 128k 兜底（VIP 歌拿不到高码率时的老行为）。
  * 中间档位**不等距跳**：无损 → 320k → 128k（跳过 192k，少一次请求往返）。
  */
-import config from '../config.js'
+import config from '../../core/infra/config.js'
 
 export const QUALITIES = [
   { key: 'standard', label: '标准', level: 'standard', br: 128000, note: '128k mp3' },

@@ -13,8 +13,8 @@
 import { fetchLyric } from '../ncm/api.js'
 import { lyricOf, putLyric } from './localmeta.js'
 import { dlPath } from './download.js'
-import { isOffline } from '../net/status.js'
-import { log } from '../log.js'
+import { isOffline } from '../../core/infra/net/status.js'
+import { log } from '../../core/infra/log.js'
 
 const TIME_TAG = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g
 const META_TAG = /^\[(ti|ar|al|by|offset|length|re|ve):(.*)\]$/i

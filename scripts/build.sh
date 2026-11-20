@@ -42,7 +42,7 @@ fi
 
 BUILD_TAG="$(date +%Y%m%d-%H%M%S)"
 printf "/* 由 scripts/build.sh 自动生成，勿手改 */\nexport const BUILD_TAG = '%s'\n" \
-  "$BUILD_TAG" > src/utils/buildInfo.js
+  "$BUILD_TAG" > src/core/infra/buildInfo.js
 
 LOG_SRV="${LOG_SRV_ARG:-${BPNCM_LOG_SRV:-}}"
 if [ "$LOG_SRV" = "auto" ]; then
@@ -54,13 +54,13 @@ if [ "$LOG_SRV" = "auto" ]; then
 fi
 if [ -n "$LOG_SRV" ]; then
   printf "/* 由 scripts/build.sh 自动生成，勿手改 */\nexport const LOG_SRV = '%s'\n" \
-    "$LOG_SRV" > src/utils/logconfig.generated.js
+    "$LOG_SRV" > src/core/infra/logconfig.generated.js
   echo "日志服务器: $LOG_SRV"
 else
   # 缺省发往 127.0.0.1 —— 设备上连不通，静默失败。这是刻意保留的缺省，
   # 免得把内网 IP 写进仓库；需要真机日志时显式传 --log-srv。
   printf "/* 由 scripts/build.sh 自动生成，勿手改 */\nexport const LOG_SRV = ''\n" \
-    > src/utils/logconfig.generated.js
+    > src/core/infra/logconfig.generated.js
 fi
 echo "构建号: $BUILD_TAG"
 

@@ -22,7 +22,7 @@
  * 两条写接口 PC 端只验证到「路径存在、匿名回 301」（2026-10-29 用便携 Node18 + crypto.js 探测），
  * 登录态下的成功回包字段未验证（设备未连接），失败一律按 code 归类。
  */
-import { request } from '../net/request.js'
+import { request } from '../../core/infra/net/request.js'
 import { weapiPost } from './weapi.js'
 import { NET_HEADERS } from './api.js'
 

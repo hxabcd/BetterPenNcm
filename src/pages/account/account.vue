@@ -46,19 +46,19 @@
  */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
-import { go } from '../../../core/infra/nav.js'
-import { boot } from '../../../core/infra/boot.js'
-import { cachedProfile, loggedIn, fetchProfile, logout } from '../../../services/ncm/login.js'
-import { loadUserPlaylists } from '../../../services/ncm/playlist.js'
-import { ensureCover, BIG_COVER } from '../../../services/cover/cover.js'
-import config from '../../../core/infra/config.js'
-import { log } from '../../../core/infra/log.js'
-import { accentMixin } from '../../../ui/theme.js'
-import { TOK } from '../../../ui/tokens.js'
-import { armMixin } from '../../../ui/mixins/arm.js'
-import { pageBusMixin } from '../../../ui/mixins/pagebus.js'
+import { go } from '../../core/infra/nav.js'
+import { boot } from '../../core/infra/boot.js'
+import { cachedProfile, loggedIn, fetchProfile, logout } from '../../services/ncm/login.js'
+import { loadUserPlaylists } from '../../services/ncm/playlist.js'
+import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
+import config from '../../core/infra/config.js'
+import { log } from '../../core/infra/log.js'
+import { accentMixin } from '../../ui/theme.js'
+import { TOK } from '../../ui/tokens.js'
+import { armMixin } from '../../ui/mixins/arm.js'
+import { pageBusMixin } from '../../ui/mixins/pagebus.js'
 
-import { pageFrameMixin } from '../../../ui/mixins/frame.js'
+import { pageFrameMixin } from '../../ui/mixins/frame.js'
 
 export default {
   name: 'account',

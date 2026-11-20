@@ -27,16 +27,16 @@
  * 所有 shell 走 `process.exec('/bin/sh', ['-c', cmd])`（root；见 运行时API参考 §6）；
  * exec 不可用时回退纯 fs 实现（慢但不失败）。
  */
-import * as media from '../media.js'
-import { trackDir } from '../paths.js'
-import { clearCovers } from '../cover.js'
+import * as media from '../../services/player/media.js'
+import { trackDir } from '../../core/infra/paths.js'
+import { clearCovers } from '../../services/cover/cover.js'
 import { clearLocalLibrary } from './localmeta.js'
 import { clearAllOrigins } from './dlorigin.js'
-import { log } from '../log.js'
-import config from '../config.js'
-import { cacheDir, downloadsDir, musicDir, rootOf, thumbsDir } from '../paths.js'
-import { fileExists, readNames, statOf } from '../fsutil.js'
-import { has, run as shRun } from '../exec.js'
+import { log } from '../../core/infra/log.js'
+import config from '../../core/infra/config.js'
+import { cacheDir, downloadsDir, musicDir, rootOf, thumbsDir } from '../../core/infra/paths.js'
+import { fileExists, readNames, statOf } from '../../core/platform/fsutil.js'
+import { has, run as shRun } from '../../core/platform/exec.js'
 import { ensureRoot } from './files.js'
 
 /* ================= 路径（统一走 utils/paths.js —— 别再各拼各的） ================= */

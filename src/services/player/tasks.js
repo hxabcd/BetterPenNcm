@@ -11,7 +11,7 @@
  * 与调度器（scheduler.js）的分工：本模块**不 import** 调度器（避免循环依赖）——
  * 通过 wireTasks(sched) 注入一组只读/定向操作接口（队列视图、找项、摘项、打中止标记）。
  */
-import { log } from '../log.js'
+import { log } from '../../core/infra/log.js'
 
 /* ---- 活动快照 ---- */
 const act = { active: false, total: 0, done: 0, failed: 0, cancelled: 0, stopping: false, curId: '', curName: '', pct: 0 }

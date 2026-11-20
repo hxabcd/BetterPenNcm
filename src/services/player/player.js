@@ -40,9 +40,9 @@ import { save as saveSession, load as loadSession, clear as clearSession, slimSo
 import { playFile, stop, bindEvents } from './sound.js'
 import { record, enrich } from './history.js'
 import { getSongDetail } from '../ncm/api.js'
-import { fmtDur } from '../format.js'
-import { log } from '../log.js'
-import config from '../config.js'
+import { fmtDur } from '../../core/infra/format.js'
+import { log } from '../../core/infra/log.js'
+import config from '../../core/infra/config.js'
 
 /* ---- 循环模式 ---- */
 export const MODES = [

@@ -227,12 +227,14 @@ async function prepareTree(sandbox) {
 
   // 整棵 src 复制过去（只拷 js/vue/json 等文本，跳过图标二进制）
   const srcDst = path.join(sandbox, 'src')
-  await fsp.cp(path.join(ROOT, 'src/utils'), path.join(srcDst, 'utils'), { recursive: true })
+  for (const axis of ['core', 'ui', 'services']) {
+    await fsp.cp(path.join(ROOT, 'src', axis), path.join(srcDst, axis), { recursive: true })
+  }
   // logconfig.generated.js 是构建生成物（不进仓库、本地也常缺）→ 造一个空的顶上
-  const logCfg = path.join(srcDst, 'utils/logconfig.generated.js')
+  const logCfg = path.join(srcDst, 'core/infra/logconfig.generated.js')
   if (!fs.existsSync(logCfg)) await fsp.writeFile(logCfg, "export const LOG_SRV = ''\n")
   // buildInfo.js 同样是构建生成物
-  const buildInfo = path.join(srcDst, 'utils/buildInfo.js')
+  const buildInfo = path.join(srcDst, 'core/infra/buildInfo.js')
   if (!fs.existsSync(buildInfo)) await fsp.writeFile(buildInfo, "export const BUILD = 'selftest'\nexport const BUILD_TAG = 'st'\n")
   // src 整棵是 ESM（.js 后缀），靠这个 package.json 让 Node 按 ESM 解析
   await fsp.writeFile(path.join(srcDst, 'package.json'), '{"type":"module"}\n')
@@ -257,9 +259,9 @@ async function prepareTree(sandbox) {
       if (s !== before) { await fsp.writeFile(p, s); rewritten++ }
     }
   }
-  await walk(path.join(srcDst, 'utils'))
+  for (const axis of ['core', 'ui', 'services']) await walk(path.join(srcDst, axis))
   // url shim 目录放进去，保证 import 路径可解析
-  await fsp.mkdir(path.join(srcDst, 'utils', '_shim'), { recursive: true })
+  await fsp.mkdir(path.join(srcDst, 'core', 'infra', '_shim'), { recursive: true })
   return { srcDst, rewritten }
 }
 
@@ -281,18 +283,18 @@ globalThis.$dataDir = dataDir + '/' // 真机末尾自带斜杠
 
 const { srcDst, rewritten } = await prepareTree(sandbox)
 console.log('1) 环境')
-truthy('平台说明符已替换（src/utils）', rewritten > 0)
+truthy('平台说明符已替换（core/ui/services 三轴）', rewritten > 0)
 
-const U = (n) => pathToFileURL(path.join(srcDst, 'utils', n)).href
+const U = (n) => pathToFileURL(path.join(srcDst, n)).href
 
-const paths = await import(U('paths.js'))
-const db = await import(U('db.js'))
-const store = await import(U('store.js'))
-const media = await import(U('media.js'))
-const fsutil = await import(U('fsutil.js'))
-const config = (await import(U('config.js'))).default
-const history = await import(pathToFileURL(path.join(srcDst, 'utils/player/history.js')).href)
-const session = await import(pathToFileURL(path.join(srcDst, 'utils/player/session.js')).href)
+const paths = await import(U('core/infra/paths.js'))
+const db = await import(U('core/platform/db.js'))
+const store = await import(U('core/infra/store.js'))
+const media = await import(U('services/player/media.js'))
+const fsutil = await import(U('core/platform/fsutil.js'))
+const config = (await import(U('core/infra/config.js'))).default
+const history = await import(pathToFileURL(path.join(srcDst, 'services/player/history.js')).href)
+const session = await import(pathToFileURL(path.join(srcDst, 'services/player/session.js')).href)
 
 /* ---- paths ---- */
 console.log('\n2) paths —— 路径形状与唯一真源')

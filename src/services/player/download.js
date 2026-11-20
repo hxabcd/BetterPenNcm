@@ -48,9 +48,9 @@ import {
 import { currentQuality, qualityRank, nominalBr } from './quality.js'
 import { saveSongExtras, dropLocalSong } from './localmeta.js'
 import { markUser, markPlaylist, markSkippedExisting, clearOrigin } from './dlorigin.js'
-import { log } from '../log.js'
-import { raceTimeout } from '../util.js'
-import { fileSize, rmQuiet } from '../fsutil.js'
+import { log } from '../../core/infra/log.js'
+import { raceTimeout } from '../../core/infra/util.js'
+import { fileSize, rmQuiet } from '../../core/platform/fsutil.js'
 import { resolveUrl } from './source.js'
 import {
   altPath, purgeInDir, songPath, prepareTrackDir, cachedPath, dlPath, playCachePath

@@ -23,7 +23,7 @@
  *   beforeDestroy() { if (this._visOff) this._visOff() }
  * 回调会被**立即调用一次**（当前真值），之后每次可见性变化再调。
  */
-import { log } from '../../core/infra/log.js'
+import { log } from '../core/infra/log.js'
 
 /** 条目：{ page, vis, why, subs }（page 是平台给的页面对象） */
 const ENTRIES = []
@@ -118,10 +118,10 @@ export function pageOf(vm) {
   return null
 }
 
-/** 绑定「组件跟随其页面可见性」：立即回调一次当前值，之后每次变化再回调。
+/**
+ * 绑定「组件跟随其页面可见性」：立即回调一次当前值，之后每次变化再回调。
  * 返回取消订阅函数（可以直接塞进 beforeDestroy）。
  * 解析不到页面时不订阅、只回调一次 true —— 功能不因可见性通道缺失而失效。
- * 【A/B 测试临时版】恒回调 true = 门控失效，行为等价优化前（每 tick 必渲染）。
  */
 export function bindPageVis(vm, fn) {
   /* 页面会挂两遍（平台坑 6）：mounted 再跑一次时 `this._visOff = bindPageVis(...)` 只会覆盖字段，
@@ -142,13 +142,9 @@ export function bindPageVis(vm, fn) {
     } catch (e) {}
     return function () {}
   }
-  const off = onVisChange(page, function (on) {
-    try {
-      fn(true) // 【A/B】恒可见：门控失效
-    } catch (e) {}
-  })
+  const off = onVisChange(page, fn)
   try {
-    fn(true)
+    fn(isVisible(page))
   } catch (e) {}
   return off
 }

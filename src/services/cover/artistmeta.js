@@ -15,8 +15,8 @@
  * - p 为空且 t 在负缓存期内 = 查过没有头像，别反复请求（负缓存期见 artistavatar.js）。
  * 写入按批防抖（SAVE_DELAY），避免批量预热时逐条 fork。
  */
-import { open as dbOpen, data as dbData, exec as dbExec, upsertSql } from './db.js'
-import { log } from './log.js'
+import { open as dbOpen, data as dbData, exec as dbExec, upsertSql } from '../../core/platform/db.js'
+import { log } from '../../core/infra/log.js'
 
 const T_ARTIST = 'artist'
 const SAVE_DELAY = 500

@@ -103,10 +103,10 @@ import EmptyHint from "../../components/EmptyHint.vue";
 import SongRow from "../../components/SongRow.vue";
 import EntryRow from "../../components/EntryRow.vue";
 import HintToast from "../../components/HintToast.vue";
-import { go, paramsFor } from "../../../core/infra/nav.js";
-import { railBack, railBtn, ICON } from "../../../ui/rail.js";
-import { player } from "../../../services/player/player.js";
-import { list as histList, load as histLoad, remove as histRemove } from "../../../services/player/history.js";
+import { go, paramsFor } from '../../core/infra/nav.js';
+import { railBack, railBtn, ICON } from '../../ui/rail.js';
+import { player } from '../../services/player/player.js';
+import { list as histList, load as histLoad, remove as histRemove } from '../../services/player/history.js';
 import {
   fetchPlaylistTracks,
   fetchTracksMore,
@@ -114,30 +114,30 @@ import {
   cachedPlaylistRole,
   fetchPlaylistInfo,
   setSubscribed,
-} from "../../../services/ncm/playlist.js";
-import { markUnliked } from "../../../services/ncm/like.js";
-import { loadDailyRecommend } from "../../../services/ncm/recommend.js";
-import { searchByType, SEARCH_TYPES, fetchArtistSongs } from "../../../services/ncm/api.js";
-import { downloadSongs } from "../../../services/player/download.js";
-import { bindDl } from "../../../services/player/dlvis.js";
-import { downloadAll, isIndexed, addList, removeList } from "../../../services/player/locallists.js";
-import { toPlaylist, playNext, playNextText } from "../../../services/player/acts.js";
-import config from "../../../core/infra/config.js";
+} from '../../services/ncm/playlist.js';
+import { markUnliked } from '../../services/ncm/like.js';
+import { loadDailyRecommend } from '../../services/ncm/recommend.js';
+import { searchByType, SEARCH_TYPES, fetchArtistSongs } from '../../services/ncm/api.js';
+import { downloadSongs } from '../../services/player/download.js';
+import { bindDl } from '../../services/player/dlvis.js';
+import { downloadAll, isIndexed, addList, removeList } from '../../services/player/locallists.js';
+import { toPlaylist, playNext, playNextText } from '../../services/player/acts.js';
+import config from '../../core/infra/config.js';
 import ContextSheet from "../../components/ContextSheet.vue";
-import { selPicked, selAllIds, dlText, startText, resultText, spaceCheck } from "../../../ui/dlselect.js";
-import { fmtSize } from "../../../core/infra/format.js";
-import { evtJson } from "../../../core/infra/events.js";
-import { log } from "../../../core/infra/log.js";
-import { accentMixin } from "../../../ui/theme.js";
-import { TOK } from "../../../ui/tokens.js";
-import { toastMixin } from "../../../ui/mixins/toast.js";
-import { armMixin } from "../../../ui/mixins/arm.js";
-import { multiSelectMixin } from "../../../ui/mixins/multi.js";
-import { pageFrameMixin } from "../../../ui/mixins/frame.js";
-import { pageBusMixin } from "../../../ui/mixins/pagebus.js";
-import { PAGE_SONG, SEARCH_LIMIT, AUTO_BATCH, ROW_PX_SONG, moreText } from "../../../ui/paging.js";
-import { infiniteScrollMixin } from "../../../ui/mixins/infinite.js";
-import { openTextEdit, available as skAvailable } from "../../../core/platform/systemKeyboard.js";
+import { selPicked, selAllIds, dlText, startText, resultText, spaceCheck } from '../../ui/dlselect.js';
+import { fmtSize } from '../../core/infra/format.js';
+import { evtJson } from '../../core/infra/events.js';
+import { log } from '../../core/infra/log.js';
+import { accentMixin } from '../../ui/theme.js';
+import { TOK } from '../../ui/tokens.js';
+import { toastMixin } from '../../ui/mixins/toast.js';
+import { armMixin } from '../../ui/mixins/arm.js';
+import { multiSelectMixin } from '../../ui/mixins/multi.js';
+import { pageFrameMixin } from '../../ui/mixins/frame.js';
+import { pageBusMixin } from '../../ui/mixins/pagebus.js';
+import { PAGE_SONG, SEARCH_LIMIT, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../ui/paging.js';
+import { infiniteScrollMixin } from '../../ui/mixins/infinite.js';
+import { openTextEdit, available as skAvailable } from '../../core/platform/systemKeyboard.js';
 
 /* 每批条数（首屏 + 加载更多一批）：200 行一次性渲染会拖垮渲染器
    （实测：打开一个数百首规模的歌单、封面入队后应用崩溃），统一取 paging.js 的 50。 */

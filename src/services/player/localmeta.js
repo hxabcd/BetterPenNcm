@@ -20,13 +20,13 @@
  * 下载归属（dlorigin.js）会给「没有索引记录的老文件」单独补写 track.dl_origin，
  * 那种行的 name 是空的 —— 不能把它们当成「有详情可用的曲目」。
  */
-import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, deleteSql, num } from '../db.js'
-import { readLyrics, writeLyrics, dropLyrics } from '../media.js'
+import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, deleteSql, num } from '../../core/platform/db.js'
+import { readLyrics, writeLyrics, dropLyrics } from '../../services/player/media.js'
 import { fetchSongInfo, fetchLyric } from '../ncm/api.js'
-import { enqueueCovers } from '../cover.js'
-import { enqueueArtistPortraits } from '../artistavatar.js'
-import { log } from '../log.js'
-import { raceTimeout } from '../util.js'
+import { enqueueCovers } from '../../services/cover/cover.js'
+import { enqueueArtistPortraits } from '../../services/cover/artistavatar.js'
+import { log } from '../../core/infra/log.js'
+import { raceTimeout } from '../../core/infra/util.js'
 
 const T_TRACK = 'track'
 const T_TA = 'track_artist'

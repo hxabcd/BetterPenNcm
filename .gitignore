@@ -10,9 +10,9 @@ shots/
 .data_bak_deploy/
 device_log.txt
 # 构建时生成（含构建号/时间戳）
-src/utils/buildInfo.js
+src/core/infra/buildInfo.js
 # 构建时生成（可能含开发机地址）
-src/utils/logconfig.generated.js
+src/core/infra/logconfig.generated.js
 
 # ===== 探索暂存（tmp/ 默认全部忽略） =====
 tmp/

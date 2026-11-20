@@ -28,7 +28,7 @@ import {
   altTrackFile,
   trackCover,
   rootOf
-} from './paths.js'
+} from '../../core/infra/paths.js'
 import {
   ensureDir,
   fileExists,
@@ -37,8 +37,8 @@ import {
   removePath,
   removeTree,
   statOf
-} from './fsutil.js'
-import { docGet, docPut, docDel, docAll } from './db.js'
+} from '../../core/platform/fsutil.js'
+import { docGet, docPut, docDel, docAll } from '../../core/platform/db.js'
 
 /**
  * 音频文件最小可信尺寸。

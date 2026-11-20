@@ -15,7 +15,7 @@
  *     命令本身失败（非 0 退出）也照样 resolve —— 判断 rc 是调用方的事。
  *   - 探测在「首次用到该能力」时才发生（惰性）。
  */
-import { log } from './log.js'
+import { log } from '../../core/infra/log.js'
 
 /* ---- 能力表：key → 探测命令（stdout 非空且 rc=0 算可用） ---- */
 const PROBES = {

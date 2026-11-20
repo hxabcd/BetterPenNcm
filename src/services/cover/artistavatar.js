@@ -13,11 +13,11 @@
  *   - 歌手详情：在线路径本来就有 picUrl，直接记住并预热 60/200；本地视图在线时也允许
  *     解析一次真头像，离线则只用已缓存的图。
  */
-import { fetchArtistHead } from './ncm/api.js'
+import { fetchArtistHead } from '../../services/ncm/api.js'
 import { ensureCover, cachedCover, cachedCoverOnDisk, dropCover } from './cover.js'
 import { loadArtistMeta, artistMetaSync, rememberArtist, normalizePic } from './artistmeta.js'
-import { isOffline } from './net/status.js'
-import { log } from './log.js'
+import { isOffline } from '../../core/infra/net/status.js'
+import { log } from '../../core/infra/log.js'
 
 /** 列表行头像盒 26vh ≈ 62px，60 已点对点够用 */
 export const PORTRAIT_SIZE = 60

@@ -14,7 +14,7 @@
  * 失败返回 {ok:false, code, needLogin, message}，不抛异常（页面只管回滚 + 提示）。
  */
 import { weapiPost } from './weapi.js'
-import { request } from '../net/request.js'
+import { request } from '../../core/infra/net/request.js'
 
 const BASE = 'https://music.163.com'
 const HEADERS = {

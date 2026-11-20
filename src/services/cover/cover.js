@@ -23,12 +23,12 @@
  *   this.covers = init
  *   enqueueCovers(songs, (id, path) => { if (!this._destroyed) this.$set(this.covers, id, path) })
  */
-import { download } from './net/request.js'
-import { log } from './log.js'
-import { fileExists, fileSize, readNames, rmQuiet, getFs } from './fsutil.js'
-import { sleep } from './util.js'
-import { thumbsDir, trackDir } from './paths.js'
-import * as media from './media.js'
+import { download } from '../../core/infra/net/request.js'
+import { log } from '../../core/infra/log.js'
+import { fileExists, fileSize, readNames, rmQuiet, getFs } from '../../core/platform/fsutil.js'
+import { sleep } from '../../core/infra/util.js'
+import { thumbsDir, trackDir } from '../../core/infra/paths.js'
+import * as media from '../../services/player/media.js'
 
 const CONC = 2 // 并发下载上限
 /** 浏览缩略图默认边长（列表行 17vh = 40.8px，60 够用且网络成本 1.8KB） */

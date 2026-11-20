@@ -46,27 +46,27 @@ import PageTopbar from "../../components/PageTopbar.vue";
 import EmptyHint from "../../components/EmptyHint.vue";
 import PlaylistCard from "../../components/PlaylistCard.vue";
 import HintToast from "../../components/HintToast.vue";
-import { go, paramsFor } from "../../../core/infra/nav.js";
-import { railBack, railBtn, ICON } from "../../../ui/rail.js";
+import { go, paramsFor } from '../../core/infra/nav.js';
+import { railBack, railBtn, ICON } from '../../ui/rail.js';
 import {
   loadUserPlaylists,
   addToPlaylist,
   addToPlaylistMany,
   createPlaylist,
   fitPlaylistName
-} from "../../../services/ncm/playlist.js";
-import { loggedIn } from "../../../services/ncm/login.js";
-import { fetchArtistAlbums } from "../../../services/ncm/api.js";
-import { openTextEdit, available as imeAvailable } from "../../../core/platform/systemKeyboard.js";
-import config from "../../../core/infra/config.js";
-import { log } from "../../../core/infra/log.js";
-import { accentMixin } from "../../../ui/theme.js";
-import { TOK } from "../../../ui/tokens.js";
-import { toastMixin } from "../../../ui/mixins/toast.js";
-import { pageFrameMixin } from "../../../ui/mixins/frame.js";
-import { pageBusMixin } from "../../../ui/mixins/pagebus.js";
-import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD, moreText } from "../../../ui/paging.js";
-import { infiniteScrollMixin } from "../../../ui/mixins/infinite.js";
+} from '../../services/ncm/playlist.js';
+import { loggedIn } from '../../services/ncm/login.js';
+import { fetchArtistAlbums } from '../../services/ncm/api.js';
+import { openTextEdit, available as imeAvailable } from '../../core/platform/systemKeyboard.js';
+import config from '../../core/infra/config.js';
+import { log } from '../../core/infra/log.js';
+import { accentMixin } from '../../ui/theme.js';
+import { TOK } from '../../ui/tokens.js';
+import { toastMixin } from '../../ui/mixins/toast.js';
+import { pageFrameMixin } from '../../ui/mixins/frame.js';
+import { pageBusMixin } from '../../ui/mixins/pagebus.js';
+import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD, moreText } from '../../ui/paging.js';
+import { infiniteScrollMixin } from '../../ui/mixins/infinite.js';
 
 const PER_ROW = 4; // 每行卡片数
 

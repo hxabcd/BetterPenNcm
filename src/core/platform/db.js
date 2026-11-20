@@ -38,8 +38,8 @@
  * 这比「整个应用起不来」好。
  */
 import { ensureDir } from './fsutil.js'
-import { dbFile, stateDbFile, normDir } from './paths.js'
-import { log } from './log.js'
+import { dbFile, stateDbFile, normDir } from '../infra/paths.js'
+import { log } from '../../core/infra/log.js'
 
 /** 索引表名常量（只在这里出现，不接受外部拼装） */
 export const TABLES = ['album', 'artist', 'track', 'track_artist', 'playlist', 'playlist_track']

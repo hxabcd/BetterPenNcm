@@ -31,7 +31,7 @@
  * hooks/events.js 的 bindEvents）会给绑了手势事件的节点无条件写 `data-evt-<名>` 属性，
  * 自定义组件上就多出一条「原生手势 + 组件 $emit」双通道，可能一次点击触发两次。
  */
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../ui/theme.js'
 
 export default {
   name: 'PageTopbar',

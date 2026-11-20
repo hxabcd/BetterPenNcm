@@ -51,12 +51,12 @@
  *     否则「从未下载过的远端曲目」永远无法成为 A。
  *   - 下载动作统一走 download.js 的 downloadSongs，归属标记由它写 dlorigin。
  */
-import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, deleteSql, num } from '../db.js'
+import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, deleteSql, num } from '../../core/platform/db.js'
 import { fetchPlaylistInfo, fetchPlaylistAllSongs, fetchTracksMore } from '../ncm/playlist.js'
 import { downloadSongs, deleteCached } from './download.js'
 import { listSongs } from './cache.js'
-import { isOffline } from '../net/status.js'
-import { log } from '../log.js'
+import { isOffline } from '../../core/infra/net/status.js'
+import { log } from '../../core/infra/log.js'
 import { isPlaylistOwned, isUser, loadOrigin } from './dlorigin.js'
 
 const T_PL = 'playlist'

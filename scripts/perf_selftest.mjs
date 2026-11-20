@@ -3,9 +3,9 @@
  * 渲染性能自检 —— 纯逻辑，不需要设备。
  *
  * 覆盖三块「改了就会悄悄退化、但看代码看不出来」的约定：
- *   1. 签名判重（utils/player/sig.js）：同一快照必须判为「没变」，
+ *   1. 签名判重（services/player/sig.js）：同一快照必须判为「没变」，
  *      任何界面可见字段变化必须判为「变了」。漏判 = 界面停在旧值，误判 = 白渲染。
- *   2. 页面可见性（utils/ui/vis.js）：默认可见、hide/show 切换、unload 摘除、
+ *   2. 页面可见性（ui/vis.js）：默认可见、hide/show 切换、unload 摘除、
  *      退栈把栈顶救回可见（fail-open 兜底）。
  *   3. 静态扫描：易退化的调用点是否都走了门控（裸 player.on / 裸 onDl 的清单比对）。
  *
@@ -97,20 +97,20 @@ function stage(relSrc, relDst /*, patch */) {
 }
 
 // format.js 原样搬（纯函数）
-stage('utils/format.js', 'format.js')
+stage('core/infra/format.js', 'format.js')
 // sig.js：把 '../format.js' 改成同目录，其余原样
 {
   const code = fs
-    .readFileSync(path.join(SRC, 'utils/player/sig.js'), 'utf8')
-    .replace(/from '\.\.\/format\.js'/g, "from './format.js'")
+    .readFileSync(path.join(SRC, 'services/player/sig.js'), 'utf8')
+    .replace(/from '\.\.\/\.\.\/core\/infra\/format\.js'/g, "from './format.js'")
   fs.writeFileSync(path.join(sandbox, 'sig.js'), code)
 }
 // vis.js：log.js 打桩
 fs.writeFileSync(path.join(sandbox, 'log.js'), 'export function log() {}\n')
 {
   const code = fs
-    .readFileSync(path.join(SRC, 'utils/ui/vis.js'), 'utf8')
-    .replace(/from '\.\.\/log\.js'/g, "from './log.js'")
+    .readFileSync(path.join(SRC, 'ui/vis.js'), 'utf8')
+    .replace(/from '\.\.\/core\/infra\/log\.js'/g, "from './log.js'")
   fs.writeFileSync(path.join(sandbox, 'vis.js'), code)
 }
 
@@ -118,7 +118,7 @@ const sig = await import('file://' + path.join(sandbox, 'sig.js').replace(/\\/g,
 const vis = await import('file://' + path.join(sandbox, 'vis.js').replace(/\\/g, '/'))
 
 // infinite.js 无外部依赖，原样搬进沙箱测纯判定函数
-stage('utils/ui/infinite.js', 'infinite.js')
+stage('ui/mixins/infinite.js', 'infinite.js')
 const inf = await import('file://' + path.join(sandbox, 'infinite.js').split(path.sep).join('/'))
 
 /* ---------- 1. 签名判重 ---------- */
@@ -248,8 +248,8 @@ const read = (p) => fs.readFileSync(p, 'utf8')
 //    白名单按「文件 + 该文件允许的订阅条数」登记：只认文件名的话，往已白名单的文件里
 //    再塞一条未门控的裸订阅不会有任何断言失败（变异测试实证过）。
 const PLAYER_ALLOW = {
-  'utils/player/player.js': ['发射端自己', 0],
-  'utils/player/sleeptimer.js': ['跨页存活的单例：模块加载时注册一次、永不注销（设计如此）', 1],
+  'services/player/player.js': ['发射端自己', 0],
+  'services/player/sleeptimer.js': ['跨页存活的单例：模块加载时注册一次、永不注销（设计如此）', 1],
   'pages/player/player.vue': ['已门控（onTick 内判可见 + 判重）', 1],
   'pages/queue/queue.vue': ['已门控（onTick 内判可见 + 判重）', 1],
   'pages/index/index.vue': ['已门控（onPlayer 内判可见）', 1],
@@ -272,9 +272,9 @@ const PLAYER_ALLOW = {
 }
 
 const DL_ALLOW = {
-  'utils/player/dlvis.js': ['封装层自己', 1],
-  'utils/player/tasks.js': ['发射端自己', 1],
-  'utils/player/download.js': ['门面转出', 0]
+  'services/player/dlvis.js': ['封装层自己', 1],
+  'services/player/tasks.js': ['发射端自己', 1],
+  'services/player/download.js': ['门面转出', 0]
 }
 {
   const bare = []
@@ -295,7 +295,7 @@ const DL_ALLOW = {
   const users = allFiles.filter((p) => /\bbindDl\s*\(/.test(read(p)))
   let loose = []
   for (const p of users) {
-    if (rel(p) === 'utils/player/dlvis.js') continue // 定义处自己
+    if (rel(p) === 'services/player/dlvis.js') continue // 定义处自己
     const t = read(p)
     if (!/this\._dlOff\s*\(\)/.test(t)) loose.push(rel(p))
   }
@@ -306,7 +306,7 @@ const DL_ALLOW = {
 {
   const users = allFiles.filter((p) => /\bbindPageVis\s*\(/.test(read(p)) &&
     !/utils\/ui\/vis\.js$/.test(rel(p)) &&
-    rel(p) !== 'utils/player/dlvis.js') // 封装层自己负责释放
+    rel(p) !== 'services/player/dlvis.js') // 封装层自己负责释放
   const loose = []
   for (const p of users) {
     const t = read(p)
@@ -350,7 +350,7 @@ const DL_ALLOW = {
 
 // 3g. sleepTimer 的裸订阅同样要登记（新增调用点会在这里露出来）
 const SLEEP_ALLOW = {
-  'utils/player/sleeptimer.js': '发射端自己',
+  'services/player/sleeptimer.js': '发射端自己',
   'components/player/TimerPanel.vue': '已门控（_sub 内判可见）',
   'pages/player/player.vue': '只写 timerOn 布尔（值不变时 Vue 的 setter 直接返回，不重渲染），且要驱动定时结束 toast'
 }
@@ -371,9 +371,9 @@ const SLEEP_ALLOW = {
 {
   // 每项 = [文件, 必须出现的「先释放上一组」片段]
   const targets = [
-    ['utils/player/dlvis.js', 'vm._dlOff()'],
-    ['utils/ui/vis.js', 'vm._visOff()'],
-    ['utils/theme.js', 'unbindTheme(vm._accentOff)']
+    ['services/player/dlvis.js', 'vm._dlOff()'],
+    ['ui/vis.js', 'vm._visOff()'],
+    ['ui/theme.js', 'unbindTheme(vm._accentOff)']
   ]
   const bad = []
   for (const [file, needle] of targets) {
@@ -506,7 +506,7 @@ const SLEEP_ALLOW = {
   }
   eq('自动续页: 锚定/多段/嵌套 scroller 页不接入', leaked.join(', ') || 'none', 'none')
   // mixin 用实例普通属性而非 data，并清理定时器（平台坑 6 / perf 约定）
-  const mix = fs.readFileSync(path.join(SRC, 'utils/ui/infinite.js'), 'utf8')
+  const mix = fs.readFileSync(path.join(SRC, 'ui/mixins/infinite.js'), 'utf8')
   truthy('自动续页: 冷却标志不进 data(_ 前缀)', !/data\s*\(/.test(mix) && /created\s*\(/.test(mix))
   truthy('自动续页: beforeDestroy 清理定时器', /beforeDestroy/.test(mix) && /clearTimeout/.test(mix))
   truthy('自动续页: loadMore 后解锁(防同一 y 连锁)', /\.then\(unlock, unlock\)/.test(mix))

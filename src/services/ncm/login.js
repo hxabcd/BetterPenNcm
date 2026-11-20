@@ -26,13 +26,13 @@ import {
   clear as clearCookies,
   save,
   header as cookieHeader
-} from '../net/cookies.js'
+} from '../../core/infra/net/cookies.js'
 import { invalidateUserPlaylists } from './playlist.js'
 import { invalidateDaily } from './recommend.js'
-import config from '../config.js'
-import { log, brief } from '../log.js'
-import { rmQuiet } from '../fsutil.js'
-import { wecurlJarFile } from '../paths.js'
+import config from '../../core/infra/config.js'
+import { log, brief } from '../../core/infra/log.js'
+import { rmQuiet } from '../../core/platform/fsutil.js'
+import { wecurlJarFile } from '../../core/infra/paths.js'
 
 const BASE = 'https://music.163.com'
 

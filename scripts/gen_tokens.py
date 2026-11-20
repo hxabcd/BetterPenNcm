@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """设计令牌生成 / 校验
 
-唯一来源 = `src/utils/ui/tokens.js` 的 TOK 表；
+唯一来源 = `src/ui/tokens.js` 的 TOK 表；
 生成物   = `src/styles/common.less` 里 `@tokens:begin` ~ `@tokens:end` 之间的令牌段。
 
 用法：
@@ -24,12 +24,12 @@ except Exception:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJ = os.path.normpath(os.path.join(HERE, '..'))
-TOKENS_JS = os.path.join(PROJ, 'src', 'utils', 'ui', 'tokens.js')
+TOKENS_JS = os.path.join(PROJ, 'src', 'ui', 'tokens.js')
 LESS = os.path.join(PROJ, 'src', 'styles', 'common.less')
 
 BEGIN_MARK = '/* @tokens:begin'
 END_MARK = '/* @tokens:end */'
-# 允许手写在生成段之外的文件级 token（书面默认值，真值在 utils/theme.js，故意不进值表）
+# 允许手写在生成段之外的文件级 token（书面默认值，真值在 ui/theme.js，故意不进值表）
 OUTSIDE = ['accent', 'accent-2']
 PAD = 40  # `@name: value;` 对齐到该列后接注释
 

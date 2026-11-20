@@ -15,7 +15,7 @@
  * 取不到页面对象时退化为「不门控」（等同原来的裸订阅），功能不受影响。
  */
 import { onDl, offDl, dlState } from './download.js'
-import { bindPageVis } from '../ui/vis.js'
+import { bindPageVis } from '../../ui/vis.js'
 
 export function bindDl(vm, fn) {
   /* 页面会挂两遍（平台坑 6）：mounted 再跑一次时，`this._dlOff = bindDl(...)` 只会覆盖字段，
@@ -36,7 +36,8 @@ export function bindDl(vm, fn) {
   }
   let visible = true
   const off = onDl(function (s) {
-    call(s) // 【A/B 测试临时版】不做可见性门控，行为等价优化前
+    if (!visible) return
+    call(s)
   })
   const visOff = bindPageVis(vm, function (on) {
     const was = visible

@@ -15,8 +15,8 @@
  *     历史列表页**刻意不订阅**（重建 50 行会重下封面、滚动位置可能被打回顶部），
  *     见 list.vue 的说明
  */
-import { getStorage, setStorage, KEY_PLAY_HIST } from '../store.js'
-import { log } from '../log.js'
+import { getStorage, setStorage, KEY_PLAY_HIST } from '../../core/infra/store.js'
+import { log } from '../../core/infra/log.js'
 
 const KEY = KEY_PLAY_HIST
 const MAX = 200

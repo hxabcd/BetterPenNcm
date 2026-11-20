@@ -61,12 +61,12 @@
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import OptToggle from '../../components/OptToggle.vue'
-import { PRESETS, currentKey, setBg, ACCENTS, currentAccentKey, setAccent, accentMixin } from '../../../ui/theme.js'
-import { TOK } from '../../../ui/tokens.js'
-import config from '../../../core/infra/config.js'
-import { log } from '../../../core/infra/log.js'
+import { PRESETS, currentKey, setBg, ACCENTS, currentAccentKey, setAccent, accentMixin } from '../../ui/theme.js'
+import { TOK } from '../../ui/tokens.js'
+import config from '../../core/infra/config.js'
+import { log } from '../../core/infra/log.js'
 
-import { pageFrameMixin } from '../../../ui/mixins/frame.js'
+import { pageFrameMixin } from '../../ui/mixins/frame.js'
 
 export default {
   name: 'setlook',

@@ -20,8 +20,8 @@
  * queue 始终是原始队列，随机顺序只是它的一份排列。id 很小（≈队列体积的 1/10），
  * 恢复时按 id 映射回歌曲对象即可，代价可忽略。
  */
-import { getStorage, setStorage, removeStorage, KEY_PLAYER_STATE } from '../store.js'
-import { log } from '../log.js'
+import { getStorage, setStorage, removeStorage, KEY_PLAYER_STATE } from '../../core/infra/store.js'
+import { log } from '../../core/infra/log.js'
 
 const KEY = KEY_PLAYER_STATE
 const MAXQ = 500 // 队列最多存这么多首

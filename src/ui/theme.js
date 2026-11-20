@@ -27,7 +27,7 @@
  * 半透明值**预先算好成字符串**（而非暴露 alpha 函数）：避免往 data 里放函数，
  * 平台的响应式实现只认朴素值。
  */
-import config from './config.js'
+import config from '../core/infra/config.js'
 import { fgIcon as pickFgIcon } from '../assets/icons.js'
 
 /** 背景预设：深灰=当前默认；纯黑；另给两个带色调的暗色 */

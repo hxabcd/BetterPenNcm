@@ -26,7 +26,7 @@
   平台不能给 <image> 染色，所以**跟着主题色变**的那几个图标（见 ACCENT_ICONS：
   首页三张文字卡的裸图标 + 播放页收藏态红心）要**每个预设色各出一份** PNG，
   文件名 icon-<key>-<accentKey>.png，运行时由 assets/icons.js 的 aIcon(key, accentKey) 取。
-  色表 ACCENTS 必须与 src/utils/theme.js 的 ACCENTS 逐项对齐（key + c）；加/减主题色要**两处同时改**。
+  色表 ACCENTS 必须与 src/ui/theme.js 的 ACCENTS 逐项对齐（key + c）；加/减主题色要**两处同时改**。
 
 用法：
   python scripts/gen_icons.py                 # 生成（默认 72px，缺的 vendor SVG 自动拉取）
@@ -172,7 +172,7 @@ COLORS = {
 # src/assets/icons.js 的 aIcon(key, accentKey) 取。文件名 icon-<key>-<accentKey>.png。
 ACCENT_ICONS = ('liked', 'pl', 'dl', 'hist', 'rec', 'dlpl', 'dlar', 'dlal')
 
-# ⚠ 必须与 src/utils/theme.js 的 ACCENTS 表逐项对齐（key 与 c 两列）：
+# ⚠ 必须与 src/ui/theme.js 的 ACCENTS 表逐项对齐（key 与 c 两列）：
 #   key 对不上 → 运行时 aIcon() 取不到、回落到第一项；色值对不上 → 界面与图标不同色。
 #   第一项既是默认主题色，也是 icons.js 里取不到对应色时的兜底。
 # Vocaloid 七色（重音红/镜音黄/GUMI绿/初音青/天依蓝/星尘紫/巡音粉）。
@@ -197,7 +197,7 @@ ACCENTS = (
 #   trash      —— 左栏 danger：downloads/list 的「删除」键、queue 的「移除」键 armed
 DARK_ICONS = ('check', 'download', 'play', 'pause', 'trash')
 
-# 深色前景（与 src/utils/theme.js 的 FG_DARK 保持一致）
+# 深色前景（与 src/ui/theme.js 的 FG_DARK 保持一致）
 DARK_FG = '#14151a'
 
 # 墨迹缩放：Lucide 各图形在 24 栅格里的留白天生不同，一律同尺寸渲染

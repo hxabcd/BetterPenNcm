@@ -18,8 +18,8 @@
  *
  * 降级：exec / ffmpeg 任一不可用 → 返回 null，调用方回落到主题色（不会报错、不会阻塞 UI）。
  */
-import { log } from './log.js'
-import { has, run as shRun } from './exec.js'
+import { log } from '../../core/infra/log.js'
+import { has, run as shRun } from '../../core/platform/exec.js'
 
 /** 临时文件（/tmp 是 tmpfs，别写真名一次也不回收） */
 const TMP = '/tmp/bpncm_cc'

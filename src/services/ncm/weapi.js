@@ -6,11 +6,11 @@
  *
  * 注意：csrf_token 取自 cookie 里的 __csrf（登录成功后服务端才下发，未登录时为空串）。
  */
-import { request } from '../net/request.js'
+import { request } from '../../core/infra/net/request.js'
 import { weapiBody } from './crypto.js'
 import { maskPayload } from './wecurl.js'
-import { get as getCookie, names as cookieNames } from '../net/cookies.js'
-import { log, brief } from '../log.js'
+import { get as getCookie, names as cookieNames } from '../../core/infra/net/cookies.js'
+import { log, brief } from '../../core/infra/log.js'
 
 const BASE = 'https://music.163.com'
 const UA =

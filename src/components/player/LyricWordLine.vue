@@ -32,7 +32,7 @@
  *
  * 平台约束：样式单类名（每个状态一个完整类）；text 不嵌套；v-for key 稳定（字下标 + 段序）。
  */
-import { TOK } from '../../../ui/tokens.js'
+import { TOK } from '../../ui/tokens.js'
 
 export default {
   name: 'LyricWordLine',

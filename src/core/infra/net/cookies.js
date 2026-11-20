@@ -11,7 +11,7 @@
  */
 import { log } from '../log.js'
 import { getStorage, setStorage } from '../store.js'
-import { fileExists, getFs } from '../fsutil.js'
+import { fileExists, getFs } from '../../../core/platform/fsutil.js'
 import { cookieFile } from '../paths.js'
 
 const KEY = 'ncm_cookies'

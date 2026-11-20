@@ -34,7 +34,7 @@
  * 与旧实现一致：**不抛**。写失败返回 false 并记日志，读失败给 null。
  * 上层（config/session/history）都持有内存态，下一次写会重试。
  */
-import { kvGet, kvPut, kvDel } from './db.js'
+import { kvGet, kvPut, kvDel } from '../../core/platform/db.js'
 import { log } from './log.js'
 
 /* ---------------- key 常量（沿用旧 storage 的名字，上层不必改自己的 KEY） ---------------- */

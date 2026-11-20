@@ -69,7 +69,12 @@ CHECKS = [
     ('src/pages/dlartists/dlartists.vue', ["'context-sheet': ContextSheet", 'sortKey', 'localArtistList', 'accentMixin']),
     ('src/pages/dlalbums/dlalbums.vue', ["'context-sheet': ContextSheet", 'sortKey', 'cols', 'localAlbumList', 'accentMixin']),
     ('src/components/ContextSheet.vue', ['accentMixin', 'OptChip', 'TOK.panel2', "this.$emit('pick'"]),
-    ('src/pages/list/list.vue', ['accentMixin', '{ color: accent.light }', 'this.accent.a18', 'this.accent.light : ']),
+    # list 页 2026-11-20 S2 拆解后：排序浮窗/搜索侧栏的 accent 内联样式已移入
+    # ContextSheet.vue / list/SearchSidebar.vue（各自的 CHECKS 条目仍钉住），本页只守
+    # 「模板级主题色还在用」与装配关系
+    ('src/pages/list/list.vue', ['accentMixin', '{ color: accent.light }', 'search-sidebar',
+                                 'context-sheet', 'sortOptions', 'KINDS']),
+    ('src/components/list/SearchSidebar.vue', ['accentMixin', 'this.accent.a18', 'this.accent.light : ', 'SEARCH_TYPES']),
     # login 混 accentMixin（原手写 currentAccent() 已删），判据跟着改
     ('src/pages/login/login.vue', ['accentMixin', '{ color: accent.c }', '{ backgroundColor: accent.c }']),
     # 四处逐字节相同的胶囊样式搬进 components/OptChip.vue（accent 判据跟着搬，

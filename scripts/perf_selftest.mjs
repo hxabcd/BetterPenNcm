@@ -425,7 +425,7 @@ const SLEEP_ALLOW = {
     'components/player/LyricTrack.vue': 'rowStyle',
     // 下面几处都是**固定小规模**选项，不是 50 行量级的长列表：
     // 分类/排序 key、弹出菜单项、数字键盘（3 行 × 3 键）
-    'pages/list/list.vue': 'catStyle',
+    'components/list/SearchSidebar.vue': 'catStyle',
     'components/ContextSheet.vue': 'optStyle',
     'components/player/TimerPanel.vue': 'keyStyle'
   }

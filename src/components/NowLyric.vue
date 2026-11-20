@@ -23,9 +23,9 @@
  */
 import { player } from '../../services/player/player.js'
 import { loadLyrics, findLyricIndex } from '../../services/player/lyric.js'
-import { bindPageVis } from '../utils/ui/vis.js'
-import config from '../utils/config.js'
-import { log } from '../utils/log.js'
+import { bindPageVis } from '../../ui/vis.js'
+import config from '../../core/infra/config.js'
+import { log } from '../../core/infra/log.js'
 
 export default {
   name: 'NowLyric',

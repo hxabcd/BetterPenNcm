@@ -22,8 +22,8 @@
  *   （实测 v-if 换结构会让 slot 插错位）。
  */
 import { player } from '../../services/player/player.js'
-import { accentMixin } from '../utils/theme.js'
-import { bindPageVis } from '../utils/ui/vis.js'
+import { accentMixin } from '../../ui/theme.js'
+import { bindPageVis } from '../../ui/vis.js'
 
 export default {
   name: 'NowProgress',

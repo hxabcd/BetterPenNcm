@@ -142,12 +142,12 @@
  * FLAC 直链主机取自构建时注入的 LOG_SRV（同机不同端口），避免把内网 IP 写进源码。
  * 日志走 utils/log.js：console.warn 兜底进 /data/applog/YD_PEN_APP.log。
  */
-import { log, brief } from '../../utils/log.js'
-import { sleep } from '../../utils/util.js'
-import { readNames } from '../../utils/fsutil.js'
-import { getStorage, setStorage, removeStorage } from '../../utils/store.js'
-import { LOG_SRV } from '../../utils/logconfig.generated.js'
-import { go, stackKeys } from '../../utils/nav.js'
+import { log, brief } from '../../../core/infra/log.js'
+import { sleep } from '../../../core/infra/util.js'
+import { readNames } from '../../../core/platform/fsutil.js'
+import { getStorage, setStorage, removeStorage } from '../../../core/infra/store.js'
+import { LOG_SRV } from '../../../core/infra/logconfig.generated.js'
+import { go, stackKeys } from '../../../core/infra/nav.js'
 import ProbeSlot from '../../components/ProbeSlot.vue'
 import ProbeNoSlot from '../../components/ProbeNoSlot.vue'
 

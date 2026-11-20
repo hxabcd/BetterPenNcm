@@ -1,7 +1,7 @@
 /* 应用入口：继承 $falcon.App，实现应用级生命周期 */
 import { flushNow, pauseForExit } from '../services/player/player.js'
-import { log } from './utils/log.js'
-import { noteLifeCycle } from './utils/nav.js'
+import { log } from '../core/infra/log.js'
+import { noteLifeCycle } from '../core/infra/nav.js'
 
 /** 异常转文本（错误对象经框架桥接会显示成 null，这里自己拼 message + 栈前几行） */
 function errText(err) {

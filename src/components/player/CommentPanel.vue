@@ -114,13 +114,13 @@
  *   - 页面会挂两遍 → 每个实例各自加载（数据同源，重复请求无害），异步回调都过 _dead/_gen 守卫。
  *   - 子组件不渲染 hint-toast：提示一律 this.$emit('toast', 文案) 交给页面。
  */
-import { TOK } from '../../utils/ui/tokens.js'
+import { TOK } from '../../../ui/tokens.js'
 import { ICON } from '../../assets/icons.js'
-import { accentMixin } from '../../utils/theme.js'
+import { accentMixin } from '../../../ui/theme.js'
 import { PAGE_LIMIT, fetchComments, likeComment, postComment } from '../../../services/ncm/comments.js'
 import { loggedIn } from '../../../services/ncm/login.js'
-import { openTextEdit } from '../../utils/systemKeyboard.js'
-import { log } from '../../utils/log.js'
+import { openTextEdit } from '../../../core/platform/systemKeyboard.js'
+import { log } from '../../../core/infra/log.js'
 
 /** 单次渲染的评论卡上限：热门 + 其余合计不超过 50（平台「一次渲染 ≤50 行」的既有口径） */
 const RENDER_MAX = 50

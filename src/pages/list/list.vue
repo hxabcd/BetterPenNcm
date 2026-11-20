@@ -103,8 +103,8 @@ import EmptyHint from "../../components/EmptyHint.vue";
 import SongRow from "../../components/SongRow.vue";
 import EntryRow from "../../components/EntryRow.vue";
 import HintToast from "../../components/HintToast.vue";
-import { go, paramsFor } from "../../utils/nav.js";
-import { railBack, railBtn, ICON } from "../../utils/rail.js";
+import { go, paramsFor } from "../../../core/infra/nav.js";
+import { railBack, railBtn, ICON } from "../../../ui/rail.js";
 import { player } from "../../../services/player/player.js";
 import { list as histList, load as histLoad, remove as histRemove } from "../../../services/player/history.js";
 import {
@@ -122,22 +122,22 @@ import { downloadSongs } from "../../../services/player/download.js";
 import { bindDl } from "../../../services/player/dlvis.js";
 import { downloadAll, isIndexed, addList, removeList } from "../../../services/player/locallists.js";
 import { toPlaylist, playNext, playNextText } from "../../../services/player/acts.js";
-import config from "../../utils/config.js";
+import config from "../../../core/infra/config.js";
 import ContextSheet from "../../components/ContextSheet.vue";
-import { selPicked, selAllIds, dlText, startText, resultText, spaceCheck } from "../../utils/multidl.js";
-import { fmtSize } from "../../utils/format.js";
-import { evtJson } from "../../utils/events.js";
-import { log } from "../../utils/log.js";
-import { accentMixin } from "../../utils/theme.js";
-import { TOK } from "../../utils/ui/tokens.js";
-import { toastMixin } from "../../utils/ui/toast.js";
-import { armMixin } from "../../utils/ui/arm.js";
-import { multiSelectMixin } from "../../utils/ui/multi.js";
-import { pageFrameMixin } from "../../utils/ui/frame.js";
-import { pageBusMixin } from "../../utils/ui/pagebus.js";
-import { PAGE_SONG, SEARCH_LIMIT, AUTO_BATCH, ROW_PX_SONG, moreText } from "../../utils/ui/paging.js";
-import { infiniteScrollMixin } from "../../utils/ui/infinite.js";
-import { openTextEdit, available as skAvailable } from "../../utils/systemKeyboard.js";
+import { selPicked, selAllIds, dlText, startText, resultText, spaceCheck } from "../../../ui/dlselect.js";
+import { fmtSize } from "../../../core/infra/format.js";
+import { evtJson } from "../../../core/infra/events.js";
+import { log } from "../../../core/infra/log.js";
+import { accentMixin } from "../../../ui/theme.js";
+import { TOK } from "../../../ui/tokens.js";
+import { toastMixin } from "../../../ui/mixins/toast.js";
+import { armMixin } from "../../../ui/mixins/arm.js";
+import { multiSelectMixin } from "../../../ui/mixins/multi.js";
+import { pageFrameMixin } from "../../../ui/mixins/frame.js";
+import { pageBusMixin } from "../../../ui/mixins/pagebus.js";
+import { PAGE_SONG, SEARCH_LIMIT, AUTO_BATCH, ROW_PX_SONG, moreText } from "../../../ui/paging.js";
+import { infiniteScrollMixin } from "../../../ui/mixins/infinite.js";
+import { openTextEdit, available as skAvailable } from "../../../core/platform/systemKeyboard.js";
 
 /* 每批条数（首屏 + 加载更多一批）：200 行一次性渲染会拖垮渲染器
    （实测：打开一个数百首规模的歌单、封面入队后应用崩溃），统一取 paging.js 的 50。 */

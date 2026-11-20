@@ -42,11 +42,11 @@
  * 模板裸绑定只来自 props/computed/data；颜色走 TOK / accent。
  */
 import LyricTrack from './LyricTrack.vue'
-import { touchAxis } from '../../utils/touch.js'
-import { log } from '../../utils/log.js'
-import { accentMixin } from '../../utils/theme.js'
-import { TOK } from '../../utils/ui/tokens.js'
-import { bindPageVis } from '../../utils/ui/vis.js'
+import { touchAxis } from '../../../core/platform/touch.js'
+import { log } from '../../../core/infra/log.js'
+import { accentMixin } from '../../../ui/theme.js'
+import { TOK } from '../../../ui/tokens.js'
+import { bindPageVis } from '../../../ui/vis.js'
 import { player } from '../../../services/player/player.js'
 import { findLyricIndex } from '../../../services/player/lyric.js'
 import { buildLyricRows, LYRIC_GEO } from '../../../services/player/lyriclayout.js'

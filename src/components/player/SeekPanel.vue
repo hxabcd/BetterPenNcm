@@ -79,9 +79,9 @@
  * 页面可能挂两遍：本面板没有 mounted 副作用（不订阅播放器、不拉数据，st 全部由父级传入），
  * 重复挂载天然幂等。
  */
-import { touchAxis } from '../../utils/touch.js'
-import { fmtDur } from '../../utils/format.js'
-import { accentMixin } from '../../utils/theme.js'
+import { touchAxis } from '../../../core/platform/touch.js'
+import { fmtDur } from '../../../core/infra/format.js'
+import { accentMixin } from '../../../ui/theme.js'
 import { ICON } from '../../assets/icons.js'
 
 /* 可拖线宽（px）：与样式 .skp-line 的 width:456px 成对维护。填充宽与手柄位置都用它做 px 反推

@@ -26,7 +26,7 @@
  *
  * 用法：
  *   <scroller class="..." @scroll="onInfiniteScroll">
- *   import { infiniteScrollMixin } from '../../utils/ui/infinite.js'
+ *   import { infiniteScrollMixin } from '../../../ui/mixins/infinite.js'
  *   mixins: [..., infiniteScrollMixin]
  *   // 页面须有 computed/data hasMore 与 methods loadMore（各页本来就有）；
  *   // 须提供 computed infiniteBottomPx：已渲染内容的估算底部 px；

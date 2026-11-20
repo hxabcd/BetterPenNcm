@@ -23,7 +23,7 @@
  *   beforeDestroy() { if (this._visOff) this._visOff() }
  * 回调会被**立即调用一次**（当前真值），之后每次可见性变化再调。
  */
-import { log } from '../log.js'
+import { log } from '../../core/infra/log.js'
 
 /** 条目：{ page, vis, why, subs }（page 是平台给的页面对象） */
 const ENTRIES = []

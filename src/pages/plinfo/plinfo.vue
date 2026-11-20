@@ -73,8 +73,8 @@ import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import ContextSheet from '../../components/ContextSheet.vue'
 import HintToast from '../../components/HintToast.vue'
-import { railBack, railBtn, ICON } from '../../utils/rail.js'
-import { go, paramsFor } from '../../utils/nav.js'
+import { railBack, railBtn, ICON } from '../../../ui/rail.js'
+import { go, paramsFor } from '../../../core/infra/nav.js'
 import {
   fetchPlaylistInfo,
   fetchPlaylistAllSongs,
@@ -85,16 +85,16 @@ import {
 import { addList, removeList, removeListLocal, isIndexed, downloadAll } from '../../../services/player/locallists.js'
 import { player } from '../../../services/player/player.js'
 import { bindDl } from '../../../services/player/dlvis.js'
-import { dlText } from '../../utils/multidl.js'
-import { fmtSize } from '../../utils/format.js'
+import { dlText } from '../../../ui/dlselect.js'
+import { fmtSize } from '../../../core/infra/format.js'
 import { ensureCover, BIG_COVER } from '../../../services/cover/cover.js'
-import { openTextEdit, available as imeAvailable } from '../../utils/systemKeyboard.js'
-import config from '../../utils/config.js'
-import { log } from '../../utils/log.js'
-import { accentMixin } from '../../utils/theme.js'
-import { toastMixin } from '../../utils/ui/toast.js'
-import { armMixin } from '../../utils/ui/arm.js'
-import { pageFrameMixin } from '../../utils/ui/frame.js'
+import { openTextEdit, available as imeAvailable } from '../../../core/platform/systemKeyboard.js'
+import config from '../../../core/infra/config.js'
+import { log } from '../../../core/infra/log.js'
+import { accentMixin } from '../../../ui/theme.js'
+import { toastMixin } from '../../../ui/mixins/toast.js'
+import { armMixin } from '../../../ui/mixins/arm.js'
+import { pageFrameMixin } from '../../../ui/mixins/frame.js'
 
 const NAME_MAX = 40 // 歌单名长度上限（网易云网页端同值）
 

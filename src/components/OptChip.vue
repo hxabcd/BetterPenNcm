@@ -14,8 +14,8 @@
  * ⚠ 事件名用 `pick` 不用 `tap`：预编译器会给绑了手势名的节点再挂一条原生手势通道，
  *   自定义组件上会一次触发两次（同 SongRow 的 hold / PageTopbar 的注释）。
  */
-import { accentMixin } from '../utils/theme.js'
-import { TOK } from '../utils/ui/tokens.js'
+import { accentMixin } from '../../ui/theme.js'
+import { TOK } from '../../ui/tokens.js'
 
 export default {
   name: 'OptChip',

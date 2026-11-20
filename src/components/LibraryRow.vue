@@ -26,7 +26,7 @@
  */
 import { ensureCover } from '../../services/cover/cover.js'
 import { ICON } from '../assets/icons.js'
-import { TOK } from '../utils/ui/tokens.js'
+import { TOK } from '../../ui/tokens.js'
 
 export default {
   name: 'LibraryRow',

@@ -49,10 +49,11 @@ import { railBack, railBtn, ICON } from '../../ui/rail.js'
 import { go } from '../../core/infra/nav.js'
 import { localAlbumList } from '../../services/player/localmeta.js'
 import { log } from '../../core/infra/log.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
-import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD, moreText } from '../../ui/paging.js'
+import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
+import { listPageMixin } from '../../../ui/mixins/listpage.js'
 
 const SORTS = [
   { key: 'title', label: '标题' },
@@ -91,7 +92,7 @@ function cmpName(a, b) {
 
 export default {
   name: 'dlalbums',
-  mixins: [accentMixin, pageFrameMixin, infiniteScrollMixin],
+  mixins: [accentMixin, listPageMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -113,9 +114,6 @@ export default {
     }
   },
   computed: {
-    infiniteBottomPx() {
-      return this.rows.length * ROW_PX_CARD
-    },
     view() {
       const out = this.albums.slice()
       const k = this.sortKey
@@ -171,6 +169,10 @@ export default {
     this._onShow = null
   },
   methods: {
+    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    listPageConfig() {
+      return { slice: 'rows', rowPx: ROW_PX_CARD }
+    },
     async refresh() {
       try {
         const list = await localAlbumList()

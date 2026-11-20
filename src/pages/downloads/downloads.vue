@@ -51,12 +51,12 @@ import { go } from '../../core/infra/nav.js'
 import { stats, freeBytes, listSongs, putMeta } from '../../services/player/cache.js'
 import { localStats, loadIndex, indexOf, saveSongExtras } from '../../services/player/localmeta.js'
 import { indexedCount } from '../../services/player/locallists.js'
-import { bindDl } from '../../services/player/dlvis.js'
-import { dlText } from '../../ui/dlselect.js'
+import { bindDl } from '../../ui/mixins/dlsub.js'
+import { dlText, dlSig } from '../../services/player/download.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { isOffline } from '../../core/infra/net/status.js'
 import { log } from '../../core/infra/log.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { aIcon } from '../../assets/icons.js'
 import { toastMixin } from '../../ui/mixins/toast.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
@@ -120,7 +120,7 @@ export default {
   mounted() {
     this._dead = false
     const self = this
-    // 下载活动订阅（可见性门控 + 首帧快照，见 utils/player/dlvis.js）
+    // 下载活动订阅（可见性门控 + 首帧快照，见 ui/mixins/dlsub.js）
     this._dlOff = bindDl(this, function (s) {
       self.syncDl(s)
     })
@@ -254,12 +254,10 @@ export default {
     },
     syncDl(s) {
       const d = s || {}
-      const sig = (d.active ? 1 : 0) + '|' + d.total + '|' +
-        (d.done + d.failed + (d.cancelled || 0)) + '|' + (d.stopping ? 1 : 0) + '|' + (d.finished || 0)
-      if (sig !== this._dlSig) {
-        this._dlSig = sig
-        this.dl = d
-      }
+      const sig = dlSig(d)
+      if (sig === this._dlSig) return
+      this._dlSig = sig
+      this.dl = d
       const active = !!d.active
       if (this._wasActive && !active) this.refresh()
       this._wasActive = active

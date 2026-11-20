@@ -74,22 +74,23 @@ import { railBack, railBtn, ICON } from '../../ui/rail.js'
 import { go, paramsFor } from '../../core/infra/nav.js'
 import { player } from '../../services/player/player.js'
 import { listSongs } from '../../services/player/cache.js'
-import { deleteCached } from '../../services/player/download.js'
-import { bindDl } from '../../services/player/dlvis.js'
+import { deleteCached, dlText, dlSig } from '../../services/player/download.js'
+import { bindDl } from '../../ui/mixins/dlsub.js'
 import { markUser } from '../../services/player/dlorigin.js'
 import { playlistView, pullList, syncList, splitDownloads } from '../../services/player/locallists.js'
 import { isOffline } from '../../core/infra/net/status.js'
-import { dlText, selPicked } from '../../ui/dlselect.js'
+import { selPicked } from '../../ui/dlselect.js'
 import { toPlaylist, playNext, playNextText } from '../../services/player/acts.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { log } from '../../core/infra/log.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { toastMixin } from '../../ui/mixins/toast.js'
 import { armMixin } from '../../ui/mixins/arm.js'
 import { multiSelectMixin } from '../../ui/mixins/multi.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
-import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../ui/paging.js'
+import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
+import { listPageMixin } from '../../../ui/mixins/listpage.js'
 
 const KIND_NAME = {
   all: '全部下载',
@@ -109,7 +110,7 @@ function normSong(s) {
 
 export default {
   name: 'dltracks',
-  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
+  mixins: [accentMixin, listPageMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -137,9 +138,6 @@ export default {
     }
   },
   computed: {
-    infiniteBottomPx() {
-      return this.rows.length * ROW_PX_SONG
-    },
     isPlaylist() {
       return this.kind === 'playlist'
     },
@@ -213,7 +211,7 @@ export default {
   mounted() {
     this._dead = false
     const self = this
-    // 下载活动订阅（可见性门控 + 首帧快照，见 utils/player/dlvis.js）
+    // 下载活动订阅（可见性门控 + 首帧快照，见 ui/mixins/dlsub.js）
     this._dlOff = bindDl(this, function (s) {
       self.syncDl(s)
     })
@@ -239,6 +237,10 @@ export default {
     this._onShow = null
   },
   methods: {
+    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    listPageConfig() {
+      return { slice: 'rows', rowPx: ROW_PX_SONG }
+    },
     openPage(p) {
       const par = p || {}
       const kind = par.kind === 'playlist' || par.kind === 'single' || par.kind === 'orphan' ? par.kind : 'all'
@@ -563,8 +565,7 @@ export default {
     },
     syncDl(s) {
       const d = s || {}
-      const sig = (d.active ? 1 : 0) + '|' + d.total + '|' +
-        (d.done + d.failed + (d.cancelled || 0)) + '|' + (d.stopping ? 1 : 0) + '|' + d.pct
+      const sig = dlSig(d)
       if (sig === this._dlSig) return
       this._dlSig = sig
       this.dl = d

@@ -1,17 +1,11 @@
 /**
- * 曲目列表页「多选下载」的公共小工具（album / artist / list 三处共用）
+ * 多选下载的**选择集纯函数**（S3 从 multidl 拆出；下载文案/空间预检等业务函数
+ * 在 services/player/download.js 的 dlText/startText/resultText/spaceCheck）。
  *
- * 三页都要「多选 → 下载选中」；状态机（选中集合、rail、两次点按确认）维护在各页自己的
- * data 里（本平台对 mixin 没有先例，不引入），这里只放**纯函数**：
- *   - 选中集合的增删查（**返回新数组**：平台不认动态 key，选中集合一律整体替换，坑 4）
- *   - 顶栏副题的「下载中 k/N · NN%」文案（取消的项也算 k，否则永远到不了 N）
- *   - 下载结果 / 开始的 toast 文案（三页口径一致）
- *   - 空间预检（估算见 download.js 的 estimateBytes；free=0 = 读不到 df，不做判断）
+ * 状态机（选中集合、rail、两次点按确认）维护在各页自己的 data 里（本平台对
+ * mixin 没有先例，不引入），这里只放**纯函数**——选中集合的增删查，全部
+ * **返回新数组**（平台不认动态 key，选中集合一律整体替换，坑 4）。
  */
-import { estimateBytes } from '../services/player/download.js'
-import { freeBytes } from '../services/player/cache.js'
-import { currentQuality, qualityInfo } from '../services/player/quality.js'
-
 /* ---------------- 选中集合 ---------------- */
 
 export function selHas(ids, id) {
@@ -51,45 +45,4 @@ export function selPicked(ids, songs) {
     if (list[i] && selHas(ids, list[i].id)) out.push(list[i])
   }
   return out
-}
-
-/* ---------------- 文案 ---------------- */
-
-/** 顶栏副题：'下载中 3/12 · 42%'；停止中给 '正在停止下载…'；无活动给 '' */
-export function dlText(d) {
-  if (!d || !d.active) return ''
-  if (d.stopping) return '正在停止下载…'
-  const k = d.done + d.failed + (d.cancelled || 0)
-  const cur = k < d.total ? k + 1 : k
-  return '下载中 ' + cur + '/' + d.total + (d.pct ? ' · ' + d.pct + '%' : '')
-}
-
-/** 开始下载的 toast：「开始下载 12 首（极高）」 */
-export function startText(n) {
-  return '开始下载 ' + n + ' 首（' + qualityInfo(currentQuality('down')).label + '）'
-}
-
-/** 完成 toast：成功下载数与失败数分开显示 */
-export function resultText(r) {
-  if (!r) return '下载结束'
-  if (!r.ok && !r.failed && r.cancelled) return '下载已停止'
-  if (!r.ok && !r.failed && !r.skipped) return '没有可下载的内容'
-  return '成功下载 ' + (r.ok || 0) + ' 首（' + (r.failed || 0) + ' 首失败）'
-}
-
-/* ---------------- 空间预检 ---------------- */
-
-/**
- * 粗估一批歌按当前下载档的体积并与可用空间比对。
- * 返回 {est, free, tight}；free=0 = 读不到 df（exec 不可用）→ tight 恒 false（不做判断）。
- */
-export async function spaceCheck(songs) {
-  const est = estimateBytes(songs)
-  let free = 0
-  try {
-    free = await freeBytes()
-  } catch (e) {
-    free = 0
-  }
-  return { est: est, free: free, tight: free > 0 && est > free }
 }

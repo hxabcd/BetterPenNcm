@@ -66,21 +66,22 @@ import { localAlbumView } from '../../services/player/localmeta.js'
 import { isOffline } from '../../core/infra/net/status.js'
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
 import { fmtDate, fmtSize, clipText } from '../../core/infra/format.js'
-import { downloadSongs } from '../../services/player/download.js'
-import { bindDl } from '../../services/player/dlvis.js'
-import { selPicked, dlText, startText, resultText, spaceCheck } from '../../ui/dlselect.js'
+import { downloadSongs, dlText, startText, resultText, spaceCheck, dlSig } from '../../services/player/download.js'
+import { bindDl } from '../../ui/mixins/dlsub.js'
+import { selPicked } from '../../ui/dlselect.js'
 import { log } from '../../core/infra/log.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { toastMixin } from '../../ui/mixins/toast.js'
 import { armMixin } from '../../ui/mixins/arm.js'
 import { multiSelectMixin } from '../../ui/mixins/multi.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
-import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../ui/paging.js'
+import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
+import { listPageMixin } from '../../../ui/mixins/listpage.js'
 
 export default {
   name: 'album',
-  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
+  mixins: [accentMixin, listPageMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -109,9 +110,6 @@ export default {
     }
   },
   computed: {
-    infiniteBottomPx() {
-      return this.visibleSongs.length * ROW_PX_SONG
-    },
     artistText() {
       if (!this.artists.length) return '未知歌手'
       const out = []
@@ -180,7 +178,7 @@ export default {
     this.localOnly = !!p.local
     if (p.name) this.album.name = p.name
     // 下载活动订阅（顶栏副题显示进度）；页面会挂两遍 → 每实例各订各退。
-    // bindDl = 订阅 + 可见性门控 + 首帧快照（见 utils/player/dlvis.js）
+    // bindDl = 订阅 + 可见性门控 + 首帧快照（见 ui/mixins/dlsub.js）
     this._dlOff = bindDl(this, function (s) {
       self.syncDl(s)
     })
@@ -194,6 +192,10 @@ export default {
     this._dlOff = null
   },
   methods: {
+    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    listPageConfig() {
+      return { slice: 'visibleSongs', rowPx: ROW_PX_SONG }
+    },
     async load() {
       const self = this
       if (!this.id) {
@@ -329,8 +331,7 @@ export default {
     /** 下载活动 → this.dl（签名判重：快照 ~400ms 一发，不判重就是持续重渲染，坑 16 同族） */
     syncDl(s) {
       const d = s || {}
-      const sig = (d.active ? 1 : 0) + '|' + d.total + '|' + (d.done + d.failed + (d.cancelled || 0)) +
-        '|' + (d.stopping ? 1 : 0) + '|' + d.pct
+      const sig = dlSig(d)
       if (sig === this._dlSig) return
       this._dlSig = sig
       this.dl = d

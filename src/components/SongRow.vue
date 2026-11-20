@@ -37,7 +37,7 @@
 import { fmtDur, fmtSize } from '../core/infra/format.js'
 import { ensureCover } from '../services/cover/cover.js'
 import { ICON } from '../assets/icons.js'
-import { accentMixin } from '../ui/theme.js'
+import { accentMixin } from '../ui/mixins/accent.js'
 import { TOK } from '../ui/tokens.js'
 
 /**

@@ -103,12 +103,13 @@ import config from '../../core/infra/config.js';
 import { openTextEdit, available as skAvailable } from '../../core/platform/systemKeyboard.js';
 import { player } from '../../services/player/player.js';
 import { countToday as histToday, isLoaded as histLoaded } from '../../services/player/history.js';
-import { bindDl } from '../../services/player/dlvis.js';
+import { bindDl } from '../../ui/mixins/dlsub.js';
 import { stats } from '../../services/player/cache.js';
+import { dlSig } from '../../services/player/download.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js';
 import { coverPair, glowGradient } from '../../services/cover/color.js';
-import { accentMixin } from '../../ui/theme.js';
+import { accentMixin } from '../../ui/mixins/accent.js';
 import { aIcon } from "../../assets/icons.js";
 import { BUILD_TAG } from "../../core/infra/buildInfo.js";
 import { evtJson } from '../../core/infra/events.js';
@@ -297,7 +298,7 @@ export default {
     this.syncLogin();
 
     // ---- 本地下载卡：下载活动订阅（进度）+ 计数（文件系统的真相；exec 一次别频繁调）----
-    // bindDl = 订阅 + 可见性门控 + 首帧快照（主页被上层页盖住时不落 data，见 utils/player/dlvis.js）
+    // bindDl = 订阅 + 可见性门控 + 首帧快照（主页被上层页盖住时不落 data，见 ui/mixins/dlsub.js）
     this._dlOff = bindDl(this, function (s) {
       self.syncDl(s);
     });
@@ -588,18 +589,10 @@ export default {
      */
     syncDl(s) {
       const d = s || {};
-      const sig =
-        (d.active ? 1 : 0) +
-        "|" +
-        d.total +
-        "|" +
-        (d.done + d.failed + (d.cancelled || 0)) +
-        "|" +
-        (d.stopping ? 1 : 0);
-      if (sig !== this._dlSig) {
-        this._dlSig = sig;
-        this.dl = d;
-      }
+      const sig = dlSig(d);
+      if (sig === this._dlSig) return;
+      this._dlSig = sig;
+      this.dl = d;
       const active = !!d.active;
       if (this._wasActive && !active) this.loadDownloads();
       this._wasActive = active;

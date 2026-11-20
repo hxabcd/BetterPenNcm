@@ -13,7 +13,7 @@
 
 <script>
 import NavRail from './NavRail.vue'
-import { accentMixin } from '../ui/theme.js'
+import { accentMixin } from '../ui/mixins/accent.js'
 import { railBack } from '../ui/rail.js'
 
 /**

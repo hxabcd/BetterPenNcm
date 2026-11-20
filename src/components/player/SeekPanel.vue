@@ -81,7 +81,7 @@
  */
 import { touchAxis } from '../../core/platform/touch.js'
 import { fmtDur } from '../../core/infra/format.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { ICON } from '../../assets/icons.js'
 
 /* 可拖线宽（px）：与样式 .skp-line 的 width:456px 成对维护。填充宽与手柄位置都用它做 px 反推

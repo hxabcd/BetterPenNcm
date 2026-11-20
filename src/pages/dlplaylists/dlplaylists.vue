@@ -53,17 +53,18 @@ import { listSongs } from '../../services/player/cache.js'
 import { allLists, listSummary, splitDownloads } from '../../services/player/locallists.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { log } from '../../core/infra/log.js'
-import { accentMixin } from '../../ui/theme.js'
+import { accentMixin } from '../../ui/mixins/accent.js'
 import { toastMixin } from '../../ui/mixins/toast.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
-import { PAGE_ROW, AUTO_BATCH, ROW_PX_LIB, moreText } from '../../ui/paging.js'
+import { PAGE_ROW, AUTO_BATCH, ROW_PX_LIB } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
+import { listPageMixin } from '../../../ui/mixins/listpage.js'
 
 const PAGE = PAGE_ROW // 索引歌单一次渲染 40 行（平台 ≤50 行）
 
 export default {
   name: 'dlplaylists',
-  mixins: [accentMixin, toastMixin, pageFrameMixin, infiniteScrollMixin],
+  mixins: [accentMixin, listPageMixin, toastMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -85,9 +86,6 @@ export default {
     }
   },
   computed: {
-    infiniteBottomPx() {
-      return this.visibleRows.length * ROW_PX_LIB
-    },
     barSub() {
       if (this.loading) return '读取中...'
       return '歌单 · ' + this.lists.length + ' 个索引 · ' + this.allCount + ' 首'
@@ -149,6 +147,10 @@ export default {
     this._onShow = null
   },
   methods: {
+    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    listPageConfig() {
+      return { slice: 'visibleRows', rowPx: ROW_PX_LIB }
+    },
     async refresh() {
       /* 返回本页时保留已展开的条数（同 dltracks）：不要因为 onShow 重读就把列表收回首批。 */
       const keepShown = this.shown

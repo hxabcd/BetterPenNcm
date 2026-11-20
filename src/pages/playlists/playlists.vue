@@ -60,13 +60,14 @@ import { fetchArtistAlbums } from '../../services/ncm/api.js';
 import { openTextEdit, available as imeAvailable } from '../../core/platform/systemKeyboard.js';
 import config from '../../core/infra/config.js';
 import { log } from '../../core/infra/log.js';
-import { accentMixin } from '../../ui/theme.js';
+import { accentMixin } from '../../ui/mixins/accent.js';
 import { TOK } from '../../ui/tokens.js';
 import { toastMixin } from '../../ui/mixins/toast.js';
 import { pageFrameMixin } from '../../ui/mixins/frame.js';
 import { pageBusMixin } from '../../ui/mixins/pagebus.js';
-import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD, moreText } from '../../ui/paging.js';
+import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js';
+import { listPageMixin } from '../../../ui/mixins/listpage.js'
 
 const PER_ROW = 4; // 每行卡片数
 
@@ -77,7 +78,7 @@ const NAME_MAX = 40;
 
 export default {
   name: "playlists",
-  mixins: [accentMixin, toastMixin, pageBusMixin, pageFrameMixin, infiniteScrollMixin],
+  mixins: [accentMixin, listPageMixin, toastMixin, pageBusMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     "page-shell": PageShell,
     "page-topbar": PageTopbar,
@@ -106,9 +107,6 @@ export default {
     };
   },
   computed: {
-    infiniteBottomPx() {
-      return this.rows.length * ROW_PX_CARD
-    },
     isArtist() {
       return this.source === "artist";
     },
@@ -248,6 +246,10 @@ export default {
     // 返回后的 toast 走播放页的监听
   },
   methods: {
+    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    listPageConfig() {
+      return { slice: 'rows', rowPx: ROW_PX_CARD }
+    },
     /* ---- 左栏（分派骨架见 ui/frame.js：onBack / onRailKey 两个钩子）---- */
     onRailKey(key) {
       if (key === "newpl") {

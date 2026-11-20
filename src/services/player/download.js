@@ -45,7 +45,7 @@ import {
   putPlayMeta, warmPlayMeta, dropPlayMeta, markPlayPending,
   touchPlayMeta, enforceCacheLimit
 } from './cache.js'
-import { currentQuality, qualityRank, nominalBr } from './quality.js'
+import { currentQuality, qualityInfo, qualityRank, nominalBr } from './quality.js'
 import { saveSongExtras, dropLocalSong } from './localmeta.js'
 import { markUser, markPlaylist, markSkippedExisting, clearOrigin } from './dlorigin.js'
 import { log } from '../../core/infra/log.js'
@@ -527,3 +527,55 @@ export function invalidateLocalPaths() {
  * 下载目录（music/）的歌曲不进这张表，所以**手动下载的不受缓存滚动影响**。
  */
 export const touchPlayCache = touchPlayMeta
+
+/* ================= 下载文案与空间预检（S3 从 ui/dlselect 收编） =================
+   这是下载域自己的业务知识（文案句式、档位标签、空间比对），UI 层不该持有；
+   页面从本门面导入，与 downloadSongs 等同一来源。 */
+
+/** 顶栏副题：'下载中 3/12 · 42%'；停止中给 '正在停止下载…'；无活动给 '' */
+export function dlText(d) {
+  if (!d || !d.active) return ''
+  if (d.stopping) return '正在停止下载…'
+  const k = d.done + d.failed + (d.cancelled || 0)
+  const cur = k < d.total ? k + 1 : k
+  return '下载中 ' + cur + '/' + d.total + (d.pct ? ' · ' + d.pct + '%' : '')
+}
+
+/** 开始下载的 toast：「开始下载 12 首（极高）」 */
+export function startText(n) {
+  return '开始下载 ' + n + ' 首（' + qualityInfo(currentQuality('down')).label + '）'
+}
+
+/** 完成 toast：成功下载数与失败数分开显示 */
+export function resultText(r) {
+  if (!r) return '下载结束'
+  if (!r.ok && !r.failed && r.cancelled) return '下载已停止'
+  if (!r.ok && !r.failed && !r.skipped) return '没有可下载的内容'
+  return '成功下载 ' + (r.ok || 0) + ' 首（' + (r.failed || 0) + ' 首失败）'
+}
+
+/**
+ * 粗估一批歌按当前下载档的体积并与可用空间比对。
+ * 返回 {est, free, tight}；free=0 = 读不到 df（exec 不可用）→ tight 恒 false（不做判断）。
+ */
+export async function spaceCheck(songs) {
+  const est = estimateBytes(songs)
+  let free = 0
+  try {
+    free = await freeBytes()
+  } catch (e) {
+    free = 0
+  }
+  return { est: est, free: free, tight: free > 0 && est > free }
+}
+
+/**
+ * 下载活动快照的签名（判重用）：快照 ~400ms 一发，页面不判重就是持续重渲染
+ * （平台坑 16 同族）。字段口径 = 页面显示的全部来源：active/total/三态计数/
+ * stopping/pct；finished 只进「本地下载总览」的刷新判定（那里自己在 sig 外补）。
+ */
+export function dlSig(d) {
+  d = d || {}
+  return (d.active ? 1 : 0) + '|' + d.total + '|' +
+    (d.done + d.failed + (d.cancelled || 0)) + '|' + (d.stopping ? 1 : 0) + '|' + d.pct
+}

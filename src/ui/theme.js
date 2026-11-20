@@ -14,9 +14,9 @@
  *
  * 组件用法（PageShell / NavRail / PageTopbar / index / login 都按这个接）：
  *   data:    { bg: currentBg(), accent: currentAccent() }
- *   mounted: this._bgOff = bindTheme(this)
- *   销毁:    unbindTheme(this._bgOff)
- * 只需要主题色的组件（不关心背景色的那些页面）可以直接 `mixins: [accentMixin]`。
+ *   mounted: this._bgOff = bindBgTheme(this)
+ *   销毁:    unbindBgTheme(this._bgOff)
+ * 只需要主题色的组件（不关心背景色的那些页面）用 ui/mixins/accent.js 的 accentMixin。
  *
  * accent 对象字段：
  *   c     —— 主色（原 @accent）：实心按钮底、进度条填充、选中圈底
@@ -28,7 +28,6 @@
  * 平台的响应式实现只认朴素值。
  */
 import config from '../core/infra/config.js'
-import { fgIcon as pickFgIcon } from '../assets/icons.js'
 
 /** 背景预设：深灰=当前默认；纯黑；另给两个带色调的暗色 */
 export const PRESETS = [
@@ -99,7 +98,7 @@ for (let i = 0; i < ACCENTS.length; i++) {
 
 export const DEFAULT_ACCENT = ACCENTS[0]
 
-const EVENT = 'bpncm:theme'
+export const THEME_EVENT = 'bpncm:theme'
 
 function findBg(key) {
   for (let i = 0; i < PRESETS.length; i++) {
@@ -181,62 +180,6 @@ export async function setAccent(key) {
 export function notify() {
   try {
     /* global $falcon */
-    $falcon.trigger(EVENT)
+    $falcon.trigger(THEME_EVENT)
   } catch (e) {}
-}
-
-/** 组件挂载时调用：订阅 + 立即取当前色（bg 与 accent 一起下发）。返回的 handler 交给 unbindTheme */
-export function bindTheme(vm) {
-  /* 页面会挂两遍（平台坑 6）：accentMixin 的 mounted 再跑一次时 `this._accentOff = bindTheme(...)`
-     只会覆盖字段，上一组的 $falcon.on 监听就成了没人释放的孤儿（beforeDestroy 只解绑最后一个）。
-     这里先释放同一 vm 上的上一组，让 bindTheme 自己幂等（与 vis.js / dlvis.js 同一口径）。 */
-  if (vm && vm._accentOff) {
-    unbindTheme(vm._accentOff)
-    vm._accentOff = null
-  }
-  const apply = function () {
-    vm.bg = currentBg()
-    vm.accent = currentAccent()
-  }
-  try {
-    /* global $falcon */
-    $falcon.on(EVENT, apply)
-  } catch (e) {}
-  apply()
-  return apply
-}
-
-export function unbindTheme(apply) {
-  if (!apply) return
-  try {
-    /* global $falcon */
-    $falcon.off(EVENT, apply)
-  } catch (e) {}
-}
-
-/**
- * 主题混入（bg + accent + fgIcon）—— 页面/组件不必自己写 data + mounted + beforeDestroy 三处。
- *
- * chrome 组件（PageShell/NavRail/PageTopbar/index/login）也混本 mixin；
- * 唯一规矩：**一个实例只绑一次**（混了本 mixin 就别再自己 bindTheme）。
- */
-export const accentMixin = {
-  data() {
-    return { accent: currentAccent() }
-  },
-  mounted() {
-    this._accentOff = bindTheme(this)
-  },
-  beforeDestroy() {
-    unbindTheme(this._accentOff)
-  },
-  methods: {
-    /**
-     * 模板里取「实心主题色上的图标」：fgIcon('play')。
-     * 亮色预设（黄/绿/青/蓝/紫/粉）自动换深色版 PNG —— 白图标压在亮底上看不见。
-     */
-    fgIcon(key) {
-      return pickFgIcon(key, this.accent)
-    }
-  }
 }

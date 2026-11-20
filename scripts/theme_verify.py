@@ -16,12 +16,13 @@ PROJ = os.path.normpath(os.path.join(HERE, '..'))
 
 # (文件, [必须出现的片段...])
 CHECKS = [
+    # S3 拆分后：theme.js 只守状态本体（PRESETS/ACCENTS/换色广播）；mixin 面在 ui/mixins/accent.js
     ('src/ui/theme.js', ['export const ACCENTS', 'export function currentAccent(', 'export async function setAccent(',
-                            'export function currentAccentKey(', 'export const accentMixin',
-                            'vm.accent = currentAccent()',
+                            'export function currentAccentKey(', 'export const THEME_EVENT',
                             # 亮色预设的对比度兜底（Vocaloid 七色里 6 个是亮色）
                             'export const FG_LIGHT', 'export const FG_DARK', 'function pickOn(',
                             'a.on = pickOn(a.c)', "key: 'red'", "c: '#D93A49'"]),
+    ('src/ui/mixins/accent.js', ['export const accentMixin', 'vm.accent = currentAccent()', 'THEME_EVENT', 'fgIcon']),
     ('src/core/infra/config.js', ["accentColor: 'red'"]),
     ('src/styles/common.less', ['默认主题色 = 重音红', '@accent-2: #F58A93']),
     ('src/core/infra/boot.js', ['背景色/主题色同理']),
@@ -147,8 +148,8 @@ SYMBOLS = ['currentBg', 'currentAccent', 'currentAccentKey', 'bindTheme', 'unbin
 import re
 
 for rel, _ in CHECKS:
-    if rel.startswith(('src/ui/theme.js', 'src/assets/icons.js', 'scripts/')):
-        continue  # theme.js / icons.js 是符号**定义处**；gen_icons.py 是 Python（自带 ACCENTS 定义）
+    if rel.startswith(('src/ui/theme.js', 'src/ui/mixins/accent.js', 'src/assets/icons.js', 'scripts/')):
+        continue  # theme.js / accent.js / icons.js 是符号**定义处**；gen_icons.py 是 Python（自带 ACCENTS 定义）
     src = io.open(os.path.join(PROJ, rel), encoding='utf-8').read()
     # 只看 <script> 段（模板里的同名字符串不算）
     m = re.search(r'<script>(.*?)</script>', src, re.S)
@@ -231,7 +232,7 @@ def group_map(text):
 
 
 MIXIN_SOURCES = {
-    'accentMixin': 'src/ui/theme.js',
+    'accentMixin': 'src/ui/mixins/accent.js',
     'toastMixin': 'src/ui/mixins/toast.js',
     'armMixin': 'src/ui/mixins/arm.js',
     'multiSelectMixin': 'src/ui/mixins/multi.js',
@@ -459,18 +460,12 @@ else:
 #   pages → {components, ui, services, core}
 #   components → {ui, core, services, assets, vendor}（域组件编码域知识，§5 明示允许；
 #                components/chrome/ 追加禁止 → services，chrome 是跨应用框架候选）
-#   ui → {core, assets}；禁止 ui → services / components（dlselect.js 的过渡违例在豁免表）
+#   ui → {core, assets}；禁止 ui → services / components（multidl 拆分后 ui 无 services 边）
 #   services → {core, services}（跨 services 子域优先走门面）
 #   core → core：infra→platform 允许；platform→infra 限 log.js（万能底座，
 #          平台适配层也打日志，方案 §2.2 R6 的 DDL 式妥协同源）；其余禁止
 # 豁免清单：一行一条 (文件, 说明符)。出现新违例要么改代码，要么带理由登记。
 LAYER_EXEMPT = {
-    # S1 过渡位：multidl 整文件暂落 ui/dlselect.js，S3 拆分时消除（§6.3.3）
-    ('src/ui/dlselect.js', '../services/player/download.js'),
-    ('src/ui/dlselect.js', '../services/player/cache.js'),
-    ('src/ui/dlselect.js', '../services/player/quality.js'),
-    # S3 改造目标：bindDl 的可见性门控移页面 mixin 后撤销（§6.3.4）
-    ('src/services/player/dlvis.js', '../../ui/vis.js'),
     # 启动序列是全应用的装配点（建目录/开库/灌会话/换肤广播），引域模块装配是它的职责；
     # 这不是「infra 依赖业务」，而是 boot 的域外装配身份 —— 保持集中，不往下拆
     ('src/core/infra/boot.js', '../../ui/theme.js'),

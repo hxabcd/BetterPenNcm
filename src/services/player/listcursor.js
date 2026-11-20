@@ -17,6 +17,8 @@
 import { KINDS, PAGE, appendUnique } from './listkinds.js'
 import { fetchArtistSongs } from '../ncm/api.js'
 import { fetchTracksMore } from '../ncm/playlist.js'
+import { markUnliked } from '../ncm/like.js'
+import { remove as histRemove } from './history.js'
 
 /** 名称比较：优先 localeCompare（快速 JS 引擎里退化为码位序，中文不是拼音序，够用），异常时退回手写比较 */
 function cmpName(a, b) {
@@ -153,4 +155,83 @@ export async function loadMore(vm) {
   } finally {
     vm.loadingMore = false
   }
+}
+
+/**
+ * 删歌成功后的本地收敛（liked/playlist）。
+ * songs / trackIds / cursor **必须一起收敛**：游标记的是「已消费的 trackIds 前缀」，
+ * 删掉前缀里的歌后要同步回退，否则下一次 loadMore 会从偏大的下标开始（漏歌）。
+ * 整体替换（filter 出新数组）而不是就地 splice：player.playList 拿过 this.songs 的引用当队列，
+ * 就地删除会让正在播放的队列索引漂移。
+ */
+export function applyRemoved(vm, ids) {
+  const drop = {}
+  for (let i = 0; i < ids.length; i++) drop[ids[i]] = 1
+  // 选中项里有多少落在已消费前缀内 → 游标要回退多少
+  let consumed = 0
+  const upto = Math.min(vm.cursor, vm.trackIds.length)
+  for (let i = 0; i < upto; i++) {
+    if (drop[vm.trackIds[i]]) consumed++
+  }
+  const ids2 = []
+  for (let i = 0; i < vm.trackIds.length; i++) {
+    if (!drop[vm.trackIds[i]]) ids2.push(vm.trackIds[i])
+  }
+  const songs2 = []
+  for (let i = 0; i < vm.songs.length; i++) {
+    const s = vm.songs[i]
+    if (s && !drop[s.id]) songs2.push(s)
+  }
+  const removed = vm.trackIds.length - ids2.length
+  vm.trackIds = ids2
+  vm.songs = songs2
+  vm.cursor = Math.max(0, vm.cursor - consumed)
+  if (vm.shown > vm.songs.length) vm.shown = vm.songs.length
+  if (vm.cursor >= vm.trackIds.length) vm.allLoaded = true
+  if (vm.addTimes) {
+    for (let k in drop) delete vm.addTimes[k] // addTimes 只供排序查表，不参与渲染
+  }
+  if (vm.kind === 'liked') markUnliked(ids) // 播放页的心形读的是 like 缓存
+  vm.sub = vm.trackIds.length + ' 首'
+  vm.hint = vm.hasMore ? '本页已清空，点下方「加载更多」继续' : '歌单已空'
+  vm.showToast((vm.kind === 'liked' ? '已取消喜欢 ' : '已从歌单移除 ') + removed + ' 首')
+  vm.log('list', '移除 ' + removed + ' 首（选 ' + ids.length + '）pid=' + vm.pid + '，剩 ' + vm.trackIds.length)
+  vm.exitMulti()
+}
+
+/**
+ * 播放历史的「删除选中」本地收敛：history.remove 后把三份数据按同一批 id 过滤 ——
+ * songs 恒为 fullSongs/trackIds 前缀的不变量必须保持（否则 loadMore 的下标错位、
+ * 会把删掉的条目又 concat 回来）。
+ */
+export function applyHistoryRemoved(vm, ids) {
+  const drop = {}
+  for (let i = 0; i < ids.length; i++) drop[String(ids[i])] = 1
+  const n = histRemove(ids)
+  const keepSongs = function (arr) {
+    const out = []
+    for (let i = 0; i < arr.length; i++) {
+      if (!drop[String(arr[i].id)]) out.push(arr[i])
+    }
+    return out
+  }
+  const keepIds = function (arr) {
+    const out = []
+    for (let i = 0; i < arr.length; i++) {
+      if (!drop[String(arr[i])]) out.push(arr[i])
+    }
+    return out
+  }
+  vm.fullSongs = keepSongs(vm.fullSongs)
+  vm.trackIds = keepIds(vm.trackIds) // trackIds 是**裸 id 数组**（不是对象），单独过滤
+  vm.songs = keepSongs(vm.songs)
+  // 历史是本地全量：游标跟着新总数走，渲染量不因删除而变多
+  vm.cursor = vm.trackIds.length
+  vm.allLoaded = true
+  if (vm.shown > vm.songs.length) vm.shown = vm.songs.length
+  vm.sub = vm.fullSongs.length + ' 首'
+  vm.hint = '还没有播放记录'
+  vm.showToast('已从播放历史移除 ' + n + ' 首')
+  vm.log('list', '历史移除 ' + n + ' 首（剩 ' + vm.fullSongs.length + '）')
+  vm.exitMulti()
 }

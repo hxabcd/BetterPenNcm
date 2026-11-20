@@ -101,20 +101,20 @@ import HintToast from "../../components/HintToast.vue";
 import { go, paramsFor } from '../../core/infra/nav.js';
 import { railBack, railBtn, ICON } from '../../ui/rail.js';
 import { player } from '../../services/player/player.js';
-import { remove as histRemove } from '../../services/player/history.js';
 import {
   removeFromPlaylist,
   cachedPlaylistRole,
   fetchPlaylistInfo,
   setSubscribed,
 } from '../../services/ncm/playlist.js';
-import { markUnliked } from '../../services/ncm/like.js';
 import { KINDS, appendUnique } from '../../services/player/listkinds.js';
 import {
   loadMore as cursorLoadMore,
   sorted as cursorSorted,
   loadAllSongs as cursorLoadAll,
   ensureAllSongs as cursorEnsureAll,
+  applyRemoved as cursorApplyRemoved,
+  applyHistoryRemoved as cursorApplyHistRemoved,
 } from '../../services/player/listcursor.js';
 import { downloadSongs } from '../../services/player/download.js';
 import { bindDl } from '../../services/player/dlvis.js';
@@ -1251,43 +1251,10 @@ export default {
         log("list", "下载结果 " + JSON.stringify(r));
       });
     },
-    /**
-     * 历史的「删除」：本地移除（history.remove），再把三份数据按同一批 id 过滤 ——
-     * songs 恒为 fullSongs/trackIds 前缀的不变量必须保持（否则 loadMore 的下标错位、
-     * 会把删掉的条目又 concat 回来，见 applyRemoved 的同款说明）。
-     */
+    /** 历史的「删除选中」：本地移除 + 三份数据同批过滤（收敛实现在 listcursor.js） */
     doRemoveHistory() {
       this.disarm();
-      const ids = this.selIds.slice();
-      const drop = {};
-      for (let i = 0; i < ids.length; i++) drop[String(ids[i])] = 1;
-      const n = histRemove(ids);
-      const keepSongs = function (arr) {
-        const out = [];
-        for (let i = 0; i < arr.length; i++) {
-          if (!drop[String(arr[i].id)]) out.push(arr[i]);
-        }
-        return out;
-      };
-      const keepIds = function (arr) {
-        const out = [];
-        for (let i = 0; i < arr.length; i++) {
-          if (!drop[String(arr[i])]) out.push(arr[i]);
-        }
-        return out;
-      };
-      this.fullSongs = keepSongs(this.fullSongs);
-      this.trackIds = keepIds(this.trackIds); // trackIds 是**裸 id 数组**（不是对象），单独过滤
-      this.songs = keepSongs(this.songs);
-      // 历史是本地全量：游标跟着新总数走，渲染量不因删除而变多
-      this.cursor = this.trackIds.length;
-      this.allLoaded = true;
-      if (this.shown > this.songs.length) this.shown = this.songs.length;
-      this.sub = this.fullSongs.length + " 首";
-      this.hint = "还没有播放记录";
-      this.showToast("已从播放历史移除 " + n + " 首");
-      log("list", "历史移除 " + n + " 首（剩 " + this.fullSongs.length + "）");
-      this.exitMulti();
+      cursorApplyHistRemoved(this, this.selIds.slice());
     },
     /** 下载活动 → this.dl（签名判重：快照 ~400ms 一发，不判重就是持续重渲染，坑 16 同族） */
     syncDl(s) {
@@ -1326,46 +1293,9 @@ export default {
       }
       this.applyRemoved(ids);
     },
-    /**
-     * 删成功后的本地收敛。
-     * songs / trackIds / cursor **必须一起收敛**：游标记的是「已消费的 trackIds 前缀」，
-     * 删掉前缀里的歌后要同步回退，否则下一次 loadMore 会从偏大的下标开始（漏歌）。
-     * 整体替换（filter 出新数组）而不是就地 splice：player.playList 拿过 this.songs 的引用当队列，
-     * 就地删除会让正在播放的队列索引漂移。
-     */
+    /** 删成功后的本地收敛（songs/trackIds/cursor 一起收敛；实现在 listcursor.js） */
     applyRemoved(ids) {
-      const drop = {};
-      for (let i = 0; i < ids.length; i++) drop[ids[i]] = 1;
-      // 选中项里有多少落在已消费前缀内 → 游标要回退多少
-      let consumed = 0;
-      const upto = Math.min(this.cursor, this.trackIds.length);
-      for (let i = 0; i < upto; i++) {
-        if (drop[this.trackIds[i]]) consumed++;
-      }
-      const ids2 = [];
-      for (let i = 0; i < this.trackIds.length; i++) {
-        if (!drop[this.trackIds[i]]) ids2.push(this.trackIds[i]);
-      }
-      const songs2 = [];
-      for (let i = 0; i < this.songs.length; i++) {
-        const s = this.songs[i];
-        if (s && !drop[s.id]) songs2.push(s);
-      }
-      const removed = this.trackIds.length - ids2.length;
-      this.trackIds = ids2;
-      this.songs = songs2;
-      this.cursor = Math.max(0, this.cursor - consumed);
-      if (this.shown > this.songs.length) this.shown = this.songs.length;
-      if (this.cursor >= this.trackIds.length) this.allLoaded = true;
-      if (this.addTimes) {
-        for (let k in drop) delete this.addTimes[k]; // addTimes 只供排序查表，不参与渲染
-      }
-      if (this.kind === "liked") markUnliked(ids); // 播放页的心形读的是 like 缓存
-      this.sub = this.trackIds.length + " 首";
-      this.hint = this.hasMore ? "本页已清空，点下方「加载更多」继续" : "歌单已空";
-      this.showToast((this.kind === "liked" ? "已取消喜欢 " : "已从歌单移除 ") + removed + " 首");
-      log("list", "移除 " + removed + " 首（选 " + ids.length + "）pid=" + this.pid + "，剩 " + this.trackIds.length);
-      this.exitMulti();
+      cursorApplyRemoved(this, ids);
     },
     /* ---- 排序浮窗（ContextSheet 版：选中项/箭头见 panel* computed，pickSort 见下）---- */
     closePanel() {

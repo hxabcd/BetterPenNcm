@@ -113,11 +113,11 @@
  *     border-radius:50% 不生效 → 全部写 px；
  *   - 页面会挂两遍 → mounted 订阅自带判重（this._sub），beforeDestroy 里注销。
  */
-import { sleepTimer } from '../../utils/player/sleeptimer.js'
-import { bindPageVis } from '../../utils/ui/vis.js'
-import { TOK } from '../../utils/ui/tokens.js'
+import { sleepTimer } from '../../services/player/sleeptimer.js'
+import { bindPageVis } from '../../ui/vis.js'
+import { TOK } from '../../ui/tokens.js'
 import { ICON } from '../../assets/icons.js'
-import { accentMixin } from '../../utils/theme.js'
+import { accentMixin } from '../../ui/theme.js'
 
 const MAX_DIGITS = 3 // 自定义分钟数最多 3 位（1~999）
 const INPUT_INIT = '90' // 设计稿自定义态的初值

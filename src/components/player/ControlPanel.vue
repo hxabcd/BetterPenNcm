@@ -95,10 +95,10 @@
  *   - 进度行纯展示，**不挂点击**（进度控制面板由左列时钟键开合）；
  *   - 三个切换键：时钟 = 进度控制（TimeShiftPanel）/ 评论 / 歌词；再次点击同一个键由页面关掉面板。
  */
-import { TOK } from '../../utils/ui/tokens.js'
+import { TOK } from '../../ui/tokens.js'
 import { ICON, aIcon } from '../../assets/icons.js'
-import { accentMixin } from '../../utils/theme.js'
-import { fmtDur } from '../../utils/format.js'
+import { accentMixin } from '../../ui/theme.js'
+import { fmtDur } from '../../core/infra/format.js'
 
 export default {
   name: 'ControlPanel',

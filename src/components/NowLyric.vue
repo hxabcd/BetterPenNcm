@@ -21,11 +21,11 @@
  *   关掉 = 这一行整条收起，标题·歌手回到卡内居中，和「这首歌没歌词」一个样子。
  *   仅原文——翻译是播放页的显示选项，卡片只有一行，不掺进来。
  */
-import { player } from '../utils/player/player.js'
-import { loadLyrics, findLyricIndex } from '../utils/player/lyric.js'
-import { bindPageVis } from '../utils/ui/vis.js'
-import config from '../utils/config.js'
-import { log } from '../utils/log.js'
+import { player } from '../services/player/player.js'
+import { loadLyrics, findLyricIndex } from '../services/player/lyric.js'
+import { bindPageVis } from '../ui/vis.js'
+import config from '../core/infra/config.js'
+import { log } from '../core/infra/log.js'
 
 export default {
   name: 'NowLyric',

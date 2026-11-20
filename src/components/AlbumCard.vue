@@ -25,7 +25,7 @@
  * 封面取专辑内歌曲的封面（localmeta.localAlbumList 的 cover），
  * 行内自己走 cover.js 队列，离线命中磁盘缓存。
  */
-import { ensureCover } from '../utils/cover.js'
+import { ensureCover } from '../services/cover/cover.js'
 import { ICON } from '../assets/icons.js'
 
 export default {

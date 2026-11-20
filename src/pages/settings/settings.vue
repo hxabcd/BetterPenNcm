@@ -39,9 +39,9 @@
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import CueRow from '../../components/CueRow.vue'
-import { go } from '../../utils/nav.js'
-import { cachedProfile, loggedIn } from '../../utils/ncm/login.js'
-import { BUILD_TAG } from '../../utils/buildInfo.js'
+import { go } from '../../core/infra/nav.js'
+import { cachedProfile, loggedIn } from '../../services/ncm/login.js'
+import { BUILD_TAG } from '../../core/infra/buildInfo.js'
 
 /**
  * 二级菜单：key = 页面名（app.json 的 pages key），sub = 这一组里有什么（副行）。
@@ -65,8 +65,8 @@ function readAppid() {
 
 // 登录事件只注册一次（页面会挂两遍；pagebus 同一事件只由页面栈上层存活实例处理）
 
-import { pageFrameMixin } from '../../utils/ui/frame.js'
-import { pageBusMixin } from '../../utils/ui/pagebus.js'
+import { pageFrameMixin } from '../../ui/mixins/frame.js'
+import { pageBusMixin } from '../../ui/mixins/pagebus.js'
 
 export default {
   name: 'settings',

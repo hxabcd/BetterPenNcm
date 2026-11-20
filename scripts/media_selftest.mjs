@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { exec as cpExec } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 let pass = 0
@@ -44,6 +45,99 @@ const httpShim = {
   get: () => ({ on() {}, setTimeout() {}, destroy() {} })
 }
 
+function makeSqliteShim() {
+  class Statement {
+    constructor(db, sql) {
+      this.db = db
+      this.sql = sql
+      this.params = []
+      this.st = db.raw.prepare(sql)
+    }
+    async columnNameList() {
+      try {
+        return this.st.columns().map((c) => c.name)
+      } catch (e) {
+        return []
+      }
+    }
+    async bind(...a) {
+      this.params = a.length === 1 && Array.isArray(a[0]) ? a[0] : a
+      return 0
+    }
+    _bind() {
+      return this.params.map((v) => (v === undefined || v === null ? null : v))
+    }
+    async step() {
+      try {
+        if (!this._rows) this._rows = this.st.all(...this._bind())
+        if (!this._i) this._i = 0
+        if (this._i >= this._rows.length) return null
+        return Object.values(this._rows[this._i++])
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async all() {
+      try {
+        return this.st.all(...this._bind()).map((r) => Object.values(r))
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async run() {
+      try {
+        this.st.run(...this._bind())
+        return 0
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async finalize() {
+      return 'OK'
+    }
+  }
+  class Database {
+    constructor() {
+      this.raw = null
+      this.path = ''
+    }
+    async open(p) {
+      try {
+        this.path = p
+        this.raw = new DatabaseSync(p)
+        return 0
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async exec(sql) {
+      try {
+        this.raw.exec(sql)
+        return 0
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async prepare(sql) {
+      try {
+        return new Statement(this, sql)
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+    async close() {
+      try {
+        if (this.raw) this.raw.close()
+        this.raw = null
+        return 'OK'
+      } catch (e) {
+        return String((e && e.message) || e)
+      }
+    }
+  }
+  return { Database }
+}
+
 async function prepareTree(sandbox) {
   const shimDir = path.join(sandbox, '_shim')
   await fsp.mkdir(shimDir, { recursive: true })
@@ -55,9 +149,12 @@ async function prepareTree(sandbox) {
     'const p = globalThis.__procShim\nexport default p\nexport const exec = (...a) => p.exec(...a)\n')
   await fsp.writeFile(path.join(shimDir, 'http.mjs'),
     'const s = globalThis.__httpShim\nexport default s\nexport const request = (...a) => s.request(...a)\nexport const get = (...a) => s.get(...a)\n')
+  await fsp.writeFile(path.join(shimDir, 'sqlite3.mjs'),
+    'const s = globalThis.__sqliteShim\nexport default s\nexport const Database = s.Database\n')
 
-  const dst = path.join(sandbox, 'src/utils')
-  await fsp.cp(path.join(ROOT, 'src/utils'), dst, { recursive: true })
+  const dstRoot = path.join(sandbox, 'src')
+  for (const axis of ['core', 'ui', 'services']) await fsp.cp(path.join(ROOT, 'src', axis), path.join(dstRoot, axis), { recursive: true })
+  const dst = dstRoot
   async function walk(dir) {
     for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name)
@@ -70,6 +167,8 @@ async function prepareTree(sandbox) {
         .replace(/import\(\s*(['"])process\1\s*\)/g, "import('" + url('process.mjs') + "')")
         .replace(/from\s+(['"])http\1/g, "from '" + url('http.mjs') + "'")
         .replace(/import\(\s*(['"])http\1\s*\)/g, "import('" + url('http.mjs') + "')")
+        .replace(/from\s+(['"])sqlite3\1/g, "from '" + url('sqlite3.mjs') + "'")
+        .replace(/import\(\s*(['"])sqlite3\1\s*\)/g, "import('" + url('sqlite3.mjs') + "')")
       await fsp.writeFile(p, s)
     }
   }
@@ -85,14 +184,18 @@ async function main() {
   globalThis.__fsShim = fsShim
   globalThis.__procShim = procShim
   globalThis.__httpShim = httpShim
+  globalThis.__sqliteShim = makeSqliteShim()
   globalThis.__shDir = path.join(sandbox, '_sh')
   await fsp.mkdir(globalThis.__shDir, { recursive: true })
 
   const srcDst = await prepareTree(sandbox)
+  // logconfig.generated.js 是构建生成物（不进仓库、本地也常缺）→ 造一个空的顶上
+  const logCfg = path.join(srcDst, 'core/infra/logconfig.generated.js')
+  if (!fs.existsSync(logCfg)) await fsp.writeFile(logCfg, "export const LOG_SRV = ''\n")
   const load = (rel) => import(pathToFileURL(path.join(srcDst, rel)).href)
-  const paths = await load('paths.js')
-  const media = await load('media.js')
-  const cache = await load('player/cache.js')
+  const paths = await load('core/infra/paths.js')
+  const media = await load('services/player/media.js')
+  const cache = await load('services/player/cache.js')
 
   console.log('\n1) 枚举只认真实的曲目目录')
   // 造两首下载 + 一首缓存 + thumbs 目录（thumbs 不能被当成曲目）
@@ -124,22 +227,23 @@ async function main() {
   eq('清缓存后目录为空', after.length, 0)
   truthy('清缓存不动下载', (await media.listTracks('download')).length === 2)
 
-  console.log('\n3) 删一首 = 删整个目录（封面/元数据/歌词连坐）')
-  await media.writeLyrics('101', 'download', { lrc: '[00:01.00]x' })
+  console.log('\n3) 删一首 = 删整个目录（封面/元数据连坐；歌词在 track_lyric 表）')
+  await media.writeLyrics('101', { lrc: '[00:01.00]x' })
+  truthy('歌词落了 track_lyric 表', await media.readLyrics('101') != null)
   truthy('删前封面在', await media.hasCover('101', 'download'))
   await media.dropTrackDir('101', 'download')
   eq('删后目录没了', await media.hasTrackDir('101', 'download'), false)
-  truthy('删后音频/封面/歌词/元数据全没',
+  truthy('删后音频/封面/元数据全没',
     !fs.existsSync(paths.trackFile('101', 'mp3', 'download')) &&
     !fs.existsSync(paths.trackCover('101', 'download')) &&
-    !fs.existsSync(paths.trackLyrics('101', 'download')) &&
-    !fs.existsSync(paths.trackMeta('101', 'download')))
+    !(await media.readMeta('101', 'download')))
+  await media.dropLyrics('101')
 
   console.log('\n4) 元数据合并写保住了归属字段')
   await media.writeMeta('102', 'download', { n: '歌102', plus: 1 })
   await media.patchMeta('102', 'download', { origin: 2 })
   const m2 = await media.readMeta('102', 'download')
-  truthy('patch 不擦掉原有字段', m2.n === '歌102' && m2.origin === 2)
+  truthy('patch 不擦掉原有字段', m2 && m2.n === '歌102' && m2.origin === 2)
 
   console.log('\n' + '='.repeat(56))
   if (fail.length) {

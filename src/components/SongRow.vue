@@ -34,11 +34,11 @@
 </template>
 
 <script>
-import { fmtDur, fmtSize } from '../utils/format.js'
-import { ensureCover } from '../utils/cover.js'
+import { fmtDur, fmtSize } from '../core/infra/format.js'
+import { ensureCover } from '../services/cover/cover.js'
 import { ICON } from '../assets/icons.js'
-import { accentMixin } from '../utils/theme.js'
-import { TOK } from '../utils/ui/tokens.js'
+import { accentMixin } from '../ui/theme.js'
+import { TOK } from '../ui/tokens.js'
 
 /**
  * 歌曲行：封面（含无封面占位）/ 歌名(+别名+VIP) / 歌手 / [档位·体积] / 时长

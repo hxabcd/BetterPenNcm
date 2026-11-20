@@ -1,13 +1,13 @@
 /**
- * 本地音乐库：已下载歌曲的**完整元数据索引**（SQLite 索引库）与**歌词**（每 track 一个 lyrics.json）
+ * 本地音乐库：已下载歌曲的**完整元数据索引**（SQLite 索引库）与**歌词**（track_lyric 表）
  *
  * 索引落 `local_index.db` 的四张表（结构见 docs/存储重构.md §1.3）：track / track_artist /
  * album / artist。读写模型见 utils/db.js：boot 时整库灌内存，此后查询都在内存里（不分叉），
  * 写走单条 upsert（代价与库规模无关 —— 旧实现把整张表塞进 `store/local_index.json`，
  * 一条改动就重写 62KB）。
  *
- * 歌词落 `downloads/<id>/lyrics.json`（`{v, lrc, tlyric, yrc, pureMusic}`，读写走 utils/media.js），
- * 对外仍按旧形状 `{l, t, pm, y}` 给调用方（player/lyric.js 依赖这个形状）。
+ * 歌词落状态库 `state.db` 的 track_lyric 表（`{v, lrc, tlyric, yrc, pureMusic}`，
+ * 读写走 utils/media.js），对外按形状 `{l, t, pm, y}` 给调用方（player/lyric.js 依赖这个形状）。
  * cache 通道的歌**不存歌词**：它们会被 LRU 滚掉，留下就是孤儿数据。
  *
  * 覆盖时机：
@@ -397,7 +397,7 @@ async function clearIndex() {
   await dbExec(['DELETE FROM ' + T_TA + ';', 'DELETE FROM ' + T_TRACK + ';', 'DELETE FROM ' + T_ALBUM + ';'])
 }
 
-/* ---------------- 歌词（每首 downloads/<id>/lyrics.json） ---------------- */
+/* ---------------- 歌词（track_lyric 表，经 media.js 读写） ---------------- */
 
 /**
  * 取本地歌词；返回 {l, t, pm, y} 或 null（没有/坏了都算 null；y 是可选 YRC 原文）。

@@ -8,7 +8,7 @@
  *
  *   state.db（状态库）
  *       track_meta  (id, kind) → metadata.json 的内容
- *       track_lyric (id)       → lyrics.json 的内容
+ *       track_lyric (id)       → 歌词 JSON 文档（`{v, lrc, tlyric, yrc, pureMusic}`）
  *
  * 为什么索引和状态分两个库：索引（`local_index.db`）是可重建的派生数据，
  * 而元数据/歌词属于用户资产；分开后重置索引不会波及它们。见 utils/db.js 顶部。

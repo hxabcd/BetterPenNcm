@@ -11,7 +11,7 @@
  * 交给 `db.exec()`——一批太大时出错更难定位，且单批变小能让写落在多个事务里、
  * 主线程不至于长时间不返回。
  */
-import { exec as dbExec, num } from '../../core/platform/db.js'
+import { exec as dbExec, num } from '../../../core/platform/db.js'
 
 /** 一批 SQL 的体积预算（字节） */
 export const SQL_BATCH_BYTES = 6000

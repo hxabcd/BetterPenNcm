@@ -74,10 +74,10 @@ import PageTopbar from "../../components/PageTopbar.vue";
 import EmptyHint from "../../components/EmptyHint.vue";
 import HintToast from "../../components/HintToast.vue";
 import { railBack, railBtn, ICON } from "../../utils/rail.js";
-import { player } from "../../utils/player/player.js";
-import { queueViewSig, sigFeed } from "../../utils/player/sig.js";
-import { downloadSongs } from "../../utils/player/download.js";
-import { toPlaylist } from "../../utils/songact.js";
+import { player } from "../../../services/player/player.js";
+import { queueViewSig, sigFeed } from "../../../services/player/sig.js";
+import { downloadSongs } from "../../../services/player/download.js";
+import { toPlaylist } from "../../../services/player/acts.js";
 import { selPicked, startText, resultText } from "../../utils/multidl.js";
 import { fmtDur } from "../../utils/format.js";
 import { log } from "../../utils/log.js";
@@ -89,7 +89,7 @@ import { multiSelectMixin } from "../../utils/ui/multi.js";
 import { pageFrameMixin } from "../../utils/ui/frame.js";
 import { bindPageVis } from "../../utils/ui/vis.js";
 import { PAGE_QUEUE, moreText } from "../../utils/ui/paging.js";
-import { VH } from "../../utils/player/layout.js";
+import { VH } from "../../../services/player/layout.js";
 
 /* 与 LESS 成对维护的几何（px）：行高 .qu-row = @row-h 23vh，折叠条 18vh，定位行 14vh。
    窗口锚定滚动要用像素算「插入多少行 = 内容上移多少」，所以这里必须有一份。 */

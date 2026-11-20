@@ -54,9 +54,9 @@ import {
   addToPlaylistMany,
   createPlaylist,
   fitPlaylistName
-} from "../../utils/ncm/playlist.js";
-import { loggedIn } from "../../utils/ncm/login.js";
-import { fetchArtistAlbums } from "../../utils/ncm/api.js";
+} from "../../../services/ncm/playlist.js";
+import { loggedIn } from "../../../services/ncm/login.js";
+import { fetchArtistAlbums } from "../../../services/ncm/api.js";
 import { openTextEdit, available as imeAvailable } from "../../utils/systemKeyboard.js";
 import config from "../../utils/config.js";
 import { log } from "../../utils/log.js";

@@ -9,14 +9,14 @@
  */
 import config from './config.js'
 import { notify as themeNotify } from './theme.js'
-import { loadPlayerSettings, loadLastState } from './player/player.js'
-import { load as loadHistory } from './player/history.js'
+import { loadPlayerSettings, loadLastState } from '../../services/player/player.js'
+import { load as loadHistory } from '../../services/player/history.js'
 import { ensureDir } from './fsutil.js'
 import { downloadsDir, cacheDir, thumbsDir } from './paths.js'
 import { open as openDb, ensureStateDb as openStateDb } from './db.js'
 import { importFromFile, load as loadCookies, names as cookieNames } from './net/cookies.js'
-import { cachedProfile, loggedIn, fetchProfile } from './ncm/login.js'
-import { pullAll as autoPullLocalLists } from './player/locallists.js'
+import { cachedProfile, loggedIn, fetchProfile } from '../../services/ncm/login.js'
+import { pullAll as autoPullLocalLists } from '../../services/player/locallists.js'
 import { log } from './log.js'
 
 let promise = null

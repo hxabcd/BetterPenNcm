@@ -98,7 +98,7 @@ import {
   loginByPassword,
   CODE,
   loggedIn
-} from '../../utils/ncm/login.js'
+} from '../../../services/ncm/login.js'
 import { openTextEdit } from '../../utils/systemKeyboard.js'
 import { log } from '../../utils/log.js'
 import { pageFrameMixin } from '../../utils/ui/frame.js'

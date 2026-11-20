@@ -47,9 +47,9 @@ import { log } from '../../utils/log.js'
 import { accentMixin } from '../../utils/theme.js'
 import { TOK } from '../../utils/ui/tokens.js'
 import { bindPageVis } from '../../utils/ui/vis.js'
-import { player } from '../../utils/player/player.js'
-import { findLyricIndex } from '../../utils/player/lyric.js'
-import { buildLyricRows, LYRIC_GEO } from '../../utils/player/lyriclayout.js'
+import { player } from '../../../services/player/player.js'
+import { findLyricIndex } from '../../../services/player/lyric.js'
+import { buildLyricRows, LYRIC_GEO } from '../../../services/player/lyriclayout.js'
 
 const PANEL_H = 240
 const CENTER_Y = PANEL_H / 2

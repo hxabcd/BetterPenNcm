@@ -23,7 +23,7 @@
  * 行内自己取封面（mounted → ensureCover → 组件自己的 localCover），
  * 与 SongRow 同款写法：绕开「页面 data 动态 key 不触发重渲染」那条平台坑。
  */
-import { ensureCover } from '../utils/cover.js'
+import { ensureCover } from '../../services/cover/cover.js'
 
 export default {
   name: 'EntryRow',

@@ -40,7 +40,7 @@ import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import CueRow from '../../components/CueRow.vue'
 import { go } from '../../utils/nav.js'
-import { cachedProfile, loggedIn } from '../../utils/ncm/login.js'
+import { cachedProfile, loggedIn } from '../../../services/ncm/login.js'
 import { BUILD_TAG } from '../../utils/buildInfo.js'
 
 /**

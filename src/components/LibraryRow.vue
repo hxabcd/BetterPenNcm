@@ -24,7 +24,7 @@
  * 封面由行自己 mounted 时取（cover.js 队列），回调里写组件自己的普通属性，
  * 绕开「页面 data 动态 key + $set 不触发重渲染」的平台坑。
  */
-import { ensureCover } from '../utils/cover.js'
+import { ensureCover } from '../../services/cover/cover.js'
 import { ICON } from '../assets/icons.js'
 import { TOK } from '../utils/ui/tokens.js'
 

@@ -8,9 +8,9 @@
  *   - 下载结果 / 开始的 toast 文案（三页口径一致）
  *   - 空间预检（估算见 download.js 的 estimateBytes；free=0 = 读不到 df，不做判断）
  */
-import { estimateBytes } from './player/download.js'
-import { freeBytes } from './player/cache.js'
-import { currentQuality, qualityInfo } from './player/quality.js'
+import { estimateBytes } from '../../services/player/download.js'
+import { freeBytes } from '../../services/player/cache.js'
+import { currentQuality, qualityInfo } from '../../services/player/quality.js'
 
 /* ---------------- 选中集合 ---------------- */
 

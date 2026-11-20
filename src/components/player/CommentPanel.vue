@@ -117,8 +117,8 @@
 import { TOK } from '../../utils/ui/tokens.js'
 import { ICON } from '../../assets/icons.js'
 import { accentMixin } from '../../utils/theme.js'
-import { PAGE_LIMIT, fetchComments, likeComment, postComment } from '../../utils/ncm/comments.js'
-import { loggedIn } from '../../utils/ncm/login.js'
+import { PAGE_LIMIT, fetchComments, likeComment, postComment } from '../../../services/ncm/comments.js'
+import { loggedIn } from '../../../services/ncm/login.js'
 import { openTextEdit } from '../../utils/systemKeyboard.js'
 import { log } from '../../utils/log.js'
 

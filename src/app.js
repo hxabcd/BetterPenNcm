@@ -1,5 +1,5 @@
 /* 应用入口：继承 $falcon.App，实现应用级生命周期 */
-import { flushNow, pauseForExit } from './utils/player/player.js'
+import { flushNow, pauseForExit } from '../services/player/player.js'
 import { log } from './utils/log.js'
 import { noteLifeCycle } from './utils/nav.js'
 

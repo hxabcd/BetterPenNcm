@@ -81,13 +81,13 @@ import {
   setSubscribed,
   renamePlaylist,
   deletePlaylist
-} from '../../utils/ncm/playlist.js'
-import { addList, removeList, removeListLocal, isIndexed, downloadAll } from '../../utils/player/locallists.js'
-import { player } from '../../utils/player/player.js'
-import { bindDl } from '../../utils/player/dlvis.js'
+} from '../../../services/ncm/playlist.js'
+import { addList, removeList, removeListLocal, isIndexed, downloadAll } from '../../../services/player/locallists.js'
+import { player } from '../../../services/player/player.js'
+import { bindDl } from '../../../services/player/dlvis.js'
 import { dlText } from '../../utils/multidl.js'
 import { fmtSize } from '../../utils/format.js'
-import { ensureCover, BIG_COVER } from '../../utils/cover.js'
+import { ensureCover, BIG_COVER } from '../../../services/cover/cover.js'
 import { openTextEdit, available as imeAvailable } from '../../utils/systemKeyboard.js'
 import config from '../../utils/config.js'
 import { log } from '../../utils/log.js'

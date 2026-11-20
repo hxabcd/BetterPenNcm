@@ -105,8 +105,8 @@ import EntryRow from "../../components/EntryRow.vue";
 import HintToast from "../../components/HintToast.vue";
 import { go, paramsFor } from "../../utils/nav.js";
 import { railBack, railBtn, ICON } from "../../utils/rail.js";
-import { player } from "../../utils/player/player.js";
-import { list as histList, load as histLoad, remove as histRemove } from "../../utils/player/history.js";
+import { player } from "../../../services/player/player.js";
+import { list as histList, load as histLoad, remove as histRemove } from "../../../services/player/history.js";
 import {
   fetchPlaylistTracks,
   fetchTracksMore,
@@ -114,14 +114,14 @@ import {
   cachedPlaylistRole,
   fetchPlaylistInfo,
   setSubscribed,
-} from "../../utils/ncm/playlist.js";
-import { markUnliked } from "../../utils/ncm/like.js";
-import { loadDailyRecommend } from "../../utils/ncm/recommend.js";
-import { searchByType, SEARCH_TYPES, fetchArtistSongs } from "../../utils/ncm/api.js";
-import { downloadSongs } from "../../utils/player/download.js";
-import { bindDl } from "../../utils/player/dlvis.js";
-import { downloadAll, isIndexed, addList, removeList } from "../../utils/player/locallists.js";
-import { toPlaylist, playNext, playNextText } from "../../utils/songact.js";
+} from "../../../services/ncm/playlist.js";
+import { markUnliked } from "../../../services/ncm/like.js";
+import { loadDailyRecommend } from "../../../services/ncm/recommend.js";
+import { searchByType, SEARCH_TYPES, fetchArtistSongs } from "../../../services/ncm/api.js";
+import { downloadSongs } from "../../../services/player/download.js";
+import { bindDl } from "../../../services/player/dlvis.js";
+import { downloadAll, isIndexed, addList, removeList } from "../../../services/player/locallists.js";
+import { toPlaylist, playNext, playNextText } from "../../../services/player/acts.js";
 import config from "../../utils/config.js";
 import ContextSheet from "../../components/ContextSheet.vue";
 import { selPicked, selAllIds, dlText, startText, resultText, spaceCheck } from "../../utils/multidl.js";

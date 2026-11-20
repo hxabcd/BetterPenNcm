@@ -22,8 +22,8 @@
  *   3) 都没有：人形图标
  * 先立刻铺兜底图，真头像就绪后覆盖；真头像拿不到就保留兜底图。
  */
-import { resolveArtistPortrait, PORTRAIT_SIZE } from '../utils/artistavatar.js'
-import { ensureCover, cachedCover } from '../utils/cover.js'
+import { resolveArtistPortrait, PORTRAIT_SIZE } from '../../services/cover/artistavatar.js'
+import { ensureCover, cachedCover } from '../../services/cover/cover.js'
 import { ICON } from '../assets/icons.js'
 
 export default {

@@ -105,17 +105,22 @@ stage('core/infra/format.js', 'format.js')
     .replace(/from '\.\.\/\.\.\/core\/infra\/format\.js'/g, "from './format.js'")
   fs.writeFileSync(path.join(sandbox, 'sig.js'), code)
 }
-// vis.js：log.js 打桩
-fs.writeFileSync(path.join(sandbox, 'log.js'), 'export function log() {}\n')
+// 可见性实现（并入 ui/mixins/dlsub.js）：log.js 打桩
+fs.writeFileSync(path.join(sandbox, 'log.js'),
+  'export function log() {}\n' +
+  'export const dlState = () => ({})\n' +
+  'export const onDl = () => () => {}\n' +
+  'export const offDl = () => {}\n')
 {
   const code = fs
-    .readFileSync(path.join(SRC, 'ui/vis.js'), 'utf8')
-    .replace(/from '\.\.\/core\/infra\/log\.js'/g, "from './log.js'")
-  fs.writeFileSync(path.join(sandbox, 'vis.js'), code)
+    .readFileSync(path.join(SRC, 'ui/mixins/dlsub.js'), 'utf8')
+    .replace(/from '\.\.\/\.\.\/core\/infra\/log\.js'/g, "from './log.js'")
+    .replace(/from '..\/services\/player\/download\.js'/g, "from './log.js'")
+  fs.writeFileSync(path.join(sandbox, 'dlsub.js'), code)
 }
 
 const sig = await import('file://' + path.join(sandbox, 'sig.js').replace(/\\/g, '/'))
-const vis = await import('file://' + path.join(sandbox, 'vis.js').replace(/\\/g, '/'))
+const vis = await import('file://' + path.join(sandbox, 'dlsub.js').replace(/\\/g, '/'))
 
 // infinite.js 无外部依赖，原样搬进沙箱测纯判定函数
 stage('ui/mixins/infinite.js', 'infinite.js')
@@ -372,7 +377,7 @@ const SLEEP_ALLOW = {
   // 每项 = [文件, 必须出现的「先释放上一组」片段]
   const targets = [
     ['ui/mixins/dlsub.js', 'vm._dlOff()'],
-    ['ui/vis.js', 'vm._visOff()'],
+    ['ui/mixins/dlsub.js', 'vm._visOff()'],
     ['ui/mixins/accent.js', 'unbindTheme(vm._accentOff)']
   ]
   const bad = []
@@ -492,9 +497,10 @@ const SLEEP_ALLOW = {
   for (const f of INF_PAGES) {
     const t = fs.readFileSync(path.join(SRC, f), 'utf8')
     const c = stripComments(t)
+    // S3 后 infiniteBottomPx/AUTO_BATCH 收进 ui/mixins/listpage.js，页面判据换成
+    // listPageConfig（切片数组 + 行高）仍在
     const ok = /@scroll="onInfiniteScroll"/.test(t) && /infiniteScrollMixin/.test(c) &&
-      /infiniteBottomPx\(\)/.test(c) && /hasMore/.test(c) && /loadMore\(/.test(c) &&
-      /AUTO_BATCH/.test(c)
+      /hasMore/.test(c) && /loadMore\(/.test(c) && /listPageConfig/.test(c)
     if (!ok) missing.push(f)
   }
   eq('自动续页: 接入页四要件齐全(@scroll/mixin/估算/hasMore/loadMore/AUTO_BATCH)', missing.join(', ') || 'none', 'none')

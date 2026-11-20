@@ -133,7 +133,7 @@ import { armMixin } from '../../ui/mixins/arm.js';
 import { multiSelectMixin } from '../../ui/mixins/multi.js';
 import { pageFrameMixin } from '../../ui/mixins/frame.js';
 import { pageBusMixin } from '../../ui/mixins/pagebus.js';
-import { PAGE_SONG, SEARCH_LIMIT, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../ui/paging.js';
+import { PAGE_SONG, SEARCH_LIMIT, AUTO_BATCH, ROW_PX_SONG } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js';
 import { openTextEdit, available as skAvailable } from '../../core/platform/systemKeyboard.js';
 
@@ -182,6 +182,7 @@ const SORTS = {
 
 /* 搜索分类表（SEARCH_TYPES）归 SearchSidebar 组件与 api.js；页面只用 catOf 取 label/unit。 */
 import { SEARCH_TYPES as searchCats } from '../../services/ncm/api.js';
+import { listPageMixin } from '../../../ui/mixins/listpage.js'
 /** 搜索分类 → 选项（拿 label / unit 用；表在 SearchSidebar 与 api.js 的 SEARCH_TYPES） */
 function catOf(type) {
   for (let i = 0; i < searchCats.length; i++) {
@@ -199,7 +200,7 @@ function searchTitle(kw) {
 
 export default {
   name: "list",
-  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageBusMixin, pageFrameMixin, infiniteScrollMixin],
+  mixins: [accentMixin, listPageMixin, toastMixin, armMixin, multiSelectMixin, pageBusMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     "page-shell": PageShell,
     "page-topbar": PageTopbar,
@@ -266,9 +267,6 @@ export default {
     };
   },
   computed: {
-    infiniteBottomPx() {
-      return this.shown * ROW_PX_SONG
-    },
     /** 本页是不是搜索结果页（只有它才有右侧分类侧栏；其余 kind 的内容类型是固定的） */
     isSearch() {
       return this.kind === "search";
@@ -537,6 +535,10 @@ export default {
     // armed / toast 的计时器由 ui/arm.js、ui/toast.js 的 beforeDestroy 自动清
   },
   methods: {
+    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    listPageConfig() {
+      return { slice: 'songs', shown: 'shown', rowPx: ROW_PX_SONG }
+    },
     /** 按导航参数重置路由状态并加载列表；同一参数（页面挂两遍）直接跳过，保证挂载幂等。 */
     openList(p) {
       const params = p || {};

@@ -75,12 +75,13 @@ import { toastMixin } from '../../ui/mixins/toast.js'
 import { armMixin } from '../../ui/mixins/arm.js'
 import { multiSelectMixin } from '../../ui/mixins/multi.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
-import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../ui/paging.js'
+import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
+import { listPageMixin } from '../../../ui/mixins/listpage.js'
 
 export default {
   name: 'album',
-  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
+  mixins: [accentMixin, listPageMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -109,9 +110,6 @@ export default {
     }
   },
   computed: {
-    infiniteBottomPx() {
-      return this.visibleSongs.length * ROW_PX_SONG
-    },
     artistText() {
       if (!this.artists.length) return '未知歌手'
       const out = []
@@ -194,6 +192,10 @@ export default {
     this._dlOff = null
   },
   methods: {
+    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    listPageConfig() {
+      return { slice: 'visibleSongs', rowPx: ROW_PX_SONG }
+    },
     async load() {
       const self = this
       if (!this.id) {

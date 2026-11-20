@@ -46,8 +46,9 @@ import { localArtistList } from '../../services/player/localmeta.js'
 import { log } from '../../core/infra/log.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
-import { PAGE_ROW, AUTO_BATCH, ROW_PX_TALL, moreText } from '../../ui/paging.js'
+import { PAGE_ROW, AUTO_BATCH, ROW_PX_TALL } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
+import { listPageMixin } from '../../../ui/mixins/listpage.js'
 
 const SORTS = [
   { key: 'name', label: '标题' },
@@ -68,7 +69,7 @@ function cmpName(a, b) {
 
 export default {
   name: 'dlartists',
-  mixins: [accentMixin, pageFrameMixin, infiniteScrollMixin],
+  mixins: [accentMixin, listPageMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -89,9 +90,6 @@ export default {
     }
   },
   computed: {
-    infiniteBottomPx() {
-      return this.visible.length * ROW_PX_TALL
-    },
     view() {
       const out = this.artists.slice()
       const k = this.sortKey
@@ -141,6 +139,10 @@ export default {
     this._onShow = null
   },
   methods: {
+    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    listPageConfig() {
+      return { slice: 'visible', rowPx: ROW_PX_TALL }
+    },
     async refresh() {
       try {
         const list = await localArtistList()

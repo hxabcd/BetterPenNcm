@@ -88,8 +88,9 @@ import { toastMixin } from '../../ui/mixins/toast.js'
 import { armMixin } from '../../ui/mixins/arm.js'
 import { multiSelectMixin } from '../../ui/mixins/multi.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
-import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG, moreText } from '../../ui/paging.js'
+import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
+import { listPageMixin } from '../../../ui/mixins/listpage.js'
 
 const KIND_NAME = {
   all: '全部下载',
@@ -109,7 +110,7 @@ function normSong(s) {
 
 export default {
   name: 'dltracks',
-  mixins: [accentMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
+  mixins: [accentMixin, listPageMixin, toastMixin, armMixin, multiSelectMixin, pageFrameMixin, infiniteScrollMixin],
   components: {
     'page-shell': PageShell,
     'page-topbar': PageTopbar,
@@ -137,9 +138,6 @@ export default {
     }
   },
   computed: {
-    infiniteBottomPx() {
-      return this.rows.length * ROW_PX_SONG
-    },
     isPlaylist() {
       return this.kind === 'playlist'
     },
@@ -239,6 +237,10 @@ export default {
     this._onShow = null
   },
   methods: {
+    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    listPageConfig() {
+      return { slice: 'rows', rowPx: ROW_PX_SONG }
+    },
     openPage(p) {
       const par = p || {}
       const kind = par.kind === 'playlist' || par.kind === 'single' || par.kind === 'orphan' ? par.kind : 'all'

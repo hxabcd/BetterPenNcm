@@ -10,7 +10,7 @@ This file provides guidance to AI Agent when working with code in this repositor
 
 有道词典笔 S7 上的自研网易云音乐客户端（QuickJS 小程序 + Vue 2 SFC）。appid `8000200708310039`。
 
-- 页面入口 = `src/app.json` 的 `pages`；导航走 `utils/nav.js`（逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）
+- 页面入口 = `src/app.json` 的 `pages`；导航走 `src/core/infra/nav.js`（逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）
 - 运行时 API 与平台实测记录的索引见 [`docs/运行时API参考.md`](docs/运行时API参考.md)；引用其中结论时按 [`../../DOCS_SPEC.md`](../../DOCS_SPEC.md) 核对对应证据
 - 文档或注释任务（编写、核验、清理）先读 [`../../DOCS_SPEC.md`](../../DOCS_SPEC.md)：以当前事实与当前意图为准，旧文档中的“用户定”归因和历史决策不作为依据
 - 功能当前如何实现以代码和配置为准；注释只解释非显然的原因、约束或副作用，不代替实现事实
@@ -64,10 +64,10 @@ This file provides guidance to AI Agent when working with code in this repositor
 - **更新应用直接 `install` 覆盖**：同 appid 直接装，应用的 data（登录态、设置、下载）原样保留 —— 2026-11-12 实测确认（往 data/ 写标记后覆盖安装，标记仍在、`config.json` md5 未变）。所以不需要「备份 → uninstall → 恢复」那套流程
 - **`--fresh` 会清空 data**：先 `miniapp_cli uninstall` 再装，登录态与全部下载都会丢，只在要彻底重置时用。`miniapp_cli uninstall` 本身也清空整个 data 目录，别随手跑
 - **设备临时文件默认写 `/tmp`**（tmpfs，重启自清），不要在 `/userdisk` 根目录下建临时文件；`/tmp` 放不下的大文件才落 `/userdisk`；持久文件只进 `/userdisk/path/` 等既有子目录
-- 构建号写入生成物 `src/utils/buildInfo.js`（build.sh 生成，勿手改）并显示在首页顶栏，供核对设备版本
-- 平台能力的统一入口（别再各写各的）：可写路径一律走 `src/utils/paths.js`；**文本/结构化数据的唯一写入通道是 `src/utils/db.js`（原生 `import('sqlite3')`）——它开两个库：`local_index.db`（索引，可重建）与 `state.db`（`kv` 配置/凭据/会话/历史 + `track_meta` 每曲元数据 + `track_lyric` 歌词，属用户资产）**；`process.exec`/`curl`/`du`/`stat` 等能力探测走 `src/utils/exec.js`；`import('fs')` 句柄与 `fileSize` 等小工具走 `src/utils/fsutil.js`（**没有写函数**）；单步超时护栏 `raceTimeout` 走 `src/utils/util.js`；**共享的 UI 视觉常量走 `src/utils/ui/tokens.js`**（唯一值表，改值改它再跑 `scripts/gen_tokens.py --write`；JS 用 `TOK.xxx`、LESS 用生成段里的 `@xxx`）。颜色字面量由 `theme_verify.py` 第五道强制拦截；字号/尺寸目前不巡，仍按值表与评审维护
+- 构建号写入生成物 `src/core/infra/buildInfo.js`（build.sh 生成，勿手改）并显示在首页顶栏，供核对设备版本
+- 平台能力的统一入口（别再各写各的）：可写路径一律走 `src/core/infra/paths.js`；**文本/结构化数据的唯一写入通道是 `src/core/platform/db.js`（原生 `import('sqlite3')`）——它开两个库：`local_index.db`（索引，可重建）与 `state.db`（`kv` 配置/凭据/会话/历史 + `track_meta` 每曲元数据 + `track_lyric` 歌词，属用户资产）**；`process.exec`/`curl`/`du`/`stat` 等能力探测走 `src/core/platform/exec.js`；`import('fs')` 句柄与 `fileSize` 等小工具走 `src/core/platform/fsutil.js`（**没有写函数**）；单步超时护栏 `raceTimeout` 走 `src/core/infra/util.js`；**共享的 UI 视觉常量走 `src/ui/tokens.js`**（唯一值表，改值改它再跑 `scripts/gen_tokens.py --write`；JS 用 `TOK.xxx`、LESS 用生成段里的 `@xxx`）。颜色字面量由 `theme_verify.py` 第五道强制拦截；字号/尺寸目前不巡，仍按值表与评审维护；**分层方向由 `theme_verify.py` 第七道硬校验**（R1-R6，违例即自检失败）
 - **不要用 shell 重定向写文本文件**：`process.exec` 一次 = 一次 fork（真机 92~139ms），超 60KB 还得分片、每片再一次 fork。134KB 播放快照实测 2511ms，改走 SQLite 后 10ms。同理**不要用 `sqlite3` CLI**（每次一次 fork，且 SQL 走命令行参数会被代码页转成 GBK、中文变乱码）
-- **导航一律走 `src/utils/nav.js` 的 `go('<逻辑页名>')`**：不直接 `$falcon.navTo`、不写槽位 key、不传变量页名；参数用 `paramsFor()`。新增页面 / 调整层级见 [`docs/页面导航.md`](docs/页面导航.md)
+- **导航一律走 `src/core/infra/nav.js` 的 `go('<逻辑页名>')`**：不直接 `$falcon.navTo`、不写槽位 key、不传变量页名；参数用 `paramsFor()`。新增页面 / 调整层级见 [`docs/页面导航.md`](docs/页面导航.md)
 - **注释里别写 `**/`**：`*/` 会提前闭合块注释，rollup 报错且行号指向注释后一行
 
 ## 结构
@@ -75,16 +75,17 @@ This file provides guidance to AI Agent when working with code in this repositor
 | 层 | 职责 |
 |---|---|
 | `src/pages/**` | 页面（见下表），除 probe 外根节点是 `<page-shell>` |
-| `src/components/` | 可复用 UI：PageShell + NavRail（左操作栏与页面外壳，`.psh-body` 是浮层定位基准；左栏 60px 样式 2026-10-30 起全应用统一）、LyricPanel、NowLyric、各类行组件 |
-| `src/components/player/` | 播放页专用（2026-10-29 按 Figma 设计稿重做）：ControlPanel（封面/切换键/标题歌手专辑/进度/控制；右列 2026-10-30 按 13:1335 改为 3:2:2:1.5:5）、LyricBoard、CommentPanel、TimerPanel、SeekPanel；布局/几何/接口见 [`docs/播放页.md`](docs/播放页.md) |
-| `src/utils/player/` | 播放器与媒体：播放单例、下载引擎（**download.js 是门面**，内部拆为 source/files/progress/scheduler/tasks/fetcher，对外 API 不变）、curl 传输、下载/缓存两个目录与元数据、音质档位、历史、会话快照、歌词、本地库（localmeta.js）、**本地歌单索引/拉取同步（locallists.js）、下载归属标记（dlorigin.js）**、播放页几何常量、**定时播放单例（sleeptimer.js，跨页面存活、不持久化）** |
-| `src/utils/ncm/` | 网易云：接口归一化、歌单、喜欢、每日推荐、**歌曲评论（comments.js：读明文匿名可用的 `/api/v1/resource/comments/R_SO_4_<id>`，点赞/发评论走 weapi）**、weapi 加密与登录（二维码 / 验证码 / 密码） |
-| `src/utils/net/` | API 请求的唯一入口 + Cookie 维护；`src/utils/log.js` 为日志直连内建 http，是刻意例外（避免 request→cookies→log 递归、日志不带业务 Cookie） |
-| `src/utils/`（其余） | boot（启动序列：建目录 → 开两个库 → 载入配置）、cover（封面缓存：曲目单尺寸 + 浏览缩略图）、**artistavatar / artistmeta（歌手头像唯一来源与预热）**、**nav（导航层：逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）**、rail、theme、config、format、touch、multidl、**util（raceTimeout/sleep）、fsutil（原生 fs 句柄与建/删/读，**不写文件**）、exec（process.exec 能力探测）、paths（可写路径唯一真源）、db（SQLite 通道：索引库 + 状态库两条连接）、media（每 track 目录与曲目文档的读写）、store（KV，实现是状态库的 kv 表）** |
+| `src/components/` | 可复用 UI。chrome 外壳（PageShell/NavRail/PageTopbar/HintToast/EmptyHint/OptChip/OptToggle/CueRow/ContextSheet）、播放页子面板（`player/`：ControlPanel/LyricBoard/CommentPanel/TimerPanel/SeekPanel，见 [`docs/播放页.md`](docs/播放页.md)）、列表行与卡片（SongRow/EntryRow/LibraryRow/ArtistRow/PlaylistCard/AlbumCard）、首页状态对（NowLyric/NowProgress）、搜索侧栏（`list/SearchSidebar.vue`）；`.psh-body` 是浮层定位基准；左栏 60px 样式 2026-10-30 起全应用统一 |
+| `src/ui/` | UI 辅助层（mixin 集中在 `ui/mixins/`）：**tokens（视觉常量唯一值表）**、theme（主题状态本体）、rail（左栏槽位工厂）、paging（渲染分片口径）、dlselect（选择集纯函数）、vis（可见性转发，实现在 `mixins/dlsub.js`）；mixin：accent（主题混入）/toast/arm/multi（多选状态机）/frame（骨架分派）/pagebus/infinite（自动续批）/listpage（列表页骨架样板）/dlsub（下载订阅 + 可见性门控） |
+| `src/services/player/` | 播放器与媒体：播放单例、下载引擎（**download.js 是门面**，含下载文案/空间预检/dlSig 签名）、curl 传输、下载/缓存两目录与元数据、音质档位、历史、会话快照、歌词、本地库（localmeta）、本地歌单索引（locallists）、下载归属（dlorigin）、**listkinds（六-kind 取数路由）+ listcursor（游标/全量装配引擎）**、acts（曲目动作门面）、meta/sqlkit（SQL 批量写管道唯一实现）、定时播放单例（sleeptimer） |
+| `src/services/ncm/` | 网易云：接口归一化、歌单、喜欢、每日推荐、**歌曲评论（comments.js：读明文匿名可用，点赞/发评论走 weapi）**、weapi 加密与登录（二维码 / 验证码 / 密码） |
+| `src/services/cover/` | 图片获取 + 缓存域：cover（曲目封面单尺寸 + 浏览缩略图）、color（ffmpeg 取色）、artistavatar / artistmeta（歌手头像唯一来源与预热） |
+| `src/core/infra/` | 不碰平台能力的通用设施：boot（启动序列：建目录 → 开两库 → 载入配置）、**nav（导航层：逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）**、config、log（直连内建 http，刻意绕过 request 层防递归、不带业务 Cookie）、paths（可写路径唯一真源）、store（KV = 状态库 kv 表）、format、events、util（raceTimeout/sleep）、buildInfo/logconfig.generated（构建生成物）、net/（request 唯一入口 + cookies + status） |
+| `src/core/platform/` | 平台适配：db（SQLite 通道：索引库 + 状态库两条连接，域表 DDL 集中于此）、exec（process.exec 能力探测）、fsutil（原生 fs 句柄与建/删/读，**不写文件**）、touch（触摸坐标兜底）、systemKeyboard（global 输入法） |
 | `src/assets/` + `scripts/gen_icons.py` | 图标 = Lucide SVG → PNG（平台不能给 `<image>` 染色，颜色必须生成进 PNG）；**`icons.js` 注册表是纯生成物**（`gen_icons.py --emit-js` 生成、`--check` 逐字节校验——别手改） |
-| `src/styles/common.less` | 设计 token：颜色 / 字号阶梯 / 结构尺寸（1vh = 2.4px）；**令牌段是生成物**（源头 = `src/utils/ui/tokens.js`，生成/校验走 `scripts/gen_tokens.py`） |
+| `src/styles/common.less` | 设计 token：颜色 / 字号阶梯 / 结构尺寸（1vh = 2.4px）；**令牌段是生成物**（源头 = `src/ui/tokens.js`，生成/校验走 `scripts/gen_tokens.py`） |
 
-多页面机制：`pages` 的每个 key 编成一个 `.falcon_/<key>.js.bin`，共享模块自动切 chunk；**跨页面 ES 模块是同一实例**，播放器等单例各页直接 import。app.json 里同一个 .vue 会注册多个 key：基础 key = **逻辑页名**，其余 = **实例槽位别名**（`list2`/`songinfo2`…，只编译成几百字节的 re-export）。页面代码只写逻辑页名，`utils/nav.js` 负责挑不在栈里的槽位再 navTo，从而得到标准 push/pop 语义（平台 navTo 对同名页是「弹掉中间层并复用旧实例」）。
+多页面机制：`pages` 的每个 key 编成一个 `.falcon_/<key>.js.bin`，共享模块自动切 chunk；**跨页面 ES 模块是同一实例**，播放器等单例各页直接 import。app.json 里同一个 .vue 会注册多个 key：基础 key = **逻辑页名**，其余 = **实例槽位别名**（`list2`/`songinfo2`…，只编译成几百字节的 re-export）。页面代码只写逻辑页名，`core/infra/nav.js` 负责挑不在栈里的槽位再 navTo，从而得到标准 push/pop 语义（平台 navTo 对同名页是「弹掉中间层并复用旧实例」）。
 
 ### 左栏导航
 
@@ -96,10 +97,10 @@ This file provides guidance to AI Agent when working with code in this repositor
 
 ### 导航（页面栈）
 
-- **跳转一律 `go('<逻辑页名>', params)`**（`utils/nav.js`）；不直接 `$falcon.navTo`、不写槽位 key（`list2` 等）、不传变量页名。菜单表驱动的跳转用字面量分支；`theme_verify.py` 第六道硬校验逻辑页 / 槽位 / app.json / 调用点一致性。
+- **跳转一律 `go('<逻辑页名>', params)`**（`core/infra/nav.js`）；不直接 `$falcon.navTo`、不写槽位 key（`list2` 等）、不传变量页名。菜单表驱动的跳转用字面量分支；`theme_verify.py` 第六道硬校验逻辑页 / 槽位 / app.json / 调用点一致性。
 - **返回一律 `this.$page.finish()`**（`pageFrameMixin.onBack` 默认实现 = pop 一层）。
 - **参数**在 `mounted` 里用 `paramsFor((this.$page && this.$page.$pageName) || '<逻辑页名>', this.$page ? this.$page.options : null)` 取一次；`onPageParams` 已删除（每次跳转都是新实例，不存在「复用页接新参数」）。
-- **实例槽位**登记在 `utils/nav.js` 的 `PAGES` 表：`slots[0]` 必须与逻辑页同名，其余是 app.json 别名 key；槽位数按「可能同时存活的视图层数」给（list/songinfo/album/artist 6、playlists 4、部分页 2、叶子页 1）。连点（同一逻辑页 + 同一参数 500ms 内）会被 `go()` 合并；槽位耗尽时复用最上层同类实例并记 `degrade`（异常路径，正常不应出现）。
+- **实例槽位**登记在 `core/infra/nav.js` 的 `PAGES` 表：`slots[0]` 必须与逻辑页同名，其余是 app.json 别名 key；槽位数按「可能同时存活的视图层数」给（list/songinfo/album/artist 6、playlists 4、部分页 2、叶子页 1）。连点（同一逻辑页 + 同一参数 500ms 内）会被 `go()` 合并；槽位耗尽时复用最上层同类实例并记 `degrade`（异常路径，正常不应出现）。
 - **目的地页**（当前只有 `player`；根页 `index` 同理）标 `reuse: true`：已在栈中时按平台语义回退到它（不叠新层），页面代码侧无需特殊处理。
 - **新增页面**：.vue → app.json 注册基础 key（需要叠层时再加槽位别名）→ `PAGES` 登记同名逻辑页 → `theme_verify.py` 通过。完整规则见 [`docs/页面导航.md`](docs/页面导航.md)。
 - 跨页业务事件走 `pagebus`（注册栈）：页面栈上层优先处理，实例销毁后回落给下层。
@@ -145,7 +146,7 @@ This file provides guidance to AI Agent when working with code in this repositor
 12. **无系统 dblclick**，双击自己用时间戳判定；**长按有原生 `@longpress`**（500ms，触发后不再走 click）
 13. **浮层的绝对定位基准是 `.psh-body`**，遮罩只盖内容区、不盖左栏
 14. **图标用 data-URI PNG**（`?base64` 导入被内联）；别改 SVG data URI
-15. **触摸坐标字段因固件而异**（`utils/touch.js` 兜底）；拖动只用两点之差，坐标系无关
+15. **触摸坐标字段因固件而异**（`core/platform/touch.js` 兜底）；拖动只用两点之差，坐标系无关
 16. **`watch` 不去重**：依赖高频变化的 computed 的 watch 会被反复回调 → 带副作用的回调一律在入口自己判重
 17. **绝对定位别用负偏移**（会被当 0 或被父容器裁）→ 父元素放大到最大子元素尺寸 + 子元素零偏移
 18. **任何宽度 >100vh 都会被静默截到 100vh** → 超限一律写 px（1vh = 2.4px）或百分比（基准 ≈953px）；改完截图 + 像素扫描验证
@@ -159,7 +160,7 @@ This file provides guidance to AI Agent when working with code in this repositor
 
 ## 调试
 
-- `console.log` **不进**设备日志 → 用 `utils/log.js` 的 `log()`（POST 回 PC 的 logserver）；排查前先确保 logserver 在跑，**且本次构建注入了 `BPNCM_LOG_SRV`**（见上表；缺省 127.0.0.1 在设备上连不通、静默失败）。远程回归不受影响 —— 脚本抽的是系统日志里的 `console.warn`
+- `console.log` **不进**设备日志 → 用 `core/infra/log.js` 的 `log()`（POST 回 PC 的 logserver）；排查前先确保 logserver 在跑，**且本次构建注入了 `BPNCM_LOG_SRV`**（见上表；缺省 127.0.0.1 在设备上连不通、静默失败）。远程回归不受影响 —— 脚本抽的是系统日志里的 `console.warn`
 - 崩溃排查：设备 `/data/applog/YD_PEN_APP.log`（框架层）+ `device_log.txt`（应用日志，**崩前最后一条即断点**）
 - **被框架吞掉的页面异常**只显示 `console().error: null`；`app.js` 已常备 `App.onError` + 覆盖 `$falcon.onAppError`，抛错以 `[app] onAppError: ...` 进日志
 - **下载慢先查 WiFi 链路速率**（`iw dev wlan0 link` 的 rx bitrate）：这台笔须钉在 2.4GHz BSS，改配置走 `wpa_cli` + `save_config`，别直接编辑 `wpa_supplicant.conf`（会被回写覆盖）
@@ -169,8 +170,8 @@ This file provides guidance to AI Agent when working with code in this repositor
 
 ## 边界
 
-- **下载**（用户主动）→ `$dataDir/downloads/<id>/`，永久保留，计入「本地下载」；**缓存**（边听边存）→ `$dataDir/cache/<id>/`，受缓存上限 LRU 滚动，不计入本地下载。每 track 一个目录，目录内只有 `track.mp3|flac` 与 `cover.jpg`；**元数据与歌词在 `state.db` 的 `track_meta` / `track_lyric` 表**（按 `id`，元数据另按 `kind` 1=download / 2=cache 区分）。路径一律从 `src/utils/paths.js` 取，布局与不变式见 [`docs/存储重构.md`](docs/存储重构.md) §2
+- **下载**（用户主动）→ `$dataDir/downloads/<id>/`，永久保留，计入「本地下载」；**缓存**（边听边存）→ `$dataDir/cache/<id>/`，受缓存上限 LRU 滚动，不计入本地下载。每 track 一个目录，目录内只有 `track.mp3|flac` 与 `cover.jpg`；**元数据与歌词在 `state.db` 的 `track_meta` / `track_lyric` 表**（按 `id`，元数据另按 `kind` 1=download / 2=cache 区分）。路径一律从 `src/core/infra/paths.js` 取，布局与不变式见 [`docs/存储重构.md`](docs/存储重构.md) §2
 - **后台 JS 会冻结**：切后台时下载跑完当前片就停，别承诺「后台继续下载」；应用退出后无后台，会直接关闭
 - 退出登录会**清空 `kv` 表的 `ncm_cookies` 行**（否则 boot 会把会话灌回来），并删掉 curl 的 jar 文件
-- 长列表按首屏批量渲染（口径见 `utils/ui/paging.js`），滚到底自动续批（`utils/ui/infinite.js`，每次 `AUTO_BATCH` 行）；仅在「内容超过一屏且用户已下滚」时自动触发，拿不到滚动位移则降级到原有「加载更多」按钮。网络游标见 `list.vue`；列表内搜索仍待定
-- 原生 `.so` 模块、官方虚拟列表等扩展方向未在当前代码中启用；`global` 已用于输入法与网络状态（`systemKeyboard.js` / `net/status.js`），其它能力动前先用探针页验证
+- 长列表按首屏批量渲染（口径见 `ui/paging.js`），滚到底自动续批（`ui/mixins/infinite.js`，每次 `AUTO_BATCH` 行）；仅在「内容超过一屏且用户已下滚」时自动触发，拿不到滚动位移则降级到原有「加载更多」按钮。网络游标见 `list.vue`；列表内搜索仍待定
+- 原生 `.so` 模块、官方虚拟列表等扩展方向未在当前代码中启用；`global` 已用于输入法与网络状态（`core/platform/systemKeyboard.js` / `core/infra/net/status.js`），其它能力动前先用探针页验证

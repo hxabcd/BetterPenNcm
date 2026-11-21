@@ -18,14 +18,29 @@
 import { load as loadCookies, header as cookieHeader, absorbHeaders } from './cookies.js'
 import { reportNet } from './status.js'
 
-let httpMod = null
+let httpReady = null
 
-async function getHttp() {
-  if (!httpMod) {
+/**
+ * http 模块句柄。X3S 没有 http 裸模块 → 回退到原生桥 bridgeHttp()
+ * （libcurl + 收响应头，Cookie 会话可维护）；S7 / X5 行为不变。
+ */
+function getHttp() {
+  if (!httpReady) httpReady = loadHttp()
+  return httpReady
+}
+
+async function loadHttp() {
+  try {
     const m = await import('http')
-    httpMod = (m && m.default) || m
+    const mod = (m && m.default) || m
+    if (mod && typeof mod.request === 'function') return mod
+  } catch (e) {}
+  try {
+    const b = await import('../../platform/bridge.js')
+    return await b.bridgeHttp()
+  } catch (e) {
+    return null
   }
-  return httpMod
 }
 
 /** 合并业务 headers 与 Cookie 头 */

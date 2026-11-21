@@ -23,6 +23,7 @@
  * 真正的 .on() 在实例创建后由 getInst() 自动补挂。
  */
 import { log } from '../../core/infra/log.js'
+import { ensureOutput } from '../../core/platform/audio.js'
 
 let inst = null
 let handlers = null
@@ -74,6 +75,8 @@ async function getInst() {
 
 /** 播放本地文件或直链；positionMs 起始偏移（ms）、rate 倍速；返回任务 uuid（事件按它过滤） */
 export async function playFile(fileName, positionMs, rate) {
+  // X3S：ALSA 默认静音 + 输出路径 OFF，播放前先开一次（S7/X5 no-op，见 platform/audio.js）
+  await ensureOutput()
   const sp = await getInst()
   const pos = typeof positionMs === 'number' ? positionMs : 0
   const r = typeof rate === 'number' ? rate : 1.0

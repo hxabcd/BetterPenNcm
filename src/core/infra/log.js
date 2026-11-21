@@ -20,13 +20,25 @@ import { LOG_SRV } from './logconfig.generated.js'
 const SRV = LOG_SRV || 'http://127.0.0.1:8888/log'
 const MAX = 30
 
-let httpMod = null
-async function getHttp() {
-  if (!httpMod) {
+let httpReady = null
+function getHttp() {
+  if (!httpReady) httpReady = loadHttp()
+  return httpReady
+}
+
+/** X3S 没有 http 裸模块 → 回退到原生桥（见 core/platform/bridge.js） */
+async function loadHttp() {
+  try {
     const m = await import('http')
-    httpMod = (m && m.default) || m
+    const mod = (m && m.default) || m
+    if (mod && typeof mod.request === 'function') return mod
+  } catch (e) {}
+  try {
+    const b = await import('../platform/bridge.js')
+    return await b.bridgeHttp()
+  } catch (e) {
+    return null
   }
-  return httpMod
 }
 
 const ring = [] // 最近若干条，供界面直接显示（PC 不在线时也能看）

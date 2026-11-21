@@ -26,7 +26,7 @@
 | `pagebus.js` → `pageBusMixin` | `onPageEvent(evt, '方法名')`；同一事件由页面栈上层存活实例处理、实例销毁自动退役并回落给下层 | `$falcon.on` 订阅的注册/退役 |
 | `infinite.js` → `infiniteScrollMixin` | 页面提供 `hasMore` / `loadMore()` / `infiniteBottomPx`（列表页由 `listPageMixin` 给）；模板 `@scroll="onInfiniteScroll"` | 滚到底自动续批（fail-closed 降级到「加载更多」按钮） |
 | `listpage.js` → `listPageMixin` | `moreLabel(n, unit)`；本地切片 `loadMoreLocalSlice()`；`infiniteBottomPx`（按 `listPageConfig()` 声明的切片数组/行高）；`_dlOff` 兜底清理 | 列表页骨架样板（S3 收编） |
-| `dlsub.js` → `bindDl` / `dlSubscriberMixin`（含页面可见性实现 `markVisible/onVisChange/bindPageVis/pageOf`，`ui/vis.js` 是转发层） | `this._dlOff = bindDl(vm, fn)`：订阅 + 可见性门控 + 挂载首帧快照 | 下载活动订阅的省渲染封装 |
+| `dlsub.js` → `bindDl` / `dlSubscriberMixin`（含页面可见性实现 `markVisible/onVisChange/bindPageVis/pageOf`，`core/infra/vis.js` 是转发层） | `this._dlOff = bindDl(vm, fn)`：订阅 + 可见性门控 + 挂载首帧快照 | 下载活动订阅的省渲染封装 |
 
 ## 二、组合规则
 

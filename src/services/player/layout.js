@@ -10,7 +10,8 @@
  * LESS 那边有对应注释点出数字来源。
  */
 
-export const VH = 2.4 // 1vh = 2.4px（1020×240 逻辑视口）
+/** S7 基准：1vh = 2.4px（1020×240 逻辑视口）。X3S/X5 的实际值由 vhPx() 从 screenSize() 算。 */
+export const VH = 2.4
 export const SCREEN_W = 1020
 export const SCREEN_H = 240
 /** 左侧操作栏宽度（vh）——与 NavRail.vue 的 .rail width 成对维护
@@ -71,7 +72,7 @@ export function lyricViewH() {
 
 /** 歌词可视区高度（px） */
 export function lyricViewPx() {
-  return lyricViewH() * VH
+  return lyricViewH() * vhPx()
 }
 
 /**
@@ -84,10 +85,12 @@ export function lyricViewPx() {
  * 从左往右：内容区左 | 浮窗内边距 | 圆钮 | 间距 | 外框内边距 | ←线→ | 外框内边距 | 浮窗内边距
  */
 export function seekGeometry() {
-  const railW = RAIL_W * VH
-  const contentW = SCREEN_W - railW
-  const leftInset = (PLY.SEEK_PAD_H + PLY.SEEK_BTN + PLY.SEEK_GAP + PLY.SEEK_LINE_PAD) * VH
-  const rightInset = (PLY.SEEK_PAD_H + PLY.SEEK_LINE_PAD) * VH
+  const s = screenSize()
+  const px = vhPx()
+  const railW = RAIL_W * px
+  const contentW = s.w - railW
+  const leftInset = (PLY.SEEK_PAD_H + PLY.SEEK_BTN + PLY.SEEK_GAP + PLY.SEEK_LINE_PAD) * px
+  const rightInset = (PLY.SEEK_PAD_H + PLY.SEEK_LINE_PAD) * px
   return {
     x: railW + leftInset,
     w: Math.max(1, contentW - leftInset - rightInset)
@@ -95,8 +98,15 @@ export function seekGeometry() {
 }
 
 /**
- * 屏幕尺寸：优先读 $falcon.env，读不到/不合理就退回 1020×240。
- * PenMusic 的坑：env 里可能是竖屏值，要按 max/min 纠正成横向。
+ * 屏幕尺寸（**页面布局视口**，不是物理面板尺寸）。
+ *
+ * 读 $falcon.env：优先 screenWidth/screenHeight，其次 deviceWidth/deviceHeight
+ * （S7/X3S 实测只有 device*；X3S 是 800×480 的物理面板，但小程序页面视口按
+ * `/etc/miniapp/resources/cfg.json` 的 800×254 横条居中渲染——与 X5 同款）。
+ * 读不到/不合理退回 1020×240（S7）。
+ *
+ * 窄屏族（宽度 ≤ 900）的页面高统一按 254：X3S 实测截图 800×254，X5 文档记载
+ * 800×254；`deviceHeight=480` 是物理屏高，不能当 CSS 视口高用。
  */
 export function screenSize() {
   let w = SCREEN_W
@@ -104,12 +114,29 @@ export function screenSize() {
   try {
     /* global $falcon */
     const e = $falcon.env || {}
-    const ew = Number(e.screenWidth || e.width) || 0
-    const eh = Number(e.screenHeight || e.height) || 0
+    const ew = Number(e.screenWidth || e.width || e.deviceWidth) || 0
+    const eh = Number(e.screenHeight || e.height || e.deviceHeight) || 0
     if (ew > 0 && eh > 0) {
       w = Math.max(ew, eh)
       h = Math.min(ew, eh)
     }
   } catch (err) {}
+  if (w > 0 && w <= 900) {
+    w = 800
+    h = 254
+  }
   return { w: w, h: h }
+}
+
+/** 1vh 的像素值（S7 2.4 / X3S·X5 2.54）——JS 侧几何算式用，LESS 的 vh 由平台自己换算 */
+export function vhPx() {
+  return screenSize().h / 100
+}
+
+/**
+ * 是否窄屏族（X3S / X5，页面视口 800×254）：播放页三列装不下，改「控制区铺满 + 右侧抽屉」。
+ * 阈值 900：S7 1020 与窄屏 800 之间留足余量。读不到 env 时回落 1020 → false，S7 行为兜底。
+ */
+export function isNarrow() {
+  return screenSize().w <= 900
 }

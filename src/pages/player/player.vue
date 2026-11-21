@@ -16,11 +16,10 @@
         @sub="toggleSub"
       />
 
-      <!-- 子面板 480×240：底色 #272727 + 左侧 12px 圆角（设计稿 SubPanel 槽位）。
-           默认不打开任何面板（设计稿的 EmptyExtraPanel = 空面板，只留底色）；
-           三个切换键各自开合：已打开的面板再点同一个键 → 关闭回到空面板。
+      <!-- S7：常驻子面板 480×240，底色 #272727 + 左侧 12px 圆角（设计稿 SubPanel 槽位）。
+           默认打开歌词面板；三个切换键各自开合：已打开的面板再点同一个键 → 关闭回到空面板。
            进度控制（TimeShiftPanel）内含定时播放子页：seek → timer 是同一面板内的两级页面。 -->
-      <div class="ply-sub">
+      <div v-if="!narrow" class="ply-sub">
         <lyric-board
           v-if="sub === 'lyric' && lyricOn"
           :lines="lines"
@@ -46,6 +45,39 @@
         />
         <timer-panel v-else-if="sub === 'seek'" @back="timerBack" @toast="showToast" />
         <!-- 其余情况 = 空面板（EmptyExtraPanel）：不渲染任何内容，父级底色即可 -->
+      </div>
+
+      <!-- 窄屏族（X3S/X5，视口 800×254）：辅助面板 = 右侧抽屉浮层（.ply-main 是定位基准，
+           遮罩只盖控制区、不盖左栏）。点任一切换键滑出，点左侧遮罩或再点同一个键收回；
+           sub='' 时不渲染任何浮层。抽屉与 S7 子面板同宽 480px —— 三个面板内部全是 480/456
+           定宽，零改动直接复用。
+           ⚠ 下方面板块与 .ply-sub 内的完全一致，改面板 props/事件两处同步。 -->
+      <div v-if="narrow && sub" class="ply-scrim" @click="closePanel"></div>
+      <div v-if="narrow && sub" class="ply-drawer">
+        <lyric-board
+          v-if="sub === 'lyric' && lyricOn"
+          :lines="lines"
+          :show-trans="showTrans"
+          :full="lyricFull"
+          :follow="lyricFollow"
+          :dbl-tap="lyricDbl"
+          :word-on="lyricWord"
+          :anim="lyricAnim"
+          :empty-text="lyricHint"
+          @seekline="onSeekLine"
+        />
+        <div class="ply-off" v-else-if="sub === 'lyric'">
+          <text class="ply-off-t">歌词已关闭</text>
+        </div>
+        <comment-panel v-else-if="sub === 'comment'" :song-id="curId" @toast="showToast" />
+        <seek-panel
+          v-else-if="sub === 'seek' && seekView === 'seek'"
+          :st="st"
+          @seek="onSeekTo"
+          @timer="openTimer"
+          @close="closePanel"
+        />
+        <timer-panel v-else-if="sub === 'seek'" @back="timerBack" @toast="showToast" />
       </div>
     </div>
 
@@ -100,6 +132,7 @@ import { toastMixin } from '../../ui/mixins/toast.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
 import { bindPageVis } from '../../ui/vis.js'
 import { log } from '../../core/infra/log.js'
+import { isNarrow } from '../../services/player/layout.js'
 
 const LONG_SWALLOW_MS = 3000 // 长按后吞掉 click 的窗口（防御性，见 toggleLike 注释）
 
@@ -116,8 +149,11 @@ export default {
   },
   mixins: [toastMixin, pageFrameMixin],
   data() {
+    // 窄屏族（X3S/X5，800×254）装不下三列：控制区铺满整页，辅助面板改走右侧抽屉
+    const narrow = isNarrow()
     return {
       ICON: ICON,
+      narrow: narrow,
       st: player.state(),
       lines: [],
       lyricHint: '暂无歌词',
@@ -130,7 +166,7 @@ export default {
       lyricWord: true, // 逐字歌词（无 YRC 自动回退逐行）
       lyricAnim: true, // 歌词动画（滚动/高亮/逐字过渡；关闭 = 全部瞬时）
       likeOn: false, // 当前曲目是否已喜欢（收藏到「我喜欢的音乐」）
-      sub: 'lyric', // 子面板：默认直接打开歌词面板 / lyric / comment / seek（'' = 空面板）
+      sub: narrow ? '' : 'lyric', // 子面板：S7 默认开歌词；窄屏默认焦点态（'' = 抽屉收起）/ lyric / comment / seek
       seekView: 'seek', // seek 面板内部页面：seek（进度控制）/ timer（定时播放三态）
       timerOn: false // 定时播放是否在跑（只用于到点提示的边沿判定）
     }
@@ -446,6 +482,8 @@ export default {
   flex: 1;
   width: 100%;
   flex-direction: row;
+  /* 窄屏抽屉/遮罩的定位基准（S7 无绝对子元素，无影响） */
+  position: relative;
 }
 /* 子面板 480×240：底 #272727、左上/左下 12px 圆角（设计稿 SubPanel 槽位），
    右侧两角是直角 —— 所以只给左边两个角，overflow 裁掉子内容的直角。
@@ -456,6 +494,27 @@ export default {
   flex: none;
   background-color: @sub-bg;
   border-top-left-radius: 5vh; /* 12px */
+  border-bottom-left-radius: 5vh;
+  overflow: hidden;
+}
+/* 窄屏族：遮罩 + 右侧抽屉（遮罩盖控制区、不盖左栏 —— 左栏在 .psh-body 里、本页内容区之外）。
+   抽屉样式 = S7 子面板原样（480 宽、subBg、左圆角）：三个面板内部全是 480/456 定宽，零改动复用。 */
+.ply-scrim {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background-color: @scrim-deep;
+}
+.ply-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 480px; /* >100vh 的宽度必须写 px */
+  height: 100vh;
+  background-color: @sub-bg;
+  border-top-left-radius: 5vh; /* 12px（X3S 2.54px/vh 时 ≈12.7px） */
   border-bottom-left-radius: 5vh;
   overflow: hidden;
 }

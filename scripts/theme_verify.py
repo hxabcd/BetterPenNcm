@@ -25,6 +25,9 @@ CHECKS = [
     ('src/ui/mixins/accent.js', ['export const accentMixin', 'vm.accent = currentAccent()', 'THEME_EVENT', 'fgIcon']),
     ('src/core/infra/config.js', ["accentColor: 'red'"]),
     ('src/styles/common.less', ['默认主题色 = 重音红', '@accent-2: #F58A93']),
+    # X3S 设备自带 libsqlite3 3.21（2017）：没有 UPSERT 语法（3.24 才有）。
+    # upsertSql 必须用 INSERT OR IGNORE + UPDATE 的等价写法，否则索引写入整批失败。
+    ('src/core/platform/db.js', ['INSERT OR IGNORE INTO', 'X3S 的 libsqlite3']),
     ('src/core/infra/boot.js', ['背景色/主题色同理']),
     ('src/assets/icons.js', ['export const ACCENT_ICON', 'export function aIcon', 'icon-pl-teal.png?base64',
                              'icon-chevright.png?base64',

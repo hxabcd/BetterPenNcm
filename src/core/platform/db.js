@@ -480,18 +480,27 @@ export function exec(sqlList) {
 export function upsertSql(table, cols, pk) {
   const names = []
   const vals = []
+  let pkVal = 'NULL'
   for (let i = 0; i < cols.length; i++) {
+    const lit = cols[i].raw ? String(cols[i].v) : q(cols[i].v)
     names.push(cols[i].name)
-    vals.push(cols[i].raw ? String(cols[i].v) : q(cols[i].v))
+    vals.push(lit)
+    if (cols[i].name === pk) pkVal = lit
   }
+  /* ⚠ 不要改回 `INSERT ... ON CONFLICT(pk) DO UPDATE`：X3S 的 libsqlite3 是 **3.21.0**
+     （2017，UPSERT 语法 3.24 才加入），真机上会报 `near "ON": syntax error`，
+     整批索引写失败（2026-11-22 X3S 实测：下载成功后 track 表仍为空）。
+     `INSERT OR IGNORE` + `UPDATE` 是 3.21 兼容的等价语义：已存在时只更新列出的列，
+     未列出的列（track.dl_origin / artist.avatar 等）保持原值，与 DO UPDATE 一致。
+     代价是每行两条语句（索引写不是热路径；S7 上同样可用）。 */
+  const insert = 'INSERT OR IGNORE INTO ' + table + ' (' + names.join(',') + ') VALUES (' + vals.join(',') + ');'
   const sets = []
   for (let i = 0; i < names.length; i++) {
     if (names[i] === pk) continue
-    sets.push(names[i] + ' = excluded.' + names[i])
+    sets.push(names[i] + ' = ' + vals[i])
   }
-  return 'INSERT INTO ' + table + ' (' + names.join(',') + ') VALUES (' + vals.join(',') + ')' +
-    (sets.length ? ' ON CONFLICT(' + pk + ') DO UPDATE SET ' + sets.join(',') : ' ON CONFLICT(' + pk + ') DO NOTHING') +
-    ';'
+  if (!sets.length) return insert
+  return insert + '\nUPDATE ' + table + ' SET ' + sets.join(',') + ' WHERE ' + pk + ' = ' + pkVal + ';'
 }
 
 /** 简单删除语句 */

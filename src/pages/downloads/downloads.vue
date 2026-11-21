@@ -52,7 +52,7 @@ import { stats, freeBytes, listSongs, putMeta } from '../../services/player/cach
 import { localStats, loadIndex, indexOf, saveSongExtras } from '../../services/player/localmeta.js'
 import { indexedCount } from '../../services/player/locallists.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
-import { dlText, dlSig } from '../../services/player/download.js'
+import { dlText, dlSig, dlApi } from '../../services/player/download.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { isOffline } from '../../core/infra/net/status.js'
 import { log } from '../../core/infra/log.js'
@@ -121,7 +121,7 @@ export default {
     this._dead = false
     const self = this
     // 下载活动订阅（可见性门控 + 首帧快照，见 ui/mixins/dlsub.js）
-    this._dlOff = bindDl(this, function (s) {
+    this._dlOff = bindDl(this, dlApi, function (s) {
       self.syncDl(s)
     })
     this._onShow = function () {

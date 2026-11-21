@@ -53,7 +53,7 @@ import { accentMixin } from '../../ui/mixins/accent.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
 import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
-import { listPageMixin } from '../../../ui/mixins/listpage.js'
+import { listPageMixin } from '../../ui/mixins/listpage.js'
 
 const SORTS = [
   { key: 'title', label: '标题' },

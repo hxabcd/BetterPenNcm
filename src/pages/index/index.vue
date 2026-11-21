@@ -105,7 +105,7 @@ import { player } from '../../services/player/player.js';
 import { countToday as histToday, isLoaded as histLoaded } from '../../services/player/history.js';
 import { bindDl } from '../../ui/mixins/dlsub.js';
 import { stats } from '../../services/player/cache.js';
-import { dlSig } from '../../services/player/download.js';
+import { dlSig, dlApi } from '../../services/player/download.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js';
 import { coverPair, glowGradient } from '../../services/cover/color.js';
@@ -299,7 +299,7 @@ export default {
 
     // ---- 本地下载卡：下载活动订阅（进度）+ 计数（文件系统的真相；exec 一次别频繁调）----
     // bindDl = 订阅 + 可见性门控 + 首帧快照（主页被上层页盖住时不落 data，见 ui/mixins/dlsub.js）
-    this._dlOff = bindDl(this, function (s) {
+    this._dlOff = bindDl(this, dlApi, function (s) {
       self.syncDl(s);
     });
     this._onShow = function () {

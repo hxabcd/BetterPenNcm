@@ -25,7 +25,7 @@
  */
 import { SEARCH_TYPES } from '../../services/ncm/api.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
-import { TOK } from '../tokens.js'
+import { TOK } from '../../ui/tokens.js'
 
 const SIDE_W = 62.5
 

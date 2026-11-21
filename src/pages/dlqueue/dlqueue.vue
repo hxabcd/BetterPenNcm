@@ -58,7 +58,7 @@ import PageTopbar from '../../components/PageTopbar.vue'
 import EmptyHint from '../../components/EmptyHint.vue'
 import HintToast from '../../components/HintToast.vue'
 import { ICON, railBack } from '../../ui/rail.js'
-import { dlTasks, ackFinished, cancelTask } from '../../services/player/download.js'
+import { dlTasks, ackFinished, cancelTask, dlApi } from '../../services/player/download.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
 import { log } from '../../core/infra/log.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
@@ -126,7 +126,7 @@ export default {
     this._dead = false
     const self = this
     // 下载活动订阅（可见性门控，见 ui/mixins/dlsub.js；回调体是整页刷新，门控收益最大）
-    this._dlOff = bindDl(this, function () {
+    this._dlOff = bindDl(this, dlApi, function () {
       self.refresh()
     })
     log('dlqueue', '下载队列页挂载')

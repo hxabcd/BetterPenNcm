@@ -48,7 +48,7 @@ import { accentMixin } from '../../ui/mixins/accent.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
 import { PAGE_ROW, AUTO_BATCH, ROW_PX_TALL } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
-import { listPageMixin } from '../../../ui/mixins/listpage.js'
+import { listPageMixin } from '../../ui/mixins/listpage.js'
 
 const SORTS = [
   { key: 'name', label: '标题' },

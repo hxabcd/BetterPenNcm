@@ -11,7 +11,7 @@
 | 逻辑视口 | **1020 × 240（横向）**，`$falcon.env.deviceWidth/Height` |
 | 截图 | `miniapp_cli capture <path>`（UI 合成画面，直接可看；熄屏时返回空白帧，用 `hal-screen on` 点亮） |
 
-`$dataDir` 末尾自带 `/`，字符串中间可能出现连续斜杠；路径归一化走 [`src/utils/paths.js`](../src/utils/paths.js)。
+`$dataDir` 末尾自带 `/`，字符串中间可能出现连续斜杠；路径归一化走 [`src/core/infra/paths.js`](../src/core/infra/paths.js)。
 
 ## 2. 存储：裸模块 `storage`
 
@@ -19,9 +19,9 @@
 
 - 平台 `storage` 的全部 key 落在同一个 `preferences.json`，**每次 `setStorage` 都重写整份**（512KB 写入+回读约 90~270ms）。所以大表不放这里，改落文件与索引库，落点见 [存储层.md](存储层.md)。
 - 裸模块**没有 `getStorageInfo`**（见 §14），`getStorageKeys` / `clearStorage` 未在项目中使用。
-- 当前持久化全部走文件：[`src/utils/store.js`](../src/utils/store.js)（顶层 JSON 键值，原名同签名替代 storage）、
-  [`src/utils/db.js`](../src/utils/db.js)（SQLite 索引库）、[`src/utils/media.js`](../src/utils/media.js)（每曲一目录）。
-  只有迁移脚本仍读旧的 `storage/preferences.json`，见 [`src/utils/migrate.js`](../src/utils/migrate.js)。
+- 当前持久化全部走文件：[`src/core/infra/store.js`](../src/core/infra/store.js)（顶层 JSON 键值，原名同签名替代 storage）、
+  [`src/core/platform/db.js`](../src/core/platform/db.js)（SQLite 索引库）、[`src/services/player/media.js`](../src/services/player/media.js)（每曲一目录）。
+  只有迁移脚本仍读旧的 `storage/preferences.json`（迁移入口已随迁移完成移除，此行为不再存在）。
 
 音频/传感器同样走裸模块导入（`soundPlayer` / `global` 等）。
 
@@ -43,8 +43,8 @@ const http = (m && m.default) || m
 | `http.download({url, outPath})` | 文件落盘 |
 
 - 大文件建议走 `process.exec` + 系统 curl（续传/进度/取消）；`http` 的实测速度、落盘时序与二进制边界见 3.1。
-- 业务请求统一走 [`src/utils/net/request.js`](../src/utils/net/request.js)（Cookie 维护在同目录 `cookies.js`）。
-- [`src/utils/log.js`](../src/utils/log.js) 为日志直接使用内建 http，是刻意例外：避免 `request → cookies → log → request` 递归，日志也不带业务 Cookie。
+- 业务请求统一走 [`src/core/infra/net/request.js`](../src/core/infra/net/request.js)（Cookie 维护在同目录 `cookies.js`）。
+- [`src/core/infra/log.js`](../src/core/infra/log.js) 为日志直接使用内建 http，是刻意例外：避免 `request → cookies → log → request` 递归，日志也不带业务 Cookie。
 
 ### 3.1 实测边界（S7，2026-10-17）
 
@@ -67,7 +67,7 @@ const sp = new SoundPlayer()
 - 事件名（实参形状）：`mediaPlayerPositionChanged(uuid, ms)` / `mediaPlayerDurationChanged(uuid, ms)` / `mediaPlayerEndChanged(uuid)` / `mediaPlayerEndWithErrorChanged(uuid, code, sub, msg)` / `mediaPlayerProgressChanged(uuid, n)`；各事件的实测行为（DurationChanged 周期性重报、`stop()` 时的派发与守卫、`EndChanged` 去重）见 [`播放与定位能力.md`](播放与定位能力.md) 第三节
 - `playMediaSection(paramDataJson)` 的字段名是 **`fileName`**（不是 `url`）；段播放与 `endPosition` 的实测行为见 [`播放与定位能力.md`](播放与定位能力.md) 第二节
 
-当前播放器实现见 [`src/utils/player/sound.js`](../src/utils/player/sound.js) 与 [`player.js`](../src/utils/player/player.js)。更细的定位/事件行为见 [`播放与定位能力.md`](播放与定位能力.md)。
+当前播放器实现见 [`src/services/player/sound.js`](../src/services/player/sound.js) 与 [`player.js`](../src/services/player/player.js)。更细的定位/事件行为见 [`播放与定位能力.md`](播放与定位能力.md)。
 
 ## 5. 文件与路径
 
@@ -81,7 +81,7 @@ const sp = new SoundPlayer()
 
 - `fs.mkdir(path)` **递归**：`mkdir('a/b/c')` 一次建多级，不需要先建父目录。
 - `fs.rm(path)` **递归**：删目录会连内容一起删；删不存在的路径不抛异常。
-- `fs.readdir` 当前固件返回**文件名数组（字符串）**；部分固件返回 `{name}` 对象，[`src/utils/fsutil.js`](../src/utils/fsutil.js) 兼容两种形状。
+- `fs.readdir` 当前固件返回**文件名数组（字符串）**；部分固件返回 `{name}` 对象，[`src/core/platform/fsutil.js`](../src/core/platform/fsutil.js) 兼容两种形状。
 - 二进制落盘：`http.download({url, outPath})`；下载引擎用 `process.exec` + 系统 curl 写 `.part`。
 - `fs.statfs('/userdisk')` 的 `free/total` 语义可疑（可能 free > total），**可用空间用**：
 
@@ -127,18 +127,18 @@ const r = await P.exec('/bin/sh', ['-c', cmd], { timeout: 8000, maxBuffer: 26214
 
 ## 7. 网易云接口
 
-搜索/直链/歌曲详情走明文 `/api/`；歌单详情、曲目批量详情、登录与写操作走 weapi。实现见 [`src/utils/ncm/`](../src/utils/ncm/)。
+搜索/直链/歌曲详情走明文 `/api/`；歌单详情、曲目批量详情、登录与写操作走 weapi。实现见 [`src/services/ncm/`](../src/services/ncm/)。
 
 | 用途 | 接口 |
 |---|---|
 | 搜索 | `GET /api/search/get/web?s=&type=1&offset=&limit=`（支持拼音） |
 | 直链 | `GET /api/song/enhance/player/url/v1?ids=[id]&level=<level>&encodeType=flac`（`level`/`encodeType` 均必需，见第 11 节） |
 | 歌曲详情 | `GET /api/song/detail?ids=[id]`（封面 `album.picUrl`）；`/api/v3/song/detail?c=[{"id":…}]` 字段更全 |
-| 歌词 | **一条明文请求全拿**：`GET /api/song/lyric/v1?id=&lv=-1&kv=-1&tv=-1&yv=-1`（明文匿名可用）。参数是必带的版本选择器（只带 id 则响应无歌词字段）：`lv`/`kv`/`tv` 选原文/卡拉OK/翻译组，`yv` 选逐字组（`yrc`/`ytlrc`/`yromalrc`），`-1` = 最新版；`lv/kv/tv` 带上后 `yrc` 无论 `yv` 取值都会返回。`pureMusic` 标记 v1 同样返回。**不需要 weapi**（2026-11-01 PC 匿名对照实测，勘误早先「明文无 yrc」的结论）。解析见 `utils/player/lyric.js` |
-| 歌曲评论 | 读取：`GET /api/v1/resource/comments/R_SO_4_<songId>?limit=20&offset=0`（**明文，匿名可用**；回 `hotComments/comments/total/more`，只有 offset=0 带热门、热门与最新会重复）；点赞 / 发评论：`POST /weapi/v1/comment/like`、`POST /weapi/resource/comments/add`（weapi，未登录 code=301）。实现见 `utils/ncm/comments.js` |
+| 歌词 | **一条明文请求全拿**：`GET /api/song/lyric/v1?id=&lv=-1&kv=-1&tv=-1&yv=-1`（明文匿名可用）。参数是必带的版本选择器（只带 id 则响应无歌词字段）：`lv`/`kv`/`tv` 选原文/卡拉OK/翻译组，`yv` 选逐字组（`yrc`/`ytlrc`/`yromalrc`），`-1` = 最新版；`lv/kv/tv` 带上后 `yrc` 无论 `yv` 取值都会返回。`pureMusic` 标记 v1 同样返回。**不需要 weapi**（2026-11-01 PC 匿名对照实测，勘误早先「明文无 yrc」的结论）。解析见 `services/player/lyric.js` |
+| 歌曲评论 | 读取：`GET /api/v1/resource/comments/R_SO_4_<songId>?limit=20&offset=0`（**明文，匿名可用**；回 `hotComments/comments/total/more`，只有 offset=0 带热门、热门与最新会重复）；点赞 / 发评论：`POST /weapi/v1/comment/like`、`POST /weapi/resource/comments/add`（weapi，未登录 code=301）。实现见 `services/ncm/comments.js` |
 | 歌单详情/曲目 | 经 `weapiPost` 转 `/weapi/v6/playlist/detail` 与 `/weapi/v3/song/detail` |
-| 登录 | `POST /weapi/login/qrcode/unikey` 等（`utils/ncm/login.js`） |
-| 喜欢/歌单写操作 | `POST /weapi/...`（`utils/ncm/weapi.js`、`playlist.js`） |
+| 登录 | `POST /weapi/login/qrcode/unikey` 等（`services/ncm/login.js`） |
+| 喜欢/歌单写操作 | `POST /weapi/...`（`services/ncm/weapi.js`、`playlist.js`） |
 
 请求头需带 `User-Agent` + `Referer: https://music.163.com/`。直链有时效，需即时下载。歌单接口边界（1000 首内联上限、批量删除、404）见 [`歌单接口边界.md`](歌单接口边界.md)。
 
@@ -153,7 +153,7 @@ g.textEditFinished.on(cb)
 g.startTextEdit(JSON.stringify(cfg))
 ```
 
-- 必须传 JSON 字符串；封装在 [`src/utils/systemKeyboard.js`](../src/utils/systemKeyboard.js)。
+- 必须传 JSON 字符串；封装在 [`src/core/platform/systemKeyboard.js`](../src/core/platform/systemKeyboard.js)。
 - 自绘键盘兜底已移除；`startTextEdit` 不可用时只提示。
 - 网易云搜索接口直接支持拼音（`qingtian` → 晴天），不需要中文输入。
 
@@ -162,7 +162,7 @@ g.startTextEdit(JSON.stringify(cfg))
 - 退出应用：`$falcon.closeApp()`（`index.vue` 使用）。
 - `App.onHide` 在**切到其他应用**时派发；`closeApp()` 退出时也会先派发一次 onHide，随后 `onDestroy`。可挂「退出前存盘」；注意 onHide 不能当「退出」用（切后台也会触发）。
 - **app 级页面生命周期**：每个页面 `load / newOptions / show / hide / unload` 都会经 JS 框架 `_performPageLifeCycle` → `_performAppLifeCycle('onPageLifeCycle', { page, lifeCycle })` 调 `App.onPageLifeCycle`。本项目用它给导航层记账页面实例存活（见 [`页面导航.md`](页面导航.md)）。页面侧也可 `$page.on('show' / 'unload', cb)`。
-- `$page` 原生对象提供 `on / off / setSupportBack / setAutoPop / moveToBack / setSupportTopPanel / setDisableLeftSwipeBack` 等；返回键接管与页面退栈用它。**页面跳转不要直接 `$falcon.navTo`**（平台对同名页是「弹掉上层 + 复用旧实例」），统一走 `utils/nav.js` 的 `go('<逻辑页名>')`。
+- `$page` 原生对象提供 `on / off / setSupportBack / setAutoPop / moveToBack / setSupportTopPanel / setDisableLeftSwipeBack` 等；返回键接管与页面退栈用它。**页面跳转不要直接 `$falcon.navTo`**（平台对同名页是「弹掉上层 + 复用旧实例」），统一走 `core/infra/nav.js` 的 `go('<逻辑页名>')`。
 - **滚动定位**：`$page.$dom.scrollToElement(ref, { offset, smooth })`（weex 同款 dom 模块）实测可用（S7，2026-10-18）：
   - `ref` 传模板 `ref` 拿到的组件（`this.$refs.x`，单例 ref）；滚动位置 = 元素内容顶部 + `offset`（px，1:1；`$falcon.env.deviceWidth = 1020`、viewport 未设置，故无缩放）。
   - 参数只有 `offset:int` 与 `smooth:bool`（反汇编 `DomModule::scrollToElement` 确认），`smooth` 缺省 false；内部布局脏时先 `tryLayoutImmediately` 再滚。
@@ -213,7 +213,7 @@ g.startTextEdit(JSON.stringify(cfg))
 ## 13. 日志
 
 - `console.log` 不会进 `/data/applog/YD_PEN_APP.log`。
-- 应用日志走 [`src/utils/log.js`](../src/utils/log.js) 的 `log()`，POST 回 PC 的 `scripts/logserver.py`（默认 8888）。
+- 应用日志走 [`src/core/infra/log.js`](../src/core/infra/log.js) 的 `log()`，POST 回 PC 的 `scripts/logserver.py`（默认 8888）。
 - `console.warn` 会以 `console(<appid>).warn` 前缀进系统日志，可作兜底；远程回归脚本抽的就是它。
 - 设备端日志地址在构建时注入：`BPNCM_LOG_SRV=http://<PC>:8888/log bash scripts/build.sh`；未注入时回环缺省，设备上静默失败。
 

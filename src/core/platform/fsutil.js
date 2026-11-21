@@ -10,7 +10,6 @@
  *     track_lyric）。历史上的 `printf > tmp && mv -f` 通道已删除 —— 它每次写都是一次
  *     `process.exec`（真机 92~139ms），134KB 的播放快照分片写实测 2511ms。
  */
-import { log } from '../../core/infra/log.js'
 
 let fsMod = null
 

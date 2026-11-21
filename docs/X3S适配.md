@@ -123,6 +123,8 @@ devctl --device x3s capture /tmp/x3s.png
 | 本地库页面 | ✓ | downloads / dlplaylists / dltracks / dlalbums / dlartists / storage / queue 均出真实数据（8.6MB、1 首、1 张专辑、1 位歌手、1.2GB 可用） |
 | 播放（在线/免费曲） | ✓ | `resolveUrl` 得直链（m801.music.126.net），`player.playList` 后 `isPlaying=true`，播放缓存 10.3MB |
 | 播放页抽屉三面板 | ✓ | 右侧抽屉打开评论（43 条、头像/点赞/发布按钮）、歌词（纯音乐提示）、进度控制（0:00/4:17、±5/±30s）均正常 |
+| 封面取色 | ✓ | `has('ffmpeg')=true`；`coverPair(downloads/139774/cover.jpg)` → `["#964a4a", null]`（首页卡片光晕同源） |
+| 导航层 | ✓ | 程序化 `go('settings')` → `go settings -> settings (push)`、`go('player')` → `(reuse)`；`[nav] page-load` 栈依次 `[index]` / `[index,settings]` / `[index,settings,player]` |
 | 播放页抽屉布局 | ✓ | 控制区铺满 736px，右侧无裁切（抽屉默认收起；打开态的样式与 S7 子面板同源） |
 
 ## 七、未验证 / 待办

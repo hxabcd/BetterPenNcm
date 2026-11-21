@@ -44,12 +44,18 @@ X3S 的 libfalcon 支持 `libs/<平台>/libjsapi_*.so` 扩展（官方应用同�
 | 裸模块 | 能力 | 本仓库 JS 侧接线 |
 |---|---|---|
 | `bpnnet` | fs exists/stat/readdir/readText/writeText/mkdir/rm/rename；libcurl request（**收响应头**，Cookie 会话可维护）/ download；fork + `/bin/sh -c` exec（带超时强杀） | `src/core/platform/bridge.js`；`request.js` / `log.js` / `fsutil.js` / `exec.js` 先试原生模块，import 失败才回退 |
-| `sqlite3` | `Database(open/exec/prepare/close)`、`Statement(bind/run/all/columnNameList/finalize)`，与 S7 原生模块同形状 | `src/core/platform/db.js` **零改动** |
+| `sqlite3` | `Database(open/exec/prepare/close)`、`Statement(bind/run/all/columnNameList/finalize)`，与 S7 原生模块同形状 | `src/core/platform/db.js`（接口零改动；SQL 侧有 3.21 兼容修正，见下） |
 
 - 产物与构建：`native/`（C 源码 + `build-aarch64.sh`，zig 交叉编译 aarch64/glibc 2.29；
   产物已入库，日常 `scripts/build.sh` 不需要 zig）。详见 [`native/README.md`](../native/README.md)。
 - 兼容性：`.so` 是 aarch64，S7/X5 是 armhf，动态加载器不会加载；那边的 `import('bpnnet')`
   抛错 → `bridge()` 返回 null，全部走原生模块，行为与改动前一致。
+- **SQLite 版本差异（能力适配的隐藏坑）**：X3S 的 `/usr/lib/libsqlite3.so.0` 是 **3.21.0**
+  （2017），不支持 UPSERT（`INSERT ... ON CONFLICT ... DO UPDATE`，3.24+）。真机表现：
+  下载成功、`track_meta`/`track_lyric` 正常，但 `[db] 写索引库失败：near "ON": syntax error`，
+  `local_index.db` 的 track/artist/album 全空，「本地下载」显示 0 首。
+  已把 `db.js` 的 `upsertSql` 改成 `INSERT OR IGNORE` + `UPDATE`（等价语义、S7 兼容），
+  并在 `theme_verify` 第一道钉住；`replaceRowsSql` 的 `INSERT OR REPLACE` 本来就兼容 3.21。
 - 为什么不用 `$falcon.jsapi` 的 http/storage：`http` 只够点式请求，登录/评论要保响应头
   Cookie，下载要指定落盘路径；`storage.*` 的容量与性能未验证，且现有存储模型是 SQLite
   两库（state.db / local_index.db），用原生 sqlite3 才能零改动复用 db.js 与上层全部逻辑。
@@ -113,19 +119,25 @@ devctl --device x3s capture /tmp/x3s.png
 | 在线 URL 起播 | ✓ | `playFile(https://…mp3)` 起播，时长事件 3239ms；结束/错误语义（error 2）待复核 |
 | 封面取图/显示 | ✓ | 搜到曲目后 `downloads/<id>/cover.jpg` 落盘，首页「正在播放」卡与播放页封面正常显示 |
 | 状态持久化 | ✓ | 播放快照写入 `state.db` 的 `kv`（447 B），重进页面恢复当前曲/标题/歌手/专辑/时长 |
+| 完整下载 + 本地库 | ✓ | 免费曲 139774 下载 8.94MB + cover.jpg + 歌词 680B；`track_meta`(kind=1)、`local_index.db` 1 track/1 artist/1 album（修掉 3.21 UPSERT 后） |
+| 本地库页面 | ✓ | downloads / dlplaylists / dltracks / dlalbums / dlartists / storage / queue 均出真实数据（8.6MB、1 首、1 张专辑、1 位歌手、1.2GB 可用） |
+| 播放（在线/免费曲） | ✓ | `resolveUrl` 得直链（m801.music.126.net），`player.playList` 后 `isPlaying=true`，播放缓存 10.3MB |
+| 播放页抽屉三面板 | ✓ | 右侧抽屉打开评论（43 条、头像/点赞/发布按钮）、歌词（纯音乐提示）、进度控制（0:00/4:17、±5/±30s）均正常 |
 | 播放页抽屉布局 | ✓ | 控制区铺满 736px，右侧无裁切（抽屉默认收起；打开态的样式与 S7 子面板同源） |
 
 ## 七、未验证 / 待办
 
-- **触摸**：X3S 上还没做坐标注入，真实点击（左栏、抽屉、列表行）未逐项验证；
-  `core/platform/touch.js` 的字段兜底在 X3S 事件上的表现待测。
+- **触摸**：X3S 上真实点击（左栏、抽屉、列表行）未逐项验证。已试两条注入路径均未打通：
+  ① 自建 uinput 虚拟触摸屏（libinput/udev 能识别为 touchscreen，但 miniapp 不读它）；
+  ② 直接 write `/dev/input/event5`（write 返回成功，但界面无反应）。
+  页面/抽屉的显示与数据已用「临时把默认 `sub` 设为 comment/lyric/seek」逐项截图验证，
+  交互命中仍需真实手指或找到系统输入转发通道后补测。
 - **登录**：二维码 unikey/ Cookie 链已通，但「手机扫码 → 登录成功 → 拉取用户信息」未走完
   （需要人工扫码）；验证码/密码登录同理。另：匿名搜索可用，但 VIP 曲目无直链（平台限制，
   不是适配问题）。
-- **下载全流程**：curl 传输链路已在 X3S 验证（`fetchToFile` 整文件成功），但还没跑完
-  「登录 → 解析直链 → 下载 → 写 track_meta/归属/本地库」的完整曲目链路：匿名搜索到的
-  《海阔天空》是 VIP（fee=1），无直链；需要登录态或有版权免费曲目再验。
-  `.part` 续传、取消/重试、封面缓存 LRU 也待测。
+- **下载全流程**：免费曲已跑通「解析直链 → 下载 → cover/歌词 → track_meta → 本地索引」，
+  登录态/VIP 曲目仍未验（VIP 无直链是平台限制）；`.part` 续传、取消/重试、封面缓存 LRU
+  及「下载一首歌后自动拉取/歌单归属」待补。
 - **封面取色**：`ffmpeg` 在 X3S 上存在且可执行，但 `cover/color.js` 的实际取色输出未截图核对。
 - **歌词/评论**：接口请求走 bridge 应可用，页面未在 X3S 上打开有内容的数据验证。
 - **存储**：缓存上限 LRU、`du`/`df` 空间统计、`/userdisk` 仅剩 1.3G 时的空间预检文案待核对。

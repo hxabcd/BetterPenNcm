@@ -539,7 +539,7 @@ export default {
 }
 /* 遮罩左侧窄条上的两个透明图标键（播放/暂停、返回）：上下排列、无底色、不抢抽屉视线。
    定位：right 由模板内联给（= 抽屉宽），即「露出的那条遮罩」整体；
-   两个键在条内**水平居中**（不贴左沿，否则压住封面）。
+   两个键在**整条遮罩内水平居中 + 垂直居中**。
    ⚠ 不挂 background —— 用户要求「透明，仅图标」。 */
 .ply-scrimkeys {
   position: absolute;
@@ -548,20 +548,22 @@ export default {
   bottom: 0;
   /* right 由模板内联给（panelW） */
   flex-direction: column;
+  /* 遮罩条内水平居中 + 垂直居中 */
   align-items: center;
   justify-content: center;
 }
 .ply-sk {
-  width: 20vh; /* 48px，与 NavRail 键同尺寸（可点区域） */
-  height: 20vh;
+  width: 28vh; /* 71px 可点区域（遮罩上没有键底衬托，点按面积要比 NavRail 的 48px 更宽） */
+  height: 28vh;
   align-items: center;
   justify-content: center;
-  margin-top: 2.5vh;
-  margin-bottom: 2.5vh;
+  /* 两键间距：上下各 7vh 相加 = 14vh ≈ 36px（flex column 里 margin 不合并） */
+  margin-top: 7vh;
+  margin-bottom: 7vh;
 }
 .ply-sk-ico {
-  width: 10vh; /* 24px */
-  height: 10vh;
+  width: 18vh; /* 46px：露出条上只有两个图标，做大到一眼能认 */
+  height: 18vh;
 }
 .ply-drawer {
   position: absolute;

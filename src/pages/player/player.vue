@@ -253,10 +253,6 @@ export default {
       if (on && !was) self.onTick(player.state())
     })
     this.readOpts()
-    // TEMP-AUDIO-TEST: 连播两次（play → stop → play），验证每次起播都重设混音器
-    setTimeout(function () { try { player.toggle() } catch (e) {} }, 2500)
-    setTimeout(function () { try { player.stop() } catch (e) {} }, 8000)
-    setTimeout(function () { try { player.toggle() } catch (e) {} }, 11000)
     // 定时播放状态（模块级单例，跨页面存活）：每秒广播一次，页面只关心 active。
     // 到点提示：定时面板开着时由 TimerPanel 自己 emit（避免双 toast），
     // 其余情况（空面板/评论/歌词/进度控制）由页面补一条。

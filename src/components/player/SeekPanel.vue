@@ -84,9 +84,11 @@ import { fmtDur } from '../../core/infra/format.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
 import { ICON } from '../../assets/icons.js'
 
-/* 可拖线宽（px）：与样式 .skp-line 的 width:456px 成对维护。填充宽与手柄位置都用它做 px 反推
-   （百分比宽度在这个渲染器上没把握，见 CONTRACT §4.6）。 */
-const TRACK_W = 456
+/* 可拖线宽（px）= 面板宽 − 内容区左右 padding 12×2。原先是写死的 456（= S7 面板 480 − 24），
+   面板加宽后必须跟着变：拖动的比例、填充宽、手柄位置都用它做 px 反推（见 fillStyle/knobStyle/onMove），
+   样式侧则统一写 100%（.skp-body 已扣 padding），两者等价。
+   面板宽由模板传入（player.vue 的 panelW），不在样式里写死。 */
+const BODY_PAD = 24
 
 /* 拖动看门狗（ms）：部分固件可能不发 touchend（LyricPanel.vue 踩过同一坑，那里也是 60s 兜底）。
    拖动状态不复位的话，进度显示会冻在拖到的位置、不再跟歌走 —— 超时按一次「松手」收尾。
@@ -98,7 +100,9 @@ export default {
   mixins: [accentMixin], // accent.c = 当前主题色（已播部分 / 手柄不用它，手柄是白圆）
   props: {
     /** player.state() 快照（positionMs / durationMs / cur / status 等） */
-    st: { type: Object, default: function () { return {} } }
+    st: { type: Object, default: function () { return {} } },
+    /** 所在面板宽度（px）：可拖线的几何基准，见 BODY_PAD */
+    panelW: { type: Number, default: 480 }
   },
   data() {
     return {
@@ -108,6 +112,10 @@ export default {
     }
   },
   computed: {
+    /** 可拖线宽（px）：面板宽扣掉内容区 padding，与样式里的 100% 等效 */
+    trackW() {
+      return Math.max(1, (Number(this.panelW) || 480) - BODY_PAD)
+    },
     /** 总时长 ms（0 = 无曲目 / 时长未知） */
     durMs() {
       const d = Number(this.st.durationMs) || 0
@@ -136,13 +144,13 @@ export default {
     /** 已播部分：宽度 px 反推（百分比宽度不可靠），底色走主题色 */
     fillStyle() {
       return {
-        width: Math.round(TRACK_W * this.shownPct) + 'px',
+        width: Math.round(this.trackW * this.shownPct) + 'px',
         backgroundColor: this.accent.c
       }
     },
     /** 手柄位置：left 用 px；左右各探出半个手柄，靠样式里的负 margin 居中（已实测可用） */
     knobStyle() {
-      return { left: Math.round(TRACK_W * this.shownPct) + 'px' }
+      return { left: Math.round(this.trackW * this.shownPct) + 'px' }
     }
   },
   methods: {
@@ -186,7 +194,7 @@ export default {
       if (this.dragPct < 0) return
       const x = touchAxis(e, 'x')
       if (!isFinite(x)) return
-      let p = this._sp + (x - this._sx) / TRACK_W
+      let p = this._sp + (x - this._sx) / this.trackW
       if (p < 0) p = 0
       if (p > 1) p = 1
       this.dragPct = p
@@ -277,7 +285,7 @@ export default {
 }
 /* 时间行 h64：40px 粗体白 / 40px 灰斜杠 / 40px 粗体白，水平居中，间距 8px（斜杠两侧各 8） */
 .skp-time {
-  width: 456px;
+  width: 100%; /* 面板宽自适应（原 456px = S7 面板 480 − padding 24） */
   height: 64px;
   flex: none;
   flex-direction: row;
@@ -297,7 +305,7 @@ export default {
 }
 /* 进度条行 h28：上下 padding 4 → 可拖线 456×20 */
 .skp-prog {
-  width: 456px;
+  width: 100%; /* 面板宽自适应（原 456px = S7 面板 480 − padding 24） */
   height: 28px;
   flex: none;
   flex-direction: column;
@@ -305,9 +313,9 @@ export default {
   padding-bottom: 4px;
   margin-top: 10px;
 }
-/* 可拖线：456px 与 JS 的 TRACK_W 成对维护；20px 高 = 手柄直径 */
+/* 可拖线：宽度跟随 .skp-body 内容宽（= 面板宽 − 24），与 JS 的 trackW 等价；20px 高 = 手柄直径 */
 .skp-line {
-  width: 456px;
+  width: 100%; /* 面板宽自适应（原 456px = S7 面板 480 − padding 24） */
   height: 20px;
   flex: none;
   position: relative;
@@ -343,16 +351,17 @@ export default {
 }
 /* 4 键行 h56：按钮 106.5×56、间距 10px（用 margin 不用 gap —— 本渲染器对 flex gap 无把握） */
 .skp-keys {
-  width: 456px;
+  width: 100%; /* 面板宽自适应（原 456px = S7 面板 480 − padding 24） */
   height: 56px;
   flex: none;
   flex-direction: row;
   margin-top: 10px;
 }
+/* 四个键等分整行：flex:1 + 统一右间距 10，末键不留 margin（平台不支持 :last-child）。
+   原来是写死 106.5px（4×106.5 + 3×10 = 456），面板加宽后写死值会挤在左边。 */
 .skp-key {
-  width: 106.5px;
+  flex: 1;
   height: 56px;
-  flex: none;
   flex-direction: row;
   align-items: center;
   justify-content: center;
@@ -360,11 +369,9 @@ export default {
   background-color: @card-bg;
   margin-right: 10px;
 }
-/* 末键独立类名：末尾不留 margin（平台不支持 :last-child），否则整组偏移 */
 .skp-keylast {
-  width: 106.5px;
+  flex: 1;
   height: 56px;
-  flex: none;
   flex-direction: row;
   align-items: center;
   justify-content: center;

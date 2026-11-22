@@ -44,7 +44,7 @@
         </div>
         <text class="cp-time">{{ totalText }}</text>
       </div>
-      <div class="cp-controls" :style="{ width: wRight }">
+      <div class="cp-controls" :style="controlsStyle">
         <div class="cp-key" @click="onLoop">
           <image class="cp-keyico" :src="modeIcon" />
         </div>
@@ -138,9 +138,21 @@ export default {
     wLeft() {
       return this.narrow ? '172px' : '160px'
     },
-    /** 右列 / 控制行 / 进度行同宽：736 − 172 = 564（S7 320） */
+    /**
+     * 右列宽度：S7 320px（设计稿原值）。窄屏**不跟着 736 铺开** ——
+     * 铺到 564 会让标题行、进度条、控制键各自拉得很开（用户实测反馈
+     * 「播放器空间应该聚集在中间，而非分散开」），所以封顶 400px，
+     * 由 .cp 的 justify-content:center 把「封面列 + 文本列」整组居中。
+     */
     wRight() {
-      return this.narrow ? '564px' : '320px'
+      return this.narrow ? '400px' : '320px'
+    },
+    /**
+     * 控制行：五个键是一组紧凑控件，**永远按设计稿 320px** 排（不跟右列拉宽），
+     * 在右列里水平居中；键间距仍由 space-between 给（320 − 12 padding − 272 键宽 = 36/4 = 9px 一格）。
+     */
+    controlsStyle() {
+      return { width: '320px', alignSelf: 'center' }
     },
     titleText() {
       return this.cur.name || '未在播放'
@@ -234,6 +246,9 @@ export default {
   height: 100vh;
   flex: none;
   flex-direction: row;
+  /* 窄屏：控制区铺满 736px，但「封面列 + 文本列」整组水平居中，
+     不让内容被拉到两侧（用户反馈：空间应聚集在中间）。S7 上左右列正好填满 480，无影响。 */
+  justify-content: center;
 }
 /* ---- 左列 160px ---- */
 .cp-left {

@@ -9,7 +9,11 @@
  *
  * 为什么用 shell + amixer 而不是 `volume` 模块：X3S 的 `Volume.setVolume` 实测返回
  * undefined 且不改 ALSA（`amixer sget` 仍是 0/0），而 SoundPlayer 走的是 ALSA codec；
- * 直接设混音器是从根上保证出声。只设一次（懒加载 + 结果缓存），不进播放热路径。
+ * 直接设混音器是从根上保证出声。
+ *
+ * ⚠ **每次起播都要重新设一遍**：X3S 的 /etc/asound.conf 钩子在播放结束时会把
+ * `Playback Path` 还原成 OFF，只在启动时设一次的话第二首起就没声。
+ * 「本机是否 X3S」这个判定才缓存（一次 import 试探），混音器设置不走缓存。
  *
  * 注意：只把 **OFF** 改成 **SPK**；如果用户已插耳机/蓝牙（HP/BT/SPK_HP…），保持系统选择，
  * 不强行覆盖。Master 音量两个声道一起设（numid=3 是 2-value 控制，不能用 sset 名）。
@@ -20,16 +24,22 @@ import { log } from '../infra/log.js'
 /** 目标音量：150 ≈ −21.5 dB（0..255，−50 dB 起、0.19 dB/step）；离上限留余量 */
 const VOLUME = 150
 
-let ready = null
+/** 是否 X3S（有无 volume 裸模块）：探一次就缓存 —— 机型不会变，但混音器状态会变 */
+let isX3S = null
 
-async function setup() {
-  // X3S 独有 volume 裸模块 → 其它机型（S7/X5）直接跳过，避免无谓 fork
+async function detect() {
   try {
     const m = await import('volume')
-    if (!m) return false
+    return !!m
   } catch (e) {
     return false
   }
+}
+
+async function setup() {
+  if (isX3S === null) isX3S = await detect()
+  // 非 X3S（S7/X5）直接跳过，避免无谓 fork
+  if (!isX3S) return false
   const cmd =
     "P=$(amixer -c 0 sget 'Playback Path' 2>/dev/null); " +
     "case \"$P\" in *\"Item0: 'OFF'\"*) amixer -c 0 sset 'Playback Path' SPK >/dev/null 2>&1 ;; esac; " +
@@ -40,8 +50,10 @@ async function setup() {
   return ok
 }
 
-/** 播放前调用（幂等、结果缓存；非 X3S 立即 resolve false） */
+/**
+ * 播放前调用。**每次都会重新设一遍混音器**（见文件头：播完一首系统会还原成 OFF），
+ * 只有「本机是不是 X3S」这一项缓存。非 X3S 立即 resolve false，零开销。
+ */
 export function ensureOutput() {
-  if (!ready) ready = setup()
-  return ready
+  return setup()
 }

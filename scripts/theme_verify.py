@@ -60,7 +60,7 @@ CHECKS = [
     ('src/components/player/CommentPanel.vue', ['TOK.cardBg', 'ICON.thumbsup', 'fetchComments',
                                                 'postComment', "this.$emit('toast'"]),
     ('src/components/player/TimerPanel.vue', ['accentMixin', 'fgIcon', 'sleepTimer', 'TOK.cardBg']),
-    ('src/components/player/SeekPanel.vue', ['accentMixin', 'touchAxis', 'TRACK_W', 'timer']),
+    ('src/components/player/SeekPanel.vue', ['accentMixin', 'touchAxis', 'trackW', 'timer']),
     ('src/services/ncm/comments.js', ['fetchComments', 'likeComment', 'postComment', 'threadId']),
     ('src/services/player/sleeptimer.js', ['sleepTimer', 'setKeepTrack', 'beginTail', 'onPlayer']),
     ('src/pages/account/account.vue', ['accentMixin', '{ backgroundColor: accent.c }', 'this.accent.c } : { backgroundColor']),

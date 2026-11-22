@@ -19,7 +19,7 @@
       <!-- S7：常驻子面板 480×240，底色 #272727 + 左侧 12px 圆角（设计稿 SubPanel 槽位）。
            默认打开歌词面板；三个切换键各自开合：已打开的面板再点同一个键 → 关闭回到空面板。
            进度控制（TimeShiftPanel）内含定时播放子页：seek → timer 是同一面板内的两级页面。 -->
-      <div v-if="!narrow" class="ply-sub">
+      <div v-if="!narrow" class="ply-sub" :style="{ width: panelW + 'px' }">
         <lyric-board
           v-if="sub === 'lyric' && lyricOn"
           :lines="lines"
@@ -39,6 +39,7 @@
         <seek-panel
           v-else-if="sub === 'seek' && seekView === 'seek'"
           :st="st"
+          :panel-w="panelW"
           @seek="onSeekTo"
           @timer="openTimer"
           @close="closePanel"
@@ -49,11 +50,11 @@
 
       <!-- 窄屏族（X3S/X5，视口 800×254）：辅助面板 = 右侧抽屉浮层（.ply-main 是定位基准，
            遮罩只盖控制区、不盖左栏）。点任一切换键滑出，点左侧遮罩或再点同一个键收回；
-           sub='' 时不渲染任何浮层。抽屉与 S7 子面板同宽 480px —— 三个面板内部全是 480/456
-           定宽，零改动直接复用。
+           sub='' 时不渲染任何浮层。抽屉比 S7 子面板宽（panelW：窄屏 560），
+           面板内部各块用百分比/100% 自适应，同一个组件两处复用。
            ⚠ 下方面板块与 .ply-sub 内的完全一致，改面板 props/事件两处同步。 -->
       <div v-if="narrow && sub" class="ply-scrim" @click="closePanel"></div>
-      <div v-if="narrow && sub" class="ply-drawer">
+      <div v-if="narrow && sub" class="ply-drawer" :style="{ width: panelW + 'px' }">
         <lyric-board
           v-if="sub === 'lyric' && lyricOn"
           :lines="lines"
@@ -73,6 +74,7 @@
         <seek-panel
           v-else-if="sub === 'seek' && seekView === 'seek'"
           :st="st"
+          :panel-w="panelW"
           @seek="onSeekTo"
           @timer="openTimer"
           @close="closePanel"
@@ -154,6 +156,12 @@ export default {
     return {
       ICON: ICON,
       narrow: narrow,
+      /**
+       * 辅助面板宽度（px）：S7 与子面板同宽 480；窄屏抽屉更宽（内容区 736 里给到 560，
+       * 留出左侧约 176px 露出控制区，点遮罩即可收回）。
+       * 面板内部各块用百分比/100% 自适应，所以只有这一处要改（见三个 panel 组件）。
+       */
+      panelW: narrow ? 560 : 480,
       st: player.state(),
       lines: [],
       lyricHint: '暂无歌词',
@@ -489,7 +497,7 @@ export default {
    右侧两角是直角 —— 所以只给左边两个角，overflow 裁掉子内容的直角。
    空面板（EmptyExtraPanel）时它就只是一块纯色面。 */
 .ply-sub {
-  width: 480px; /* 200vh：>100vh 的宽度必须写 px，否则被平台截到 240px */
+  /* 宽度由模板内联给（panelW：S7 480 / 窄屏 560）—— 面板内部用百分比自适应 */
   height: 100vh;
   flex: none;
   background-color: @sub-bg;
@@ -511,7 +519,7 @@ export default {
   position: absolute;
   top: 0;
   right: 0;
-  width: 480px; /* >100vh 的宽度必须写 px */
+  /* 宽度由模板内联给（panelW） */
   height: 100vh;
   background-color: @sub-bg;
   border-top-left-radius: 5vh; /* 12px（X3S 2.54px/vh 时 ≈12.7px） */

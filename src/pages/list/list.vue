@@ -108,6 +108,8 @@ import {
   setSubscribed,
 } from '../../services/ncm/playlist.js';
 import { KINDS, appendUnique } from '../../services/player/listkinds.js';
+import { SEARCH_TYPES as searchCats } from '../../services/ncm/api.js';
+import { listPageMixin } from '../../ui/mixins/listpage.js';
 import {
   loadMore as cursorLoadMore,
   sorted as cursorSorted,
@@ -181,8 +183,6 @@ const SORTS = {
 };
 
 /* 搜索分类表（SEARCH_TYPES）归 SearchSidebar 组件与 api.js；页面只用 catOf 取 label/unit。 */
-import { SEARCH_TYPES as searchCats } from '../../services/ncm/api.js';
-import { listPageMixin } from '../../ui/mixins/listpage.js'
 /** 搜索分类 → 选项（拿 label / unit 用；表在 SearchSidebar 与 api.js 的 SEARCH_TYPES） */
 function catOf(type) {
   for (let i = 0; i < searchCats.length; i++) {

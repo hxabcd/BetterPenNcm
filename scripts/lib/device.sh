@@ -97,16 +97,43 @@ _dpd_takes_value() {
   esac
 }
 
+# 把「工具链登记的设备名」解析成连接链（空格分隔的 via 规格）。
+#
+# 为什么要这一步：`--device` 在两层里同名不同义 ——
+#   本项目脚本（install.sh --help / 工作区 README）说的是「config.toml 里登记的设备名」，如 x3s；
+#   共享层 dpd_select 的 `--device` 是「adb 串号」，直接拼成 adb:<串号>。
+# 不解析就会出现 `install.sh --device x3s` → `adb:x3s` 去连一台不存在的串号（实际踩到）。
+# 解析不到（例如传的是真串号）时返回空串，调用方退回旧语义。
+_dpd_device_chain() {
+  local name="$1" py out
+  py="$(dpd_python)" || return 1
+  out="$("$py" "$(dpd_winpath_py "$DPD_WORKSPACE/tools/dictpen-dev/devctl.py")" \
+           --project "$(dpd_winpath_py "${PROJ:-$PWD}")" --device "$name" env 2>/dev/null)" || return 1
+  [ -n "$out" ] || return 1
+  # 在子 shell 里 eval，别把整份导出灌进当前环境（会覆盖 DPD_PROJECT_DIR 等）
+  ( eval "$out" >/dev/null 2>&1; printf '%s' "${DPD_VIA_SEQ:-}" )
+}
+
 dev_select() {
   _dpd_map_legacy_env
   local -a args=()
   local mode=""
   while [ $# -gt 0 ]; do
     case "$1" in
+      # --device 两种写法都先尝试按「登记的设备名」解析（见 _dpd_device_chain）；
+      # 解析不到再退回共享层的「adb 串号」语义（共享层只认空格形式 --device <串号>）。
+      --device)
+        local _ch; _ch="$(_dpd_device_chain "${2:-}" || true)"
+        if [ -n "$_ch" ]; then args+=("--via=$_ch"); else args+=("--device" "${2:-}"); fi
+        shift 2 ;;
+      --device=*)
+        local _ch2; _ch2="$(_dpd_device_chain "${1#--device=}" || true)"
+        if [ -n "$_ch2" ]; then args+=("--via=$_ch2"); else args+=("--device" "${1#--device=}"); fi
+        shift ;;
       # 已经是 --x=y 形式：原样透传
       --*=|--*=*) args+=("$1"); shift ;;
       # 空格分隔的带值选项：合并成 --x=y
-      --project|--transport|--target|--via|--device)
+      --project|--transport|--target|--via)
         args+=("$1=${2:-}"); shift 2 ;;
       # 本项目的历史别名
       --ssh)

@@ -73,6 +73,25 @@ X3S 的 ALSA 混音器默认 `Master Playback Volume=0`（−50 dB）、`Playbac
 
 ## 四、UI 适配
 
+### 4.1 视口几何的唯一真源
+
+`src/core/platform/viewport.js`：`screenSize()` / `vhPx()` / `vh()` / `contentWidthPx()` /
+`isNarrow()` / `fitColumns()` / `cardWidthPx()`。`services/player/layout.js` 与
+`ui/paging.js` 都从这里取，不再各写一份 `2.4px/vh`。
+
+**宽度一律用 px，不用百分比、也不直接用 >100vh 的 vh**（两条都是真机踩出来的）：
+- `>100vh` 的 vh 宽度会被平台静默截到 100vh；
+- 百分比基准是父容器内容盒，卡片自身还带 padding/边框/间距，累加会算过右沿
+  —— 800 宽上「48% + 4×23%」把末卡挤出屏幕，滚到尽头只剩半张。
+
+### 4.2 自适应列数
+
+卡片网格不再写死列数：`fitColumns(minCardVh, gapVh, padVh, max)` 按内容区宽度反推，
+S7（1020 宽）→ 4 列、X3S/X5（800 宽）→ 3 列；`cardWidthPx(cols)` 把剩余宽度均分成
+整数 px 交给 `PlaylistCard` / `AlbumCard` 的 `widthPx` prop（0 = 用 LESS 里的原值兜底）。
+用户手选列数时装不下也不溢出——卡变窄而已。
+
+
 - **播放页**：三列 63.5+480+480 在 800 宽下装不下 → 控制区铺满 736px（左列 172 / 右列 564），
   辅助面板改为右侧抽屉（480 宽、`subBg`、左圆角，点遮罩/再点同键收回），进页默认焦点态。
   与 X5 同方案；实现见 `src/pages/player/player.vue`、`src/components/player/ControlPanel.vue`、

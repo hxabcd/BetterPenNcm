@@ -19,7 +19,7 @@
     <scroller class="idx-row" scroll-direction="horizontal" :show-scrollbar="false">
       <!-- 1) 当前播放（大卡）：封面 + 标题·歌手·当前歌词 + 暂停/下一首；点卡片进播放器。
            文本列多了一行歌词，整块仍按内容高度在卡内垂直居中 —— 标题/歌手因此比原来略微上移。 -->
-      <div class="idx-card idx-now" :style="glowStyle" @click="openPlayer">
+      <div class="idx-card idx-now" :style="nowStyle" @click="openPlayer">
         <div class="idx-cv">
           <image v-if="cover" class="idx-cvi" :src="cover" resize="cover" />
           <!-- 无封面（没在播放 / 取不到封面）时给个灰音符占位，别留一块空面板 -->
@@ -49,7 +49,7 @@
       <!-- 2) 每日推荐（需登录）：打开是曲目列表页（list kind=recommend）。
            副行「今日 N 首」；未登录显示「登录后查看」，点卡片直接去个人中心扫码
            （与右上角登录态入口同一去处，不再多绕一层）。 -->
-      <div class="idx-card idx-rec" @click="openRecommend">
+      <div class="idx-card idx-rec" :style="cardStyle" @click="openRecommend">
         <image class="idx-cico" :src="cico('rec')" />
         <div class="idx-tcfill"></div>
         <text class="idx-ct">每日推荐</text>
@@ -62,7 +62,7 @@
            副行：**只显示总数「N 个歌单」**（=N 个创建 + M 个收藏含我喜欢），
            不再拆开显示 —— 首页是概览，进页面才看分类；
            未登录与「每日推荐」完全同款：副行「登录后查看」、点击去个人中心扫码。 -->
-      <div class="idx-card idx-pl" @click="openPlaylists">
+      <div class="idx-card idx-pl" :style="cardStyle" @click="openPlaylists">
         <image class="idx-cico" :src="cico('pl')" />
         <div class="idx-tcfill"></div>
         <text class="idx-ct">我的歌单</text>
@@ -71,7 +71,7 @@
 
       <!-- 4) 本地下载：**只显示曲目数量**「N 首」（不再带体积）；
            下载中优先显示「下载中 k/N」；点进下载页浏览/点播/单删 -->
-      <div class="idx-card idx-dl" @click="openDownloads">
+      <div class="idx-card idx-dl" :style="cardStyle" @click="openDownloads">
         <image class="idx-cico" :src="cico('dl')" />
         <div class="idx-tcfill"></div>
         <text class="idx-ct">本地下载</text>
@@ -79,7 +79,7 @@
       </div>
 
       <!-- 5) 播放历史：副行是「今天听了 N 首」 -->
-      <div class="idx-card idx-hist" @click="openHistory">
+      <div class="idx-card idx-hist" :style="cardStyle" @click="openHistory">
         <image class="idx-cico" :src="cico('hist')" />
         <div class="idx-tcfill"></div>
         <text class="idx-ct">播放历史</text>
@@ -105,7 +105,7 @@ import { player } from '../../services/player/player.js';
 import { countToday as histToday, isLoaded as histLoaded } from '../../services/player/history.js';
 import { bindDl } from '../../ui/mixins/dlsub.js';
 import { stats } from '../../services/player/cache.js';
-import { dlSig } from '../../services/player/download.js';
+import { dlSig, dlApi } from '../../services/player/download.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js';
 import { coverPair, glowGradient } from '../../services/cover/color.js';
@@ -169,6 +169,38 @@ export default {
   computed: {
     bgStyle() {
       return { backgroundColor: this.bg };
+    },
+    /**
+     * 五张卡的**定宽（px）**：常量，两机型完全一致（2026-11-22 用户要求）。
+     *
+     * 为什么不用百分比：percent 基准是 scroller 的内容盒，卡片自身还有 padding/边框/间距，
+     * 48% + 4×23% + 5 个间距会算过右沿（800 宽上末卡被裁、滚到尽头露半张）；
+     * 更关键的是百分比随机型漂移 —— 同一张卡在 S7 与 X3S 上像素宽度不同。
+     *
+     * 为什么也不写 vh：平台把任何 >100vh 的 vh **宽度**静默截到 100vh（第 18 条平台坑），
+     * 当前播放卡 530px 在 X3S 上 ≈ 209vh，早被截掉。所以只能写 px。
+     *
+     * 取值（以窄的 X3S 为基准反推，S7 更宽 → 只会在末尾多露一点，不会挤）：
+     *   大卡 480px（X3S 原 353px 的 1.36 倍：先按 1.5 倍做到 530，实测偏宽，回调一档）；
+     *   小卡 169px = X3S 原值（= 卡高 70vh 的整数倍附近，视觉上近正方）。
+     *   X3S 可用宽 720：480 + 10(卡间距) + 169 = 659 ≤ 720 ⇒ 首屏「大卡 + 一整张小卡」
+     *     + 第二张小卡露约 51px（提示可横向滚动）；
+     *   S7 可用宽 946：480 + 10 + 169 + 10 + 169 = 838 ⇒ 首屏「大卡 + 两张小卡」，
+     *     第三张小卡露约 98px。改这两个数前先按这两条预算重算。
+     */
+    nowW() {
+      return 480;
+    },
+    cardW() {
+      return 169;
+    },
+    nowStyle() {
+      const s = this.glowStyle;
+      s.width = this.nowW + 'px';
+      return s;
+    },
+    cardStyle() {
+      return { width: this.cardW + 'px' };
     },
     /**
      * 「正在播放」卡上的**静态柔光渐变**（加，换形状）：
@@ -299,7 +331,7 @@ export default {
 
     // ---- 本地下载卡：下载活动订阅（进度）+ 计数（文件系统的真相；exec 一次别频繁调）----
     // bindDl = 订阅 + 可见性门控 + 首帧快照（主页被上层页盖住时不落 data，见 ui/mixins/dlsub.js）
-    this._dlOff = bindDl(this, function (s) {
+    this._dlOff = bindDl(this, dlApi, function (s) {
       self.syncDl(s);
     });
     this._onShow = function () {
@@ -750,12 +782,7 @@ export default {
    颜色由模板内联 `:style="glowStyle"` 给 —— 播放中 = 封面取色，未播放 = 当前主题色，
    两者都是运行时的值，写在这里没用（见 utils/coverColor.js）。 */
 .idx-now {
-  width: 48%; /* 宽度：43% → 50% → **48%**（43% ≈ 404px → 48% ≈ 457px）
-                               ⚠ 代价：后面四张文字卡整体右移。文字卡一路收到 **23%**（248 → 219px）
-                               找补回来了（26% → 24% → 23%）。
-                               一屏账（估算，基准 960px、间距 4vh=9.6、起点 x≈74、内容区右沿 1019）：
-                               首卡右沿 531 → 卡 2（每日推荐）右沿 760 → **卡 3（我的歌单）完整**（右沿 989）；
-                               卡 4（本地下载）只露 13px，卡 5 要滑过去看。 */
+  /* 宽度由模板内联 :style 给（vh→px 定宽，190vh），见 computed 的 nowW */
   flex-direction: row;
   align-items: center;
   padding-left: 5vh;
@@ -879,7 +906,7 @@ export default {
    副行宽度账：最宽的是异常态「登录后查看」约 96px，日期（约 45px）与「加载中…/加载失败」（约 77px）
    都更短，内容宽 197px —— 余量充足。 */
 .idx-rec {
-  width: 23%;
+  /* 宽度由模板内联 :style 给（vh→px 定宽），见 computed 的 cardW */
   flex-direction: column;
   align-items: flex-start;
   padding-top: 5vh;
@@ -908,7 +935,7 @@ export default {
    8vh=19.2px 下最长的副行「今天听了 18 首」真机约 134px，余量还有 60px 上下，安全。
    本地下载卡只显示「N 首」，比「N 首 · X MB」更短，不再需要单独量体积文案。 */
 .idx-pl {
-  width: 23%;
+  /* 宽度由模板内联 :style 给（vh→px 定宽），见 computed 的 cardW */
   flex-direction: column;
   align-items: flex-start;
   padding-top: 5vh;
@@ -935,7 +962,7 @@ export default {
    副行 text 要 width:100% 才吃 ellipsis —— column 容器里 align-items:flex-start
    会让 text 收缩到内容宽，长文案会把卡片撑出去（同 .idx-hist-t 的坑） */
 .idx-dl {
-  width: 23%;
+  /* 宽度由模板内联 :style 给（vh→px 定宽），见 computed 的 cardW */
   flex-direction: column;
   align-items: flex-start;
   padding-top: 5vh;
@@ -956,7 +983,7 @@ export default {
    副行 text 要 width:100% 才吃 ellipsis —— column 容器里 align-items:flex-start
    会让 text 收缩到内容宽，长文案会把卡片撑出去 */
 .idx-hist {
-  width: 23%;
+  /* 宽度由模板内联 :style 给（vh→px 定宽），见 computed 的 cardW */
   flex-direction: column;
   align-items: flex-start;
   padding-top: 5vh;

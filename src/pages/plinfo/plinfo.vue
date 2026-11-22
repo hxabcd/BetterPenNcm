@@ -85,7 +85,7 @@ import {
 import { addList, removeList, removeListLocal, isIndexed, downloadAll } from '../../services/player/locallists.js'
 import { player } from '../../services/player/player.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
-import { dlText, dlSig } from '../../services/player/download.js'
+import { dlText, dlSig, dlApi } from '../../services/player/download.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
 import { openTextEdit, available as imeAvailable } from '../../core/platform/systemKeyboard.js'
@@ -237,7 +237,7 @@ export default {
     if (p.name) this.name = p.name
     const self = this
     // 下载活动订阅（可见性门控 + 首帧快照，见 ui/mixins/dlsub.js）
-    this._dlOff = bindDl(this, function (s) {
+    this._dlOff = bindDl(this, dlApi, function (s) {
       self.syncDl(s)
     })
     log('plinfo', 'onLoad id=' + this.pid + ' name=' + this.name + ' entry=' + (this.dlEntry ? 'dl' : 'list'))

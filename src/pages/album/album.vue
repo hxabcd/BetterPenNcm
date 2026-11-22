@@ -66,7 +66,7 @@ import { localAlbumView } from '../../services/player/localmeta.js'
 import { isOffline } from '../../core/infra/net/status.js'
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
 import { fmtDate, fmtSize, clipText } from '../../core/infra/format.js'
-import { downloadSongs, dlText, startText, resultText, spaceCheck, dlSig } from '../../services/player/download.js'
+import { downloadSongs, dlText, startText, resultText, spaceCheck, dlSig, dlApi } from '../../services/player/download.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
 import { selPicked } from '../../ui/dlselect.js'
 import { log } from '../../core/infra/log.js'
@@ -77,7 +77,7 @@ import { multiSelectMixin } from '../../ui/mixins/multi.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
 import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
-import { listPageMixin } from '../../../ui/mixins/listpage.js'
+import { listPageMixin } from '../../ui/mixins/listpage.js'
 
 export default {
   name: 'album',
@@ -179,7 +179,7 @@ export default {
     if (p.name) this.album.name = p.name
     // 下载活动订阅（顶栏副题显示进度）；页面会挂两遍 → 每实例各订各退。
     // bindDl = 订阅 + 可见性门控 + 首帧快照（见 ui/mixins/dlsub.js）
-    this._dlOff = bindDl(this, function (s) {
+    this._dlOff = bindDl(this, dlApi, function (s) {
       self.syncDl(s)
     })
     log('album', 'onLoad id=' + this.id + ' name=' + p.name)
@@ -250,10 +250,6 @@ export default {
         self.hint = '无网络，且本地没有该专辑的记录'
         log('album', '本地索引无记录 id=' + this.id)
       }
-    },
-    /** 「加载更多」文案（import 的 helper 模板里不能裸调，走 methods 暴露） */
-    moreLabel(n, unit) {
-      return moreText(n, unit)
     },
     /** 只加渲染行数；云端/本地数据早已全量在 songs 里 */
     loadMore() {

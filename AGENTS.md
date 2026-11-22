@@ -10,6 +10,8 @@ This file provides guidance to AI Agent when working with code in this repositor
 
 有道词典笔 S7 上的自研网易云音乐客户端（QuickJS 小程序 + Vue 2 SFC）。appid `8000200708310039`。
 
+2026-11-22 起适配 **X3S**（RK3566，页面视口 800×254，能力靠原生扩展补齐）：见 [`docs/X3S适配.md`](docs/X3S适配.md)。
+
 - 页面入口 = `src/app.json` 的 `pages`；导航走 `src/core/infra/nav.js`（逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）
 - 运行时 API 与平台实测记录的索引见 [`docs/运行时API参考.md`](docs/运行时API参考.md)；引用其中结论时按 [`../../DOCS_SPEC.md`](../../DOCS_SPEC.md) 核对对应证据
 - 文档或注释任务（编写、核验、清理）先读 [`../../DOCS_SPEC.md`](../../DOCS_SPEC.md)：以当前事实与当前意图为准，旧文档中的“用户定”归因和历史决策不作为依据
@@ -60,6 +62,7 @@ This file provides guidance to AI Agent when working with code in this repositor
 
 - **构建必须用便携 Node 18**（`tools/aiot-build/`，已在 build.sh 封装）；系统 Node 26 会让 aiot-cli 崩溃。
   该 exe 可能被安全软件拦成「无输出直接退出 1」——此时用 `BPNCM_NODE=<node.exe>` 指定替代（18 或 22 可用，26 不行）
+  - **Linux 主机**：工作区的便携 Node 是 Windows exe，需用 `DPD_NODE=/path/to/node-v18/bin/node bash scripts/build.sh` 指定 Linux Node 18（22 亦可，26 不行）
 - **构建/装机互斥**：已有实例在跑时第二个直接报错退出、不排队。确认无人运行时 `rm -rf .build.lock/`（或 `.install.lock/`）或加 `--force`
 - **更新应用直接 `install` 覆盖**：同 appid 直接装，应用的 data（登录态、设置、下载）原样保留 —— 2026-11-12 实测确认（往 data/ 写标记后覆盖安装，标记仍在、`config.json` md5 未变）。所以不需要「备份 → uninstall → 恢复」那套流程
 - **`--fresh` 会清空 data**：先 `miniapp_cli uninstall` 再装，登录态与全部下载都会丢，只在要彻底重置时用。`miniapp_cli uninstall` 本身也清空整个 data 目录，别随手跑
@@ -80,8 +83,9 @@ This file provides guidance to AI Agent when working with code in this repositor
 | `src/services/player/` | 播放器与媒体：播放单例、下载引擎（**download.js 是门面**，含下载文案/空间预检/dlSig 签名）、curl 传输、下载/缓存两目录与元数据、音质档位、历史、会话快照、歌词、本地库（localmeta）、本地歌单索引（locallists）、下载归属（dlorigin）、**listkinds（六-kind 取数路由）+ listcursor（游标/全量装配引擎）**、acts（曲目动作门面）、meta/sqlkit（SQL 批量写管道唯一实现）、定时播放单例（sleeptimer） |
 | `src/services/ncm/` | 网易云：接口归一化、歌单、喜欢、每日推荐、**歌曲评论（comments.js：读明文匿名可用，点赞/发评论走 weapi）**、weapi 加密与登录（二维码 / 验证码 / 密码） |
 | `src/services/cover/` | 图片获取 + 缓存域：cover（曲目封面单尺寸 + 浏览缩略图）、color（ffmpeg 取色）、artistavatar / artistmeta（歌手头像唯一来源与预热） |
-| `src/core/infra/` | 不碰平台能力的通用设施：boot（启动序列：建目录 → 开两库 → 载入配置）、**nav（导航层：逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）**、config、log（直连内建 http，刻意绕过 request 层防递归、不带业务 Cookie）、paths（可写路径唯一真源）、store（KV = 状态库 kv 表）、format、events、util（raceTimeout/sleep）、buildInfo/logconfig.generated（构建生成物）、net/（request 唯一入口 + cookies + status） |
-| `src/core/platform/` | 平台适配：db（SQLite 通道：索引库 + 状态库两条连接，域表 DDL 集中于此）、exec（process.exec 能力探测）、fsutil（原生 fs 句柄与建/删/读，**不写文件**）、touch（触摸坐标兜底）、systemKeyboard（global 输入法） |
+| `src/core/infra/` | 不碰平台能力的通用设施：boot（启动序列：建目录 → 开两库 → 载入配置）、**nav（导航层：逻辑页 → 实例槽位，见 [`docs/页面导航.md`](docs/页面导航.md)）**、**vis（页面可见性记账，nav 写入、UI 消费）**、config、log（直连内建 http，刻意绕过 request 层防递归、不带业务 Cookie）、paths（可写路径唯一真源）、store（KV = 状态库 kv 表）、format、events、util（raceTimeout/sleep）、buildInfo/logconfig.generated（构建生成物）、net/（request 唯一入口 + cookies + status） |
+| `src/core/platform/` | 平台适配：db（SQLite 通道：索引库 + 状态库两条连接，域表 DDL 集中于此）、exec（process.exec 能力探测）、fsutil（原生 fs 句柄与建/删/读，**不写文件**）、touch（触摸坐标兜底）、systemKeyboard（global 输入法）、**bridge（X3S 原生扩展 JS 封装）**、**audio（X3S 混音器初始化）** |
+| `native/` + `libs/` | **X3S 原生扩展**：`bpnnet`（fs/http/exec）+ `sqlite3` 的 C 源码、aarch64 交叉编译脚本与产物；S7/X5 不加载。见 [`docs/X3S适配.md`](docs/X3S适配.md) |
 | `src/assets/` + `scripts/gen_icons.py` | 图标 = Lucide SVG → PNG（平台不能给 `<image>` 染色，颜色必须生成进 PNG）；**`icons.js` 注册表是纯生成物**（`gen_icons.py --emit-js` 生成、`--check` 逐字节校验——别手改） |
 | `src/styles/common.less` | 设计 token：颜色 / 字号阶梯 / 结构尺寸（1vh = 2.4px）；**令牌段是生成物**（源头 = `src/ui/tokens.js`，生成/校验走 `scripts/gen_tokens.py`） |
 
@@ -174,4 +178,4 @@ This file provides guidance to AI Agent when working with code in this repositor
 - **后台 JS 会冻结**：切后台时下载跑完当前片就停，别承诺「后台继续下载」；应用退出后无后台，会直接关闭
 - 退出登录会**清空 `kv` 表的 `ncm_cookies` 行**（否则 boot 会把会话灌回来），并删掉 curl 的 jar 文件
 - 长列表按首屏批量渲染（口径见 `ui/paging.js`），滚到底自动续批（`ui/mixins/infinite.js`，每次 `AUTO_BATCH` 行）；仅在「内容超过一屏且用户已下滚」时自动触发，拿不到滚动位移则降级到原有「加载更多」按钮。网络游标见 `list.vue`；列表内搜索仍待定
-- 原生 `.so` 模块、官方虚拟列表等扩展方向未在当前代码中启用；`global` 已用于输入法与网络状态（`core/platform/systemKeyboard.js` / `core/infra/net/status.js`），其它能力动前先用探针页验证
+- 原生 `.so` 只在 **X3S** 上启用：`libs/arm64-cherry3566/libjsapi_bpnnet.so` 由运行时加载，给 X3S 补 `fs`/`http`/`exec`/`sqlite3`（见 [`docs/X3S适配.md`](docs/X3S适配.md)）。S7/X5 是 armhf，不加载；官方虚拟列表等其它扩展方向仍未启用。`global` 已用于输入法与网络状态（`core/platform/systemKeyboard.js` / `core/infra/net/status.js`），其它能力动前先用探针页验证

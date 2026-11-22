@@ -147,10 +147,10 @@ export const KINDS = {
     loadMore: null,
   },
 
-  /* ---- liked / playlist：n=PAGE 内联 + trackIds 游标（两 kind 同一形态，共用 handlers）---- */
-  liked: PLAYLIST_LIKE,
+  /* ---- liked / playlist 在下面 PLAYLIST_LIKE 定义之后挂上（同一描述，
+     放在对象字面量里会构成 TDZ：模块求值时 PLAYLIST_LIKE 还没初始化，
+     真机表现为 `lexical variable is not initialized` + 整页黑屏）---- */
 }
-KINDS.playlist = PLAYLIST_LIKE
 
 /** liked/playlist 共用描述（两 kind 同一取数与文案形态） */
 const PLAYLIST_LIKE = {
@@ -169,6 +169,10 @@ const PLAYLIST_LIKE = {
     await loadTracksBatch(self)
   },
 }
+
+/* 两个 kind 共用同一描述（定义之后才能引用，见上面 TDZ 注释） */
+KINDS.liked = PLAYLIST_LIKE
+KINDS.playlist = PLAYLIST_LIKE
 
 /** liked/playlist 共用的首屏落位（内联条数 ≠ songs.length：下架歌被接口丢掉） */
 export function applyPlaylistPage(self, r) {

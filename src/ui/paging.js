@@ -9,6 +9,8 @@
  * ⚠ 分页是**渲染分片**，不是数据分页：本地列表本来就是全量在内存里，
  *   网络列表则按 cursor 继续取（见 list.vue 的 cursor / loadMore）。
  */
+import { vhPx } from '../core/platform/viewport.js'
+
 
 /** 歌曲行（SongRow，23vh）：首屏 50 行 */
 export const PAGE_SONG = 50
@@ -25,14 +27,17 @@ export const PAGE_QUEUE = 50
 /** 滚到底自动续页 / 手动「加载更多」每次新增的行数（比首屏小，减少等待） */
 export const AUTO_BATCH = 20
 
-/* 自动续页判定「内容底部」用的行高估算（px，S7 上 1vh = 2.4px）。取各组件 CSS 的
-   保守下界：估算偏小只会更早预加载，不会漏触发；各页用 infiniteBottomPx 乘已渲染行数。
+/* 自动续页判定「内容底部」用的行高估算（px）。取各组件 CSS 的保守下界：
+   估算偏小只会更早预加载，不会漏触发；各页用 infiniteBottomPx 乘已渲染行数。
    对应实现：SongRow 23vh、ArtistRow 32vh、LibraryRow 28vh；卡片类 PlaylistCard 36vh /
-   AlbumCard 40vh 用统一 34vh 近似（偏小、安全）。 */
-export const ROW_PX_SONG = 23 * 2.4
-export const ROW_PX_TALL = 32 * 2.4
-export const ROW_PX_LIB = 28 * 2.4
-export const ROW_PX_CARD = 34 * 2.4
+   AlbumCard 40vh 用统一 34vh 近似（偏小、安全）。
+
+   ⚠ 按**本机型**的 vh 换算（S7 2.4px / X3S·X5 2.54px）——写死 2.4 会在 800×254 上
+   把「内容底部」低估 6%，滚到底的自动续批会晚一截才触发。 */
+export const ROW_PX_SONG = 23 * vhPx()
+export const ROW_PX_TALL = 32 * vhPx()
+export const ROW_PX_LIB = 28 * vhPx()
+export const ROW_PX_CARD = 34 * vhPx()
 
 /**
  * 搜索结果每类取回条数。搜索结果**不翻页**（老端点 offset 对非单曲类不可靠，

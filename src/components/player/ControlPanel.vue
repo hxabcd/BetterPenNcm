@@ -1,7 +1,7 @@
 <template>
-  <div class="cp">
+  <div class="cp" :style="{ width: wMain }">
     <!-- 左列：封面 + 三个子面板切换键（设计稿左列 160px、封面 152×152@(4,14)、键 48×48@y176） -->
-    <div class="cp-left">
+    <div class="cp-left" :style="{ width: wLeft }">
       <div class="cp-coverbox">
         <image v-if="cover" class="cp-cover" :src="cover" resize="cover" />
         <image v-else class="cp-note" :src="ICON.note" />
@@ -23,7 +23,7 @@
 
     <!-- 右列：标题 / 歌手 / 专辑 / 进度 / 控制（设计稿右列 320px；2026-10-30 设计稿将进度条移到控制键上方）。
          ⚠ 三行文字**不可点**：详情/歌手/专辑只从左栏「歌曲详情」键进（需求：文本不做跳转入口） -->
-    <div class="cp-right">
+    <div class="cp-right" :style="{ width: wRight }">
       <div class="cp-head">
         <text class="cp-title">{{ titleText }}</text>
       </div>
@@ -37,14 +37,14 @@
       </div>
       <!-- 进度行：纯展示（**不挂点击**；进度控制在左列时钟键里开合）。
            2026-10-30 设计稿调整：进度条上移到控制键**上方**，并改成**单行** = 已播时间 / 进度条 / 总时长 -->
-      <div class="cp-progress">
+      <div class="cp-progress" :style="{ width: wRight }">
         <text class="cp-time">{{ elapsedText }}</text>
         <div class="cp-track">
           <div class="cp-fill" :style="fillStyle"></div>
         </div>
         <text class="cp-time">{{ totalText }}</text>
       </div>
-      <div class="cp-controls">
+      <div class="cp-controls" :style="controlsStyle">
         <div class="cp-key" @click="onLoop">
           <image class="cp-keyico" :src="modeIcon" />
         </div>
@@ -86,6 +86,12 @@
  *              即整行铺满 320、内容宽 308 → 4 段间距各 9px（按钮尺寸保持设计稿原值，不随宽度拉伸）。
  *   ⚠ 数值与设计稿一一对应，改布局先回 docs/播放页.md 的几何表核对。
  *
+ * X3S / X5 焦点态：视口 800×254，装不下「控制区 480 + 子面板 480」三列 →
+ *   播放页改为**控制区铺满内容区**（子面板挪去 player.vue 的右侧抽屉）。宽度差异用
+ *   内联 :style 覆盖（平台只认单类名选择器，编译期 LESS 没法按机型分支）：
+ *     控制区 736px（= 800 − 左栏 25vh≈63.5）｜左列 172px（63.33vh≈161 的封面 + 边距）
+ *     右列 / 控制行 / 进度行 564px（= 736 − 172；S7 320px），间距仍由 space-between 拉伸。
+ *
  * 颜色/token：键底 TOK.btnBg(#242424)、进度槽 TOK.trackBg(#282828)、文字 TOK.text/text2/text3、
  * 主题色运行时取 accent（内联 style）。设计稿封面是灰底占位 → 无封面时用同一个 #242424 底 + 音符图标。
  *
@@ -99,6 +105,7 @@ import { TOK } from '../../ui/tokens.js'
 import { ICON, aIcon } from '../../assets/icons.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
 import { fmtDur } from '../../core/infra/format.js'
+import { isNarrow } from '../../services/player/layout.js'
 
 export default {
   name: 'ControlPanel',
@@ -114,11 +121,38 @@ export default {
     sub: { type: String, default: '' }
   },
   data() {
-    return { ICON: ICON }
+    // 窄屏族（X3S/X5 视口 800×254）装不下「控制区 480 + 子面板 480」：控制区铺满内容区，
+    // 子面板挪到 player.vue 的右侧抽屉（宽度差异用内联 :style 覆盖 class 值）。
+    return { ICON: ICON, narrow: isNarrow() }
   },
   computed: {
     cur() {
       return this.st.cur || {}
+    },
+    /** 机型分支的定宽（>100vh 一律写 px）：窄屏铺满内容区，S7 走 LESS 原值。
+     *  内联 :style 覆盖 class 值（先例：主控键 accent 底色）。 */
+    wMain() {
+      return this.narrow ? '736px' : '480px'
+    },
+    /** 左列要装下 63.33vh 的封面（X3S 1vh=2.54px 时约 161px） */
+    wLeft() {
+      return this.narrow ? '172px' : '160px'
+    },
+    /**
+     * 右列宽度：S7 320px（设计稿原值）。窄屏**不跟着 736 铺开** ——
+     * 铺到 564 会让标题行、进度条、控制键各自拉得很开（用户实测反馈
+     * 「播放器空间应该聚集在中间，而非分散开」），所以封顶 400px，
+     * 由 .cp 的 justify-content:center 把「封面列 + 文本列」整组居中。
+     */
+    wRight() {
+      return this.narrow ? '400px' : '320px'
+    },
+    /**
+     * 控制行：五个键是一组紧凑控件，**永远按设计稿 320px** 排（不跟右列拉宽），
+     * 在右列里水平居中；键间距仍由 space-between 给（320 − 12 padding − 272 键宽 = 36/4 = 9px 一格）。
+     */
+    controlsStyle() {
+      return { width: '320px', alignSelf: 'center' }
     },
     titleText() {
       return this.cur.name || '未在播放'
@@ -212,6 +246,9 @@ export default {
   height: 100vh;
   flex: none;
   flex-direction: row;
+  /* 窄屏：控制区铺满 736px，但「封面列 + 文本列」整组水平居中，
+     不让内容被拉到两侧（用户反馈：空间应聚集在中间）。S7 上左右列正好填满 480，无影响。 */
+  justify-content: center;
 }
 /* ---- 左列 160px ---- */
 .cp-left {
@@ -267,7 +304,7 @@ export default {
   font-size: 8.33vh; /* 20px：第三个键是「词」字（设计稿就是文字） */
   color: @text;
 }
-/* ---- 右列 320px ---- */
+/* ---- 右列 320px（S7 值；窄屏由模板内联 :style 覆盖为 564px）---- */
 .cp-right {
   width: 320px;
   height: 100vh;

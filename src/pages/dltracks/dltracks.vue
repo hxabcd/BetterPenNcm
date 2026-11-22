@@ -74,7 +74,7 @@ import { railBack, railBtn, ICON } from '../../ui/rail.js'
 import { go, paramsFor } from '../../core/infra/nav.js'
 import { player } from '../../services/player/player.js'
 import { listSongs } from '../../services/player/cache.js'
-import { deleteCached, dlText, dlSig } from '../../services/player/download.js'
+import { deleteCached, dlText, dlSig, dlApi } from '../../services/player/download.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
 import { markUser } from '../../services/player/dlorigin.js'
 import { playlistView, pullList, syncList, splitDownloads } from '../../services/player/locallists.js'
@@ -90,7 +90,7 @@ import { multiSelectMixin } from '../../ui/mixins/multi.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
 import { PAGE_SONG, AUTO_BATCH, ROW_PX_SONG } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
-import { listPageMixin } from '../../../ui/mixins/listpage.js'
+import { listPageMixin } from '../../ui/mixins/listpage.js'
 
 const KIND_NAME = {
   all: '全部下载',
@@ -212,7 +212,7 @@ export default {
     this._dead = false
     const self = this
     // 下载活动订阅（可见性门控 + 首帧快照，见 ui/mixins/dlsub.js）
-    this._dlOff = bindDl(this, function (s) {
+    this._dlOff = bindDl(this, dlApi, function (s) {
       self.syncDl(s)
     })
     this._onShow = function () {
@@ -343,10 +343,6 @@ export default {
         this.hint = '读取失败'
         log('dltracks', '读取失败 ' + ((e && e.message) || e))
       }
-    },
-    /** 「加载更多」文案（import 的 helper 模板里不能裸调，走 methods 暴露） */
-    moreLabel(n, unit) {
-      return moreText(n, unit)
     },
     loadMore() {
       if (!this.hasMore) return

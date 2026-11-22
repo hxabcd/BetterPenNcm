@@ -78,6 +78,14 @@ sched.wireScheduler({
 // 活动快照 / 任务清单 / 订阅（实现见 tasks.js）
 export { dlState, onDl, offDl, dlTasks, ackFinished, cancelTask } from './tasks.js'
 
+/** UI 层注入用的门面（ui/mixins/dlsub.js 不直接 import services，见分层 R6）。
+ *  页面：`bindDl(this, dlApi, fn)`。 */
+export const dlApi = {
+  onDl: tasks.onDl,
+  offDl: tasks.offDl,
+  dlState: tasks.dlState
+}
+
 /* ---------------- 本地文件变更通知（player.js 用） ----------------
  * 删缓存 / 升质重下都会让 player 手里的 localPath 失效（文件没了或换成了新内容）；
  * player.js 注册钩子清掉对应曲目的 localPath（见其底部）。**在 promise resolve 之前调**，

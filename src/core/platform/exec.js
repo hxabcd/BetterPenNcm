@@ -29,15 +29,30 @@ const PROBES = {
 
 const PROBE_TIMEOUT = 8000 // 各探针统一上限（原 6000~8000，命令都是常驻二进制、无副作用）
 
-let proc = null // process 模块（懒加载；平台可能包一层 default）
+let procReady = null // process 模块（懒加载；平台可能包一层 default）
 const caps = {} // 能力 key → boolean（true=可用；探测过即缓存）
 
-async function getProc() {
-  if (!proc) {
+/**
+ * process 模块句柄。X3S 没有 process 裸模块 → 回退到原生桥 bridgeProc()
+ * （内部是 fork + /bin/sh -c，语义与 S7 process.exec 对齐）；S7 行为不变。
+ */
+function getProc() {
+  if (!procReady) procReady = loadProc()
+  return procReady
+}
+
+async function loadProc() {
+  try {
     const m = await import('process')
-    proc = (m && m.default) || m
+    const mod = (m && m.default) || m
+    if (mod && typeof mod.exec === 'function') return mod
+  } catch (e) {}
+  try {
+    const b = await import('./bridge.js')
+    return await b.bridgeProc()
+  } catch (e) {
+    return null
   }
-  return proc
 }
 
 /** process.exec 是否可用 */

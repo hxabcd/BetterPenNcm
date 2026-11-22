@@ -360,7 +360,7 @@ export default {
 }
 /* 一、选时长：两行 78 + 行距 12，列上用 margin-right 12（平台不认 gap） */
 .tm-presets {
-  width: 456px;
+  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
   height: 168px;
   margin-top: 12px;
   margin-left: 12px;
@@ -399,14 +399,14 @@ export default {
 }
 /* 二、倒计时：状态区 132（文字组 77 垂直居中）+ 操作区 36 */
 .tm-timer {
-  width: 456px;
+  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
   height: 168px;
   margin-top: 12px;
   margin-left: 12px;
   flex-direction: column;
 }
 .tm-status {
-  width: 456px;
+  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
   height: 132px;
   flex: none;
   align-items: center;
@@ -425,7 +425,7 @@ export default {
   line-height: 19px;
 }
 .tm-ctl {
-  width: 456px;
+  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
   height: 36px;
   flex: none;
   flex-direction: row;
@@ -446,7 +446,7 @@ export default {
 }
 /* 三、自定义：左状态 201×168（Time 137 + 播放至 19，整体垂直居中）+ 右键盘 245×168，间距 10 */
 .tm-custom {
-  width: 456px;
+  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
   height: 168px;
   margin-top: 12px;
   margin-left: 12px;

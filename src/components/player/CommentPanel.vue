@@ -396,9 +396,11 @@ export default {
 <style lang="less" scoped>
 @import '../../styles/common.less';
 
-/* 根：480×240 满格、**不上底色**（父级 .ply-sub 给 TOK.subBg 和左侧圆角） */
+/* 根：铺满父级面板、**不上底色**（父级 .ply-sub / .ply-drawer 给 TOK.subBg 和左侧圆角）。
+   宽度用 100% 而不是定宽：面板宽度随机型变（S7 480 / 窄屏抽屉更宽），
+   面板内各块用百分比自适应，改宽度只改 player.vue 一处。 */
 .cmp {
-  width: 480px; /* 200vh：>100vh 的宽度必须写 px，否则被平台截到 240px */
+  width: 100%;
   height: 100vh;
   flex-direction: column;
   overflow: hidden;
@@ -456,7 +458,7 @@ export default {
 }
 /* 热门评论行：24 高、左 padding 10，上边距 12 = 设计稿 Title1 @(12,60) */
 .cmp-sect {
-  width: 456px;
+  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
   height: 24px;
   flex: none;
   flex-direction: row;
@@ -472,7 +474,7 @@ export default {
 }
 /* 评论卡：456 宽、行距 10（卡与卡之间 / 标题与首卡之间），底 TOK.cardBg、圆角 8、padding 8 */
 .cmp-card {
-  width: 456px;
+  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
   flex: none;
   flex-direction: column;
   margin-left: 12px;
@@ -568,7 +570,7 @@ export default {
 }
 /* ---- 三态（加载/失败/空）：占满内容区 192px 居中 ---- */
 .cmp-state {
-  width: 480px;
+  width: 100%;
   height: 192px;
   flex: none;
   align-items: center;
@@ -580,7 +582,7 @@ export default {
 }
 /* 「加载更多」行：可点，高 36（与 20px 文字留出触摸余量），行内居中 */
 .cmp-more {
-  width: 456px;
+  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
   height: 36px;
   flex: none;
   flex-direction: row;
@@ -595,7 +597,7 @@ export default {
 }
 /* 达到渲染上限的提示行：不可点，样式同加载更多 */
 .cmp-end {
-  width: 456px;
+  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
   height: 36px;
   flex: none;
   flex-direction: row;

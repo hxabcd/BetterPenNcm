@@ -108,6 +108,8 @@ import {
   setSubscribed,
 } from '../../services/ncm/playlist.js';
 import { KINDS, appendUnique } from '../../services/player/listkinds.js';
+import { SEARCH_TYPES as searchCats } from '../../services/ncm/api.js';
+import { listPageMixin } from '../../ui/mixins/listpage.js';
 import {
   loadMore as cursorLoadMore,
   sorted as cursorSorted,
@@ -116,7 +118,7 @@ import {
   applyRemoved as cursorApplyRemoved,
   applyHistoryRemoved as cursorApplyHistRemoved,
 } from '../../services/player/listcursor.js';
-import { downloadSongs, dlText, startText, resultText, spaceCheck, dlSig } from '../../services/player/download.js';
+import { downloadSongs, dlText, startText, resultText, spaceCheck, dlSig, dlApi } from '../../services/player/download.js';
 import { bindDl } from '../../ui/mixins/dlsub.js';
 import { downloadAll, isIndexed, addList, removeList } from '../../services/player/locallists.js';
 import { toPlaylist, playNext, playNextText } from '../../services/player/acts.js';
@@ -181,8 +183,6 @@ const SORTS = {
 };
 
 /* 搜索分类表（SEARCH_TYPES）归 SearchSidebar 组件与 api.js；页面只用 catOf 取 label/unit。 */
-import { SEARCH_TYPES as searchCats } from '../../services/ncm/api.js';
-import { listPageMixin } from '../../../ui/mixins/listpage.js'
 /** 搜索分类 → 选项（拿 label / unit 用；表在 SearchSidebar 与 api.js 的 SEARCH_TYPES） */
 function catOf(type) {
   for (let i = 0; i < searchCats.length; i++) {
@@ -515,7 +515,7 @@ export default {
     }
     // 下载活动订阅（多选批量下载的进度显示在顶栏副题；页面会挂两遍 → 每实例各订各退）。
     // bindDl = 订阅 + 可见性门控 + 首帧快照（被上层页盖住时不落 data，见 ui/mixins/dlsub.js）
-    this._dlOff = bindDl(this, function (s) {
+    this._dlOff = bindDl(this, dlApi, function (s) {
       self.syncDl(s);
     });
     // 参数通道按实例槽位 key 记账，取参必须用真实页名（写死逻辑页名只在兜底时命中）
@@ -700,10 +700,6 @@ export default {
     },
     appendUnique(base, add) {
       return appendUnique(base, add);
-    },
-    /** 「加载更多」文案（模板里只能用 methods/data 暴露的方法，import 的 helper 不能裸调） */
-    moreLabel(n, unit) {
-      return moreText(n, unit);
     },
     /** 「加载更多」：三路分派与并发/生命周期守卫在 ui/listcursor.js */
     async loadMore() {

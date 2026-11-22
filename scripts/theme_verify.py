@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""项目自检（只读）：主题/令牌约束、模板绑定、mixin 契约、导航路由表一致性。
+"""项目自检（只读）：主题/令牌约束、模板绑定、mixin 契约、导航路由表一致性、相对导入存在性。
 用法：python scripts/theme_verify.py   （读 src/ 下的实际内容，只读不写）
 """
 import io
@@ -25,6 +25,9 @@ CHECKS = [
     ('src/ui/mixins/accent.js', ['export const accentMixin', 'vm.accent = currentAccent()', 'THEME_EVENT', 'fgIcon']),
     ('src/core/infra/config.js', ["accentColor: 'red'"]),
     ('src/styles/common.less', ['默认主题色 = 重音红', '@accent-2: #F58A93']),
+    # X3S 设备自带 libsqlite3 3.21（2017）：没有 UPSERT 语法（3.24 才有）。
+    # upsertSql 必须用 INSERT OR IGNORE + UPDATE 的等价写法，否则索引写入整批失败。
+    ('src/core/platform/db.js', ['INSERT OR IGNORE INTO', 'X3S 的 libsqlite3']),
     ('src/core/infra/boot.js', ['背景色/主题色同理']),
     ('src/assets/icons.js', ['export const ACCENT_ICON', 'export function aIcon', 'icon-pl-teal.png?base64',
                              'icon-chevright.png?base64',
@@ -57,7 +60,7 @@ CHECKS = [
     ('src/components/player/CommentPanel.vue', ['TOK.cardBg', 'ICON.thumbsup', 'fetchComments',
                                                 'postComment', "this.$emit('toast'"]),
     ('src/components/player/TimerPanel.vue', ['accentMixin', 'fgIcon', 'sleepTimer', 'TOK.cardBg']),
-    ('src/components/player/SeekPanel.vue', ['accentMixin', 'touchAxis', 'TRACK_W', 'timer']),
+    ('src/components/player/SeekPanel.vue', ['accentMixin', 'touchAxis', 'trackW', 'timer']),
     ('src/services/ncm/comments.js', ['fetchComments', 'likeComment', 'postComment', 'threadId']),
     ('src/services/player/sleeptimer.js', ['sleepTimer', 'setKeepTrack', 'beginTail', 'onPlayer']),
     ('src/pages/account/account.vue', ['accentMixin', '{ backgroundColor: accent.c }', 'this.accent.c } : { backgroundColor']),
@@ -473,8 +476,6 @@ LAYER_EXEMPT = {
     ('src/core/infra/boot.js', '../../services/player/history.js'),
     ('src/core/infra/boot.js', '../../services/player/locallists.js'),
     ('src/core/infra/boot.js', '../../services/ncm/login.js'),
-    # 导航层记账页面生命周期，把可见性事实喂给 ui/vis（信号源在 nav，消费在 ui）
-    ('src/core/infra/nav.js', '../../ui/vis.js'),
 }
 
 _AXIS_OF = (
@@ -550,6 +551,42 @@ if _dir_bad:
     print('  （分层边：%d 条合法豁免 / %d 条违例）' % (_n_ok, len(_dir_bad) - _n_ok))
 else:
     print('✓ %-42s 0 处方向违例（R1-R6）' % '分层方向')
+
+# ---- 第八道：相对导入存在性（S1/S3 目录重构的路径写错只在运行期黑页）----
+# 判据：src/**/*.{js,vue} 里所有相对 import/from 的目标（补常见扩展名）必须存在。
+# 这类错误构建期不报（aiot-cli 只给一行「未找到以下模块」警告），页面运行到 import 才炸；
+# 2026-11-22 的 X3S 首跑就是被 listpage/tokens/dlsub 三处旧路径挡住（见修复 commit）。
+_SPEC_RE8 = re.compile(r"""(?:\bfrom|\bimport\s*\(\s*)\s*(['"])(\.[^'"]+)\1""")
+_EXT8 = ('', '.js', '.vue', '.json', '.less', '.css', '.png', '.svg', '.gif', '.jpg')
+_n_imports8 = 0
+_n_bad8 = 0
+for _base8 in ('src',):
+    _files8 = _glob.glob(os.path.join(PROJ, _base8, '**', '*.js'), recursive=True) + \
+              _glob.glob(os.path.join(PROJ, _base8, '**', '*.vue'), recursive=True)
+    for _p8 in _files8:
+        _rel8 = os.path.relpath(_p8, PROJ).replace('\\', '/')
+        try:
+            _t8 = io.open(_p8, encoding='utf-8').read()
+        except Exception:
+            continue
+        _t8 = re.sub(r'/\*.*?\*/', '', _t8, flags=re.S)
+        _t8 = re.sub(r'^\s*//.*$', '', _t8, flags=re.M)
+        for _m8 in _SPEC_RE8.finditer(_t8):
+            _spec8 = _m8.group(2)
+            if '?base64' in _spec8:
+                _spec8 = _spec8.split('?', 1)[0]
+            _target8 = os.path.normpath(os.path.join(
+                os.path.dirname(_rel8), _spec8.replace('/', os.sep)))
+            _n_imports8 += 1
+            if any(os.path.exists(os.path.join(PROJ, _target8 + _e)) for _e in _EXT8):
+                continue
+            _n_bad8 += 1
+            bad += 1
+            print('✗ 相对导入不存在：%s → %s' % (_rel8, _m8.group(2)))
+if _n_bad8:
+    print('  （相对导入：%d 条检查 / %d 条不存在）' % (_n_imports8, _n_bad8))
+else:
+    print('✓ %-42s %d 条相对导入全部存在' % ('相对导入', _n_imports8))
 
 print()
 print('结果：%s（%d 处待修%s）' % ('全部到位' if not bad else '有缺口', bad,

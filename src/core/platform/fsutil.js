@@ -11,15 +11,31 @@
  *     `process.exec`（真机 92~139ms），134KB 的播放快照分片写实测 2511ms。
  */
 
-let fsMod = null
+let fsReady = null
 
-/** fs 模块句柄（平台模块可能包一层 default，两种形态都兼容） */
-export async function getFs() {
-  if (!fsMod) {
+/**
+ * fs 模块句柄（平台模块可能包一层 default，两种形态都兼容）。
+ *
+ * X3S 没有 `fs` 裸模块（import 抛错）→ 回退到原生桥 bridgeFs()（见 bridge.js）；
+ * S7 / X5 上原生模块可用，行为不变。首探结果缓存，不会反复 import 抛错。
+ */
+export function getFs() {
+  if (!fsReady) fsReady = loadFs()
+  return fsReady
+}
+
+async function loadFs() {
+  try {
     const m = await import('fs')
-    fsMod = (m && m.default) || m
+    const mod = (m && m.default) || m
+    if (mod) return mod
+  } catch (e) {}
+  try {
+    const b = await import('./bridge.js')
+    return await b.bridgeFs()
+  } catch (e) {
+    return null
   }
-  return fsMod
 }
 
 /** 文件字节数；不存在/出错给 0 */

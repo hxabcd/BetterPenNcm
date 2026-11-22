@@ -5,17 +5,18 @@
  * offsetParent` 都不保证存在，量不到返回 0）——社区应用 PenMusic 为此专门写了踩坑注释。
  * 所以「点哪跳哪」这类需要绝对坐标的交互，只能由布局常量反推。
  *
- * 约定：下面的数值单位是 **vh**（1vh = 2.4px，1020×240 实测）。
+ * 约定：下面的数值单位是 **vh**（S7 1vh=2.4px / X3S·X5 1vh=2.54px，见 core/platform/viewport.js）。
  * pages/player 的 LESS 里写的数值必须与这里**成对维护** —— 改一处要改两处，
  * LESS 那边有对应注释点出数字来源。
  */
+import { screenSize, vhPx, isNarrow, RAIL_W, vh } from '../../core/platform/viewport.js'
 
-export const VH = 2.4 // 1vh = 2.4px（1020×240 逻辑视口）
-export const SCREEN_W = 1020
-export const SCREEN_H = 240
-/** 左侧操作栏宽度（vh）——与 NavRail.vue 的 .rail width 成对维护
- *  （2026-10-30 起全应用统一为播放页设计稿的 60px = 25vh；旧值 28vh 已废弃） */
-export const RAIL_W = 25
+/**
+ * 机型族的几何差异（screens 见 core/platform/viewport.js）：
+ *   - S7  1020×240（1vh=2.4px）：三列横排，控制区 480 + 子面板 480
+ *   - X3S/X5 800×254（1vh=2.54px）：装不下三列，控制区铺满 + 辅助面板走右侧抽屉
+ */
+export { screenSize, vhPx, isNarrow }
 
 export const PLY = {
   PAD_V: 2, // 页面上下内边距
@@ -71,7 +72,7 @@ export function lyricViewH() {
 
 /** 歌词可视区高度（px） */
 export function lyricViewPx() {
-  return lyricViewH() * VH
+  return lyricViewH() * vhPx()
 }
 
 /**
@@ -84,32 +85,15 @@ export function lyricViewPx() {
  * 从左往右：内容区左 | 浮窗内边距 | 圆钮 | 间距 | 外框内边距 | ←线→ | 外框内边距 | 浮窗内边距
  */
 export function seekGeometry() {
-  const railW = RAIL_W * VH
-  const contentW = SCREEN_W - railW
-  const leftInset = (PLY.SEEK_PAD_H + PLY.SEEK_BTN + PLY.SEEK_GAP + PLY.SEEK_LINE_PAD) * VH
-  const rightInset = (PLY.SEEK_PAD_H + PLY.SEEK_LINE_PAD) * VH
+  const s = screenSize()
+  const railW = vh(RAIL_W)
+  const contentW = s.w - railW
+  const leftInset = vh(PLY.SEEK_PAD_H + PLY.SEEK_BTN + PLY.SEEK_GAP + PLY.SEEK_LINE_PAD)
+  const rightInset = vh(PLY.SEEK_PAD_H + PLY.SEEK_LINE_PAD)
   return {
     x: railW + leftInset,
     w: Math.max(1, contentW - leftInset - rightInset)
   }
 }
 
-/**
- * 屏幕尺寸：优先读 $falcon.env，读不到/不合理就退回 1020×240。
- * PenMusic 的坑：env 里可能是竖屏值，要按 max/min 纠正成横向。
- */
-export function screenSize() {
-  let w = SCREEN_W
-  let h = SCREEN_H
-  try {
-    /* global $falcon */
-    const e = $falcon.env || {}
-    const ew = Number(e.screenWidth || e.width) || 0
-    const eh = Number(e.screenHeight || e.height) || 0
-    if (ew > 0 && eh > 0) {
-      w = Math.max(ew, eh)
-      h = Math.min(ew, eh)
-    }
-  } catch (err) {}
-  return { w: w, h: h }
-}
+

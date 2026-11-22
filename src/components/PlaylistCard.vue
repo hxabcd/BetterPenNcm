@@ -1,5 +1,5 @@
 <template>
-  <div class="pcard" @click="$emit('select')">
+  <div class="pcard" :style="widthStyle" @click="$emit('select')">
     <div class="pcard-cv">
       <image v-if="localCover" class="pcard-cvi" :src="localCover" resize="cover" />
     </div>
@@ -26,10 +26,19 @@ export default {
   props: {
     item: { type: Object, required: true },
     /** 封面缩略图边长；卡片封面 28vh ≈ 67px，默认 60 略糊，专辑行传 120 */
-    coverSize: { type: Number, default: 60 }
+    coverSize: { type: Number, default: 60 },
+    /** 定宽（px）；0 = 用 LESS 里的 92.5vh 默认值。
+     *  网格按列数自适应时由父页面给（见 core/platform/viewport.js 的 fitColumns）：
+     *  X3S 800 宽下 4 列放不下、3 列也要略收窄，百分比/固定 vh 都会溢出。 */
+    widthPx: { type: Number, default: 0 }
   },
   data() {
     return { localCover: '' }
+  },
+  computed: {
+    widthStyle() {
+      return this.widthPx > 0 ? { width: this.widthPx + 'px' } : {}
+    }
   },
   mounted() {
     const self = this
@@ -43,9 +52,10 @@ export default {
 <style lang="less" scoped>
 @import '../styles/common.less';
 
-/* 92.5vh：歌单页一行 4 张 + 每张 5vh 右间距 = 4×(92.5+5) = 390vh，
-   内容区可用宽 = 左栏 25vh 之后（400vh）− 列表页左右内边距 7vh = 393vh，390 ≤ 393 放得下
-   （2026-10-30 左栏由 28vh 收窄到 25vh，多出 3vh 余量；改左栏宽度时要重算这里）。 */
+/* 默认 92.5vh（S7 上一行 4 张的定宽）。
+   ⚠ 窄屏（X3S/X5 800 宽）上 4 张放不下：列数与每张宽度由页面的 fitColumns 实算后
+   走 widthPx prop 内联覆盖（见 pages/playlists/playlists.vue），这里只是 S7 兜底。
+   宽度**不能用百分比**：百分比基准是列表内容宽，随机型漂移会让末卡溢出被裁。 */
 .pcard {
   width: 92.5vh;
   height: 36vh;

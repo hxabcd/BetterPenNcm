@@ -1,5 +1,5 @@
 <template>
-  <div :class="cardClass" @click="onOpen">
+  <div :class="cardClass" :style="widthStyle" @click="onOpen">
     <div class="alb-cv">
       <image v-if="shownCover" class="alb-img" :src="shownCover" resize="cover" />
       <image v-else class="alb-note" :src="ICON.note" />
@@ -18,9 +18,10 @@
  *
  * 列数 2/3/4 由父页面通过 `cols` 传入，卡片宽度用三个独立完整类名切换
  * （平台只认单类名，不能写 .alb.alb-2 这种复合选择器）。
- * ⚠ 宽度**不能用 >100vh 的 vh**：平台会把任何 >100vh 的宽度静默截到 100vh
- * （AGENTS 坑 18）。2 列 47% / 3 列 31% / 4 列 23%，加 5vh 右间距后
- * 2/3/4 列总宽分别约 94%+24px / 93%+36px / 92%+48px，都在内容区内。
+ * ⚠ 宽度：默认三个百分比（2 列 47% / 3 列 31% / 4 列 23%）只是 S7 兜底；
+ * 窄屏（X3S/X5 800 宽）上由父页面按内容区宽度实算后走 widthPx 内联覆盖 ——
+ * 百分比基准是列表内容宽，机型一变就会让末列溢出被裁。
+ * 也不能用 >100vh 的 vh 宽度（平台会静默截到 100vh，见 AGENTS 坑 18）。
  *
  * 封面取专辑内歌曲的封面（localmeta.localAlbumList 的 cover），
  * 行内自己走 cover.js 队列，离线命中磁盘缓存。
@@ -33,12 +34,19 @@ export default {
   props: {
     /** {id, name, artist, count, year, cover, coverId} */
     item: { type: Object, required: true },
-    cols: { type: Number, default: 4 }
+    cols: { type: Number, default: 4 },
+    /** 定宽（px）；0 = 用 LESS 里的百分比默认值。
+     *  网格按列数自适应时由父页面给（见 core/platform/viewport.js 的 fitColumns）——
+     *  百分比在 X3S 800 宽下会让末列溢出被裁。 */
+    widthPx: { type: Number, default: 0 }
   },
   data() {
     return { localCover: '', ICON: ICON }
   },
   computed: {
+    widthStyle() {
+      return this.widthPx > 0 ? { width: this.widthPx + 'px' } : {}
+    },
     shownCover() {
       return this.localCover
     },

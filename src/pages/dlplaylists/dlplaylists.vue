@@ -58,7 +58,7 @@ import { toastMixin } from '../../ui/mixins/toast.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
 import { PAGE_ROW, AUTO_BATCH, ROW_PX_LIB } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
-import { listPageMixin } from '../../../ui/mixins/listpage.js'
+import { listPageMixin } from '../../ui/mixins/listpage.js'
 
 const PAGE = PAGE_ROW // 索引歌单一次渲染 40 行（平台 ≤50 行）
 
@@ -208,9 +208,6 @@ export default {
     },
     openItem(it) {
       go('dltracks', { kind: 'playlist', id: it.pid, name: it.name })
-    },
-    moreLabel(n, unit) {
-      return moreText(n, unit)
     },
     loadMore() {
       if (!this.hasMore) return

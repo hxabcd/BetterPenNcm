@@ -18,6 +18,7 @@ import { KINDS, PAGE, appendUnique } from './listkinds.js'
 import { fetchArtistSongs } from '../ncm/api.js'
 import { fetchTracksMore } from '../ncm/playlist.js'
 import { markUnliked } from '../ncm/like.js'
+import { log } from '../../core/infra/log.js'
 import { remove as histRemove } from './history.js'
 
 /** 名称比较：优先 localeCompare（快速 JS 引擎里退化为码位序，中文不是拼音序，够用），异常时退回手写比较 */
@@ -114,11 +115,11 @@ export async function ensureAllSongs(vm) {
     vm.noMore = false
     if (vm.shown > vm.songs.length) vm.shown = vm.songs.length
     if (!vm.shown) vm.shown = Math.min(PAGE, vm.songs.length)
-    vm.log('list', '全量就绪 ' + vm.songs.length + ' 首（kind=' + vm.kind + '）')
+    log('list', '全量就绪 ' + vm.songs.length + ' 首（kind=' + vm.kind + '）')
     return true
   } catch (e) {
     if (!vm._dead) vm.showToast('载入全部曲目失败：' + ((e && e.message) || e))
-    vm.log('list', '载入全部失败 ' + ((e && e.message) || e))
+    log('list', '载入全部失败 ' + ((e && e.message) || e))
     return false
   } finally {
     vm._loadingFull = false
@@ -150,7 +151,7 @@ export async function loadMore(vm) {
     return true
   } catch (e) {
     if (vm.showToast) vm.showToast('加载更多失败：' + ((e && e.message) || e))
-    if (vm.log) vm.log('list', '加载更多失败 ' + ((e && e.message) || e))
+    log('list', '加载更多失败 ' + ((e && e.message) || e))
     return false
   } finally {
     vm.loadingMore = false
@@ -195,7 +196,7 @@ export function applyRemoved(vm, ids) {
   vm.sub = vm.trackIds.length + ' 首'
   vm.hint = vm.hasMore ? '本页已清空，点下方「加载更多」继续' : '歌单已空'
   vm.showToast((vm.kind === 'liked' ? '已取消喜欢 ' : '已从歌单移除 ') + removed + ' 首')
-  vm.log('list', '移除 ' + removed + ' 首（选 ' + ids.length + '）pid=' + vm.pid + '，剩 ' + vm.trackIds.length)
+  log('list', '移除 ' + removed + ' 首（选 ' + ids.length + '）pid=' + vm.pid + '，剩 ' + vm.trackIds.length)
   vm.exitMulti()
 }
 
@@ -232,6 +233,6 @@ export function applyHistoryRemoved(vm, ids) {
   vm.sub = vm.fullSongs.length + ' 首'
   vm.hint = '还没有播放记录'
   vm.showToast('已从播放历史移除 ' + n + ' 首')
-  vm.log('list', '历史移除 ' + n + ' 首（剩 ' + vm.fullSongs.length + '）')
+  log('list', '历史移除 ' + n + ' 首（剩 ' + vm.fullSongs.length + '）')
   vm.exitMulti()
 }

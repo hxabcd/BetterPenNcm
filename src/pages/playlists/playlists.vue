@@ -24,9 +24,9 @@
     </page-topbar>
 
     <scroller class="pls-list" @scroll="onInfiniteScroll">
-      <!-- 4 张一行的横卡网格（手动分行，不依赖 flex-wrap） -->
+      <!-- 横卡网格（手动分行，不依赖 flex-wrap）：每行张数按内容区宽度自适应 -->
       <div class="pls-row" v-for="(row, ri) in rows" :key="ri">
-        <playlist-card v-for="p in row" :key="p.id" :item="p" @select="openItem(p)" />
+        <playlist-card v-for="p in row" :key="p.id" :item="p" :width-px="cardWpx" @select="openItem(p)" />
       </div>
       <empty-hint v-if="!sorted.length" :text="hint" />
       <div class="pls-more" v-if="hasMore" @click="loadMore">
@@ -66,10 +66,12 @@ import { toastMixin } from '../../ui/mixins/toast.js';
 import { pageFrameMixin } from '../../ui/mixins/frame.js';
 import { pageBusMixin } from '../../ui/mixins/pagebus.js';
 import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD } from '../../ui/paging.js'
+import { fitColumns } from '../../core/platform/viewport.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js';
 import { listPageMixin } from '../../ui/mixins/listpage.js'
 
-const PER_ROW = 4; // 每行卡片数
+/* 每行卡片数：**按内容区宽度自动选**（S7 4 列 / X3S 800 宽 3 列）。
+   PER_ROW 只作兜底默认，实际用 grid.cols（见 computed）。 */
 
 const ALBUM_PAGE = 30; // 歌手专辑一次拉多少（实测 offset 分页有效）
 
@@ -150,12 +152,21 @@ export default {
     showCreate() {
       return !this.isArtist && this.tab === "created" && loggedIn();
     },
-    /** 按 4 个一组分行（113 个歌单 ≈ 12 屏，名字截断可接受） */
+    /** 网格列数与每张卡宽（px）：按本机型内容区宽度实算，见 core/platform/viewport.js */
+    grid() {
+      // 每张卡至少 76vh 宽（S7: 182px / X3S: 193px）—— 再窄歌单名的可用宽度就不够看了
+      return fitColumns(76, 5, 7, 4)
+    },
+    cardWpx() {
+      return this.grid.cardWpx
+    },
+    /** 按 grid.cols 个一组分行 */
     rows() {
       const out = [];
       const list = this.visibleItems;
-      for (let i = 0; i < list.length; i += PER_ROW) {
-        out.push(list.slice(i, i + PER_ROW));
+      const n = this.grid.cols;
+      for (let i = 0; i < list.length; i += n) {
+        out.push(list.slice(i, i + n));
       }
       return out;
     },
@@ -308,10 +319,6 @@ export default {
         log("playlists", "加载更多失败 " + ((e && e.message) || e));
       }
       this.loadingMore = false;
-    },
-    /** 「加载更多」文案（import 的 helper 模板里不能裸调，走 methods 暴露） */
-    moreLabel(n, unit) {
-      return moreText(n, unit);
     },
     /* ---- pivot ---- */
     switchTab(k) {

@@ -701,10 +701,6 @@ export default {
     appendUnique(base, add) {
       return appendUnique(base, add);
     },
-    /** 「加载更多」文案（模板里只能用 methods/data 暴露的方法，import 的 helper 不能裸调） */
-    moreLabel(n, unit) {
-      return moreText(n, unit);
-    },
     /** 「加载更多」：三路分派与并发/生命周期守卫在 ui/listcursor.js */
     async loadMore() {
       await cursorLoadMore(this);

@@ -344,10 +344,6 @@ export default {
         log('dltracks', '读取失败 ' + ((e && e.message) || e))
       }
     },
-    /** 「加载更多」文案（import 的 helper 模板里不能裸调，走 methods 暴露） */
-    moreLabel(n, unit) {
-      return moreText(n, unit)
-    },
     loadMore() {
       if (!this.hasMore) return
       this.rows = this.fullRows.slice(0, this.rows.length + AUTO_BATCH)

@@ -3,7 +3,7 @@
     <page-topbar title="本地下载" :sub="barSub" />
     <scroller class="dal-list" @scroll="onInfiniteScroll">
       <div class="dal-row" v-for="(row, ri) in rows" :key="ri">
-        <album-card v-for="a in row" :key="a.id" :item="a" :cols="cols" @open="openAlbum(a)" />
+        <album-card v-for="a in row" :key="a.id" :item="a" :cols="cols" :width-px="cardWpx" @open="openAlbum(a)" />
       </div>
       <empty-hint v-if="loading" text="读取中..." />
       <empty-hint v-else-if="!albums.length" text="暂无本地专辑" />
@@ -52,6 +52,7 @@ import { log } from '../../core/infra/log.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
 import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD } from '../../ui/paging.js'
+import { fitColumns, cardWidthPx } from '../../core/platform/viewport.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
 import { listPageMixin } from '../../ui/mixins/listpage.js'
 
@@ -69,15 +70,12 @@ const PAGE = PAGE_CARD // 一次最多 40 张卡（4 列 10 行 / 2 列 20 行�
  * `$falcon.env.screenWidth` 是 PenMusic 实证可用的运行时字段（屏宽 px）；
  * 取不到时保持 4 列（S7 默认）。
  */
+/**
+ * 默认列数：按**内容区宽度**自动选（S7 1020 宽 → 4 列；X3S/X5 800 宽 → 3 列）。
+ * 不再读 `env.screenWidth` —— 那个字段在 X3S 上根本不存在（只有 deviceWidth）。
+ */
 function defaultCols() {
-  try {
-    /* global $falcon */
-    const w = Number($falcon.env && $falcon.env.screenWidth) || 0
-    if (w >= 960) return 4
-    if (w >= 780) return 3
-    if (w > 0) return 2
-  } catch (e) {}
-  return 4
+  return fitColumns(76, 5, 7, 4).cols
 }
 
 function cmpName(a, b) {
@@ -124,6 +122,11 @@ export default {
         return dir * cmpName(a.name, b.name)
       })
       return out
+    },
+    /** 每张卡的定宽（px）：按当前列数在本机型内容区里均分（末列不再溢出被裁） */
+    cardWpx() {
+      // 用户选的列数可能在小屏上装不下：卡宽按内容区均分（变窄，不溢出）
+      return cardWidthPx(this.cols, 5, 7)
     },
     rows() {
       const out = []
@@ -193,9 +196,6 @@ export default {
     },
     closePanel() {
       this.panel = ''
-    },
-    moreLabel(n, unit) {
-      return moreText(n, unit)
     },
     loadMore() {
       if (!this.hasMore) return

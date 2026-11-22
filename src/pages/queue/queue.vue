@@ -89,13 +89,17 @@ import { multiSelectMixin } from '../../ui/mixins/multi.js';
 import { pageFrameMixin } from '../../ui/mixins/frame.js';
 import { bindPageVis } from '../../ui/vis.js';
 import { PAGE_QUEUE, moreText } from '../../ui/paging.js';
-import { VH } from '../../services/player/layout.js';
+import { vhPx } from '../../core/platform/viewport.js';
 
 /* 与 LESS 成对维护的几何（px）：行高 .qu-row = @row-h 23vh，折叠条 18vh，定位行 14vh。
    窗口锚定滚动要用像素算「插入多少行 = 内容上移多少」，所以这里必须有一份。 */
-const ROW_PX = 23 * VH;
-const FOLD_PX = 18 * VH;
-const LOC_PX = 14 * VH;
+const ROW_PX_CONST = 23; // 行高 vh（SongRow 23vh）
+const FOLD_PX_CONST = 18;
+const LOC_PX_CONST = 14;
+/* 三个 vh 常数按本机型换算成 px（S7 2.4 / X3S·X5 2.54）——写死 2.4 会在窄屏上错 6% */
+const ROW_PX = ROW_PX_CONST * vhPx();
+const FOLD_PX = FOLD_PX_CONST * vhPx();
+const LOC_PX = LOC_PX_CONST * vhPx();
 /* 前向展开的步长：比整页少 6 行。锚定后视口里的旧内容位于窗口第 K 行附近，
    再留 5～6 行给屏幕下方，窗口总行数仍 ≤ PAGE_QUEUE（平台一次渲染预算）。 */
 const EXPAND = PAGE_QUEUE - 6;

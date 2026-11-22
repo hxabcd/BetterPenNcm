@@ -251,10 +251,6 @@ export default {
         log('album', '本地索引无记录 id=' + this.id)
       }
     },
-    /** 「加载更多」文案（import 的 helper 模板里不能裸调，走 methods 暴露） */
-    moreLabel(n, unit) {
-      return moreText(n, unit)
-    },
     /** 只加渲染行数；云端/本地数据早已全量在 songs 里 */
     loadMore() {
       if (!this.hasMore) return

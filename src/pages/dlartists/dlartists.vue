@@ -173,9 +173,6 @@ export default {
     closePanel() {
       this.panel = ''
     },
-    moreLabel(n, unit) {
-      return moreText(n, unit)
-    },
     loadMore() {
       if (!this.hasMore) return
       this.shown += AUTO_BATCH

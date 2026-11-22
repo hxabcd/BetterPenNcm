@@ -209,9 +209,6 @@ export default {
     openItem(it) {
       go('dltracks', { kind: 'playlist', id: it.pid, name: it.name })
     },
-    moreLabel(n, unit) {
-      return moreText(n, unit)
-    },
     loadMore() {
       if (!this.hasMore) return
       this.shown += AUTO_BATCH

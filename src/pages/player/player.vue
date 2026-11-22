@@ -54,6 +54,17 @@
            面板内部各块用百分比/100% 自适应，同一个组件两处复用。
            ⚠ 下方面板块与 .ply-sub 内的完全一致，改面板 props/事件两处同步。 -->
       <div v-if="narrow && sub" class="ply-scrim" @click="closePanel"></div>
+      <!-- 抽屉左侧露出的窄条上放两个透明图标键：播放/暂停、返回（= 收起抽屉）。
+           它们是 .ply-scrim 的**兄弟**而不是子节点 —— 平台没有 stopPropagation，
+           挂在遮罩内部会让点键同时触发「点遮罩收起」。 -->
+      <div v-if="narrow && sub" class="ply-scrimkeys" :style="{ right: panelW + 'px' }">
+        <div class="ply-sk" @click="onToggle">
+          <image class="ply-sk-ico" :src="scrimPlayIcon" />
+        </div>
+        <div class="ply-sk" @click="closePanel">
+          <image class="ply-sk-ico" :src="ICON.back" />
+        </div>
+      </div>
       <div v-if="narrow && sub" class="ply-drawer" :style="{ width: panelW + 'px' }">
         <lyric-board
           v-if="sub === 'lyric' && lyricOn"
@@ -188,6 +199,13 @@ export default {
       return this.curId + '|' + ((this.st.cur && this.st.cur.cover) || '')
     },
     /**
+     * 抽屉左侧遮罩窄条上的播放/暂停图标：与主控键同一套判定
+     * （播放中 = ⏸，暂停/未播 = ▶）。图标是**白色** PNG（垫透明底，不是主题色实心）→ 走 ICON 而不是 fgIcon。
+     */
+    scrimPlayIcon() {
+      return this.st.isPlaying && !this.st.paused ? ICON.pause : ICON.play
+    },
+    /**
      * 左栏槽位（全局 NavRail）：返回固定第一，其余贴底。
      * 「歌曲详情」没有在播曲时禁用（那页要 id）。下载不占槽位（在歌曲详情/列表页）。
      */
@@ -235,6 +253,10 @@ export default {
       if (on && !was) self.onTick(player.state())
     })
     this.readOpts()
+    // TEMP-AUDIO-TEST: 连播两次（play → stop → play），验证每次起播都重设混音器
+    setTimeout(function () { try { player.toggle() } catch (e) {} }, 2500)
+    setTimeout(function () { try { player.stop() } catch (e) {} }, 8000)
+    setTimeout(function () { try { player.toggle() } catch (e) {} }, 11000)
     // 定时播放状态（模块级单例，跨页面存活）：每秒广播一次，页面只关心 active。
     // 到点提示：定时面板开着时由 TimerPanel 自己 emit（避免双 toast），
     // 其余情况（空面板/评论/歌词/进度控制）由页面补一条。
@@ -514,6 +536,32 @@ export default {
   right: 0;
   bottom: 0;
   background-color: @scrim-deep;
+}
+/* 遮罩左侧窄条上的两个透明图标键（播放/暂停、返回）：上下排列、无底色、不抢抽屉视线。
+   定位：right 由模板内联给（= 抽屉宽），即「露出的那条遮罩」整体；
+   两个键在条内**水平居中**（不贴左沿，否则压住封面）。
+   ⚠ 不挂 background —— 用户要求「透明，仅图标」。 */
+.ply-scrimkeys {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  /* right 由模板内联给（panelW） */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.ply-sk {
+  width: 20vh; /* 48px，与 NavRail 键同尺寸（可点区域） */
+  height: 20vh;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2.5vh;
+  margin-bottom: 2.5vh;
+}
+.ply-sk-ico {
+  width: 10vh; /* 24px */
+  height: 10vh;
 }
 .ply-drawer {
   position: absolute;

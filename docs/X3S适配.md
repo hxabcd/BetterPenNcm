@@ -125,6 +125,7 @@ devctl --device x3s capture /tmp/x3s.png
 | 播放页抽屉三面板 | ✓ | 右侧抽屉打开评论（43 条、头像/点赞/发布按钮）、歌词（纯音乐提示）、进度控制（0:00/4:17、±5/±30s）均正常 |
 | 封面取色 | ✓ | `has('ffmpeg')=true`；`coverPair(downloads/139774/cover.jpg)` → `["#964a4a", null]`（首页卡片光晕同源） |
 | 导航层 | ✓ | 程序化 `go('settings')` → `go settings -> settings (push)`、`go('player')` → `(reuse)`；`[nav] page-load` 栈依次 `[index]` / `[index,settings]` / `[index,settings,player]` |
+| 详情页（真实数据） | ✓ | `go('songinfo',{id:139774})` / `go('artist',{id:4726})` / `go('album',{id:13934})`：封面、歌手头像、时长/发行日期/音轨/热度、29 张专辑·78 首歌、曲目列表均在 800×254 内正常排布 |
 | 播放页抽屉布局 | ✓ | 控制区铺满 736px，右侧无裁切（抽屉默认收起；打开态的样式与 S7 子面板同源） |
 
 ## 七、未验证 / 待办

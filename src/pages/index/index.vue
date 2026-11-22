@@ -117,7 +117,6 @@ import { log } from '../../core/infra/log.js';
 import { pageFrameMixin } from '../../ui/mixins/frame.js';
 import { pageBusMixin } from '../../ui/mixins/pagebus.js';
 import { bindPageVis } from '../../ui/vis.js';
-import { contentWidthPx } from '../../core/platform/viewport.js';
 
 // 防重：运行时页面会挂两遍。started 只护「启动链 + 登录事件」，**不能护播放态订阅**
 // （订阅若只挂第一次挂载的实例，而实际显示的是最后挂载的那个，卡片会永远停在初始状态）。
@@ -135,8 +134,6 @@ export default {
   },
   data() {
     return {
-      // 内容区宽（px，= 视口宽 − 左栏 25vh）：卡片定宽的计算基准，见 computed 的 nowW/cardW
-      contentW: contentWidthPx(),
       ICON: ICON,
       buildTag: BUILD_TAG,
       keyword: "",
@@ -174,23 +171,28 @@ export default {
       return { backgroundColor: this.bg };
     },
     /**
-     * 五张卡的**定宽（px）**：进页面时按内容区宽度算一次，此后是常量。
+     * 五张卡的**定宽（px）**：常量，两机型完全一致（2026-11-22 用户要求）。
      *
-     * 为什么不用百分比（2026-11-22 X3S 实测）：percent 基准是 scroller 的内容盒，
-     * 卡片自身还有 padding/边框/间距，48% + 4×23% + 5 个间距会算过右沿 ——
-     * 800 宽上末卡被裁、滚到尽头露半张。改成定宽后每张卡宽度确定，溢出只表现为「要横向滚动」。
+     * 为什么不用百分比：percent 基准是 scroller 的内容盒，卡片自身还有 padding/边框/间距，
+     * 48% + 4×23% + 5 个间距会算过右沿（800 宽上末卡被裁、滚到尽头露半张）；
+     * 更关键的是百分比随机型漂移 —— 同一张卡在 S7 与 X3S 上像素宽度不同。
      *
-     * 为什么也不直接写 vh：平台把任何 >100vh 的 vh **宽度**静默截到 100vh
-     * （第 18 条平台坑），当前播放卡在 S7 上就是 190vh，会被截成 100vh。
+     * 为什么也不写 vh：平台把任何 >100vh 的 vh **宽度**静默截到 100vh（第 18 条平台坑），
+     * 当前播放卡 530px 在 X3S 上 ≈ 209vh，早被截掉。所以只能写 px。
      *
-     * 比例沿用设计稿：当前播放 50、其余四张各 23（合计 142% ⇒ 一屏「大卡 + 一整张 + 半张」，
-     * 滚动看后面）。按本机型内容区实算，S7 → 480/220px，X3S(800) → 369/170px。
+     * 取值（以窄的 X3S 为基准反推，S7 更宽 → 只会在末尾多露一点，不会挤）：
+     *   大卡 530px = X3S 原来 353px 的 1.5 倍（用户要求「正在播放卡宽 1.5 倍」）；
+     *   小卡 169px = X3S 原值（= 卡高 70vh 的整数倍附近，视觉上近正方）。
+     *   X3S 可用宽 720：530 + 10(卡间距) + 169 = 709 ≤ 720 ⇒ 首屏「大卡 + 一整张小卡」，
+     *     第二张小卡只露 1px 边（横向滚动看后面）；
+     *   S7 可用宽 946：530 + 10 + 169 + 10 + 169 = 888 ⇒ 首屏「大卡 + 两张小卡」，
+     *     第三张小卡露约 48px。改这两个数前先按这两条预算重算。
      */
     nowW() {
-      return Math.round(this.contentW * 0.5);
+      return 530;
     },
     cardW() {
-      return Math.round(this.contentW * 0.23);
+      return 169;
     },
     nowStyle() {
       const s = this.glowStyle;

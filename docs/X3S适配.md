@@ -127,7 +127,7 @@ DPD_NODE=/path/to/node18 bash scripts/build.sh
 # 产物 build/8000200708310039.<version>.amr，libs/arm64-cherry3566/ 会一起打包
 
 # 3) 装机（覆盖安装，data 保留；--fresh 才会清 data）
-bash scripts/install.sh --no-build --wait 15
+bash scripts/install.sh --no-build
 
 # 4) 截图（X3S 熄屏时先点亮屏幕：miniapp_cli capture 拿空白帧）
 devctl --device x3s run -- 'echo 0 > /sys/class/backlight/backlight/bl_power; echo 128 > /sys/class/backlight/backlight/brightness'

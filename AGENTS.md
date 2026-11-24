@@ -40,34 +40,36 @@ This file provides guidance to AI Agent when working with code in this repositor
 |---|---|
 | 构建 | `bash scripts/build.sh` → `build/8000200708310039.<x_y_z>.amr` |
 | 构建探针版（独立 appid） | `bash scripts/build_probe.sh`（默认 appid `8002026100500004`，入口 = `pages/probe`；脚本临时改 appid 后自动还原源码，不碰正式应用数据） |
-| 构建+装机+截图 | `bash scripts/install.sh [等待秒数]`（截图 `shots/shot.png`） |
+| 构建+装机 | `bash scripts/install.sh`（推包 + install + start，内建互斥锁；不等就绪、不校 md5、不截图） |
 | 导航层真机自测 | `bash scripts/nav_selftest.sh`（探针构建 + 串行 go/close + 15 层深度压力 + 12 层内存采样，断言 `[nav]` 日志与栈快照；截图 `shots/nav_selftest.png`，不动正式应用数据） |
-| 清互斥锁重来 | `bash scripts/build.sh --force`（`install.sh` 同理） |
+| 清残留锁重来 | `bash scripts/build.sh --force`（`bash scripts/install.sh --force` 同理；锁在 `tools/dictpen-dev/dpd/lock.py`） |
 | 收设备日志 | `python scripts/logserver.py`（PC 0.0.0.0:8888 → `device_log.txt`）；**设备端地址必须构建时注入**：`BPNCM_LOG_SRV=http://<你的PC>:8888/log bash scripts/build.sh` —— 未注入则发往 127.0.0.1、静默失败（默认发布形态） |
-| 截图 | `bash scripts/shot.sh`（输出 `shots/shot.png`；熄屏时返回空白帧，工具链会先点亮屏幕）；`install.sh` 内建 capture，装机后直接看 |
+| 截图 | `bash scripts/shot.sh`（输出 `shots/shot.png`；熄屏时返回空白帧，工具链会先点亮屏幕），或直接 `devctl capture /tmp/shot.png`。**装机已不再内建截图** |
 | 一次性设备命令 | `devctl run '...'` / `devctl capture /tmp/shot.png`（工作区工具链，用法见其 README） |
 | 重建图标 | `python scripts/gen_icons.py --preview`（需 ImageMagick 7 + Pillow） |
 
 产物一律 `build/`、截图一律 `shots/`。
 
-### 设备传输层（scripts/lib/device.sh）
+### 设备传输层（`scripts/lib/device.sh` 适配层）
 
-项目对设备的一切操作（含 install.sh / shot.sh / nav_selftest.sh 内部）都经此层走工作区工具链 `devctl`——它是 `tools/dictpen-dev` 的适配层，不自己实现连接。脚本内用五原语 `dev_run` / `dev_put` / `dev_get` / `dev_exists` / `dev_check`，连接方式由工具链按配置自动选择，脚本与命令行都不指定 adb/ssh。契约要点（完整版见工具链 README）：
+设备操作的实际执行层是工作区工具链：bash 脚本经 `scripts/lib/common.sh` 载入 `scripts/lib/device.sh`（本项目自己的**适配层**：只保留旧的 `dev_select <mode>` 位置参数形态与 `BPNCM_*` 变量名，再翻译成共享层参数）→ `tools/dictpen-dev/lib/project.sh` → `tools/dictpen-dev/lib/transport.sh`（bash 兼容层）；`devctl` CLI 走 `dpd/transport.py`，两套行为等价（对拍见 `test/test_transport_parity.py`）。连接方式由 `tools/dictpen-dev/config.toml` 决定，脚本与命令行都不指定 adb/ssh。脚本内用五原语 `dev_run` / `dev_put` / `dev_get` / `dev_exists` / `dev_check`，契约要点（完整版见工具链 README）：
 
+- `install.sh` / `build.sh` **不经过** device.sh：它们是薄壳（各 14 行有效代码，三份除注释外逐字一致），只 source `scripts/lib/dev.sh` 定位工作区后 `exec devctl install|build "$@"`；参数解析全在 devctl 侧
+- 例外：`nav_selftest.sh` 的探针装机（`uninstall → put → install → start`，探针 appid）仍用自己的五原语序列；正式装机一律 `devctl install`
 - **退出码不能判断成败**：adbd 不回传远程退出码，关键写操作用 `dev_exists` 事后校验
 - 新建 `set -e` 脚本时顶层不要写 `[ -n "$X" ] && ...`：MSYS bash 5.3.20（agent 执行环境）在 source 链含 `.` 命令时，顶层 `&&` 列表首命令失败会整脚本静默退出 rc=1；Git Bash 5.3.15 正常。统一 `if` 写法
 - 别用外部 `timeout` 包 `dev_run` 等 shell 函数（timeout 是 exe，执行不了函数）
 
 ## 硬性约束
 
-- **构建必须用便携 Node 18**（`tools/aiot-build/`，已在 build.sh 封装）；系统 Node 26 会让 aiot-cli 崩溃。
-  该 exe 可能被安全软件拦成「无输出直接退出 1」——此时用 `BPNCM_NODE=<node.exe>` 指定替代（18 或 22 可用，26 不行）
+- **构建必须用便携 Node 18**（`tools/aiot-build/`，由工作区 `dpd/builder.py` 解析；`scripts/build.sh` 是薄壳，里面没有 Node 路径可改）；系统 Node 26 会让 aiot-cli 崩溃。
+  该 exe 可能被安全软件拦成「无输出直接退出 1」——此时用 `BPNCM_NODE=<node.exe>` 指定替代（18 或 22 可用，26 不行；`DPD_NODE` 同样有效）
   - **Linux 主机**：工作区的便携 Node 是 Windows exe，需用 `DPD_NODE=/path/to/node-v18/bin/node bash scripts/build.sh` 指定 Linux Node 18（22 亦可，26 不行）
-- **构建/装机互斥**：已有实例在跑时第二个直接报错退出、不排队。确认无人运行时 `rm -rf .build.lock/`（或 `.install.lock/`）或加 `--force`
+- **构建/装机互斥**：已有实例在跑时第二个直接报错退出、不排队。锁实现在工作区 `tools/dictpen-dev/dpd/lock.py`，构建与装机各一把（`build` / `install`），锁目录在 `tools/dictpen-dev/.cache/locks/`。确认无人运行时给命令加 `--force` 清锁接管（`bash scripts/build.sh --force` / `bash scripts/install.sh --force`）
 - **更新应用直接 `install` 覆盖**：同 appid 直接装，应用的 data（登录态、设置、下载）原样保留 —— 2026-11-12 实测确认（往 data/ 写标记后覆盖安装，标记仍在、`config.json` md5 未变）。所以不需要「备份 → uninstall → 恢复」那套流程
 - **`--fresh` 会清空 data**：先 `miniapp_cli uninstall` 再装，登录态与全部下载都会丢，只在要彻底重置时用。`miniapp_cli uninstall` 本身也清空整个 data 目录，别随手跑
 - **设备临时文件默认写 `/tmp`**（tmpfs，重启自清），不要在 `/userdisk` 根目录下建临时文件；`/tmp` 放不下的大文件才落 `/userdisk`；持久文件只进 `/userdisk/path/` 等既有子目录
-- 构建号写入生成物 `src/core/infra/buildInfo.js`（build.sh 生成，勿手改）并显示在首页顶栏，供核对设备版本
+- 构建号写入生成物 `src/core/infra/buildInfo.js`（由 `scripts/gen-buildinfo.py` 生成，经 `config.toml` 的 `pre_steps` 在构建前自动跑；勿手改）并显示在首页顶栏，供核对设备版本
 - 平台能力的统一入口（别再各写各的）：可写路径一律走 `src/core/infra/paths.js`；**文本/结构化数据的唯一写入通道是 `src/core/platform/db.js`（原生 `import('sqlite3')`）——它开两个库：`local_index.db`（索引，可重建）与 `state.db`（`kv` 配置/凭据/会话/历史 + `track_meta` 每曲元数据 + `track_lyric` 歌词，属用户资产）**；`process.exec`/`curl`/`du`/`stat` 等能力探测走 `src/core/platform/exec.js`；`import('fs')` 句柄与 `fileSize` 等小工具走 `src/core/platform/fsutil.js`（**没有写函数**）；单步超时护栏 `raceTimeout` 走 `src/core/infra/util.js`；**共享的 UI 视觉常量走 `src/ui/tokens.js`**（唯一值表，改值改它再跑 `scripts/gen_tokens.py --write`；JS 用 `TOK.xxx`、LESS 用生成段里的 `@xxx`）。颜色字面量由 `theme_verify.py` 第五道强制拦截；字号/尺寸目前不巡，仍按值表与评审维护；**分层方向由 `theme_verify.py` 第七道硬校验**（R1-R6，违例即自检失败）
 - **不要用 shell 重定向写文本文件**：`process.exec` 一次 = 一次 fork（真机 92~139ms），超 60KB 还得分片、每片再一次 fork。134KB 播放快照实测 2511ms，改走 SQLite 后 10ms。同理**不要用 `sqlite3` CLI**（每次一次 fork，且 SQL 走命令行参数会被代码页转成 GBK、中文变乱码）
 - **导航一律走 `src/core/infra/nav.js` 的 `go('<逻辑页名>')`**：不直接 `$falcon.navTo`、不写槽位 key、不传变量页名；参数用 `paramsFor()`。新增页面 / 调整层级见 [`docs/页面导航.md`](docs/页面导航.md)

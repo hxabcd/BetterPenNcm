@@ -23,7 +23,6 @@
  * 真正的 .on() 在实例创建后由 getInst() 自动补挂。
  */
 import { log } from '../../core/infra/log.js'
-import { ensureOutput as ensureOutputAsync } from '../../core/platform/audio.js'
 
 let inst = null
 let handlers = null
@@ -73,14 +72,8 @@ async function getInst() {
   return inst
 }
 
-/**
- * 播放本地文件或直链；positionMs 起始偏移（ms）、rate 倍速；返回任务 uuid（事件按它过滤）
- *
- * ⚠ **每次起播前都要确认输出**（X3S）：系统的 asound.conf 钩子在播完一首后会把
- * `Playback Path` 还原成 OFF，只在启动时设一次的话第二首起就没声了。见 platform/audio.js。
- */
+/** 播放本地文件或直链；positionMs 起始偏移（ms）、rate 倍速；返回任务 uuid（事件按它过滤） */
 export async function playFile(fileName, positionMs, rate) {
-  await ensureOutputAsync()
   const sp = await getInst()
   const pos = typeof positionMs === 'number' ? positionMs : 0
   const r = typeof rate === 'number' ? rate : 1.0

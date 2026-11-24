@@ -60,16 +60,30 @@ X3S 的 libfalcon 支持 `libs/<平台>/libjsapi_*.so` 扩展（官方应用同�
   Cookie，下载要指定落盘路径；`storage.*` 的容量与性能未验证，且现有存储模型是 SQLite
   两库（state.db / local_index.db），用原生 sqlite3 才能零改动复用 db.js 与上层全部逻辑。
 
-## 三、音频：默认静音 + 输出路径 OFF
+## 三、音频：应用不碰混音器
 
-X3S 的 ALSA 混音器默认 `Master Playback Volume=0`（−50 dB）、`Playback Path=OFF`；
-`volume` 模块的 `setVolume()` 实测返回 undefined 且不改 ALSA。`SoundPlayer.playFile`
-本身能播（事件、时长、结束都正常），但必须先把混音器打开：
+应用侧**不读不写** ALSA 混音器，也不管 `Playback Path`：`/etc/asound.conf` 的钩子在
+`aplay -D default` 时会自动切 `SPK`、结束后还原。播放就是 `SoundPlayer.playFile`，
+与 S7 完全同一条路径（`src/services/player/sound.js`）。
 
-- `amixer -c 0 cset numid=3 150,150`（Master 是 2-value 原始控制，不能用 `sset` 名字）
-- 仅在 `Playback Path` 为 `OFF` 时切 `SPK`（已插耳机/蓝牙时不覆盖系统选择）
-- 实现：`src/core/platform/audio.js` 的 `ensureOutput()`，`sound.js` 的 `playFile` 前调一次
-  （懒加载 + 缓存；`import('volume')` 失败即非 X3S，直接 no-op，S7/X5 零影响）
+设备侧的音频事实（权威口径见工作区的
+[`词典笔X3S_设备事实与能力_2026-11-22.md`](../../../docs/词典笔X3S_设备事实与能力_2026-11-22.md) §4.1
+与 [`词典笔X3S_小程序运行时API清单_2026-11-22.md`](../../../docs/词典笔X3S_小程序运行时API清单_2026-11-22.md) §6.7）：
+
+- `numid=3`（Master Playback Volume）`0` = 静音、`160` = 出声；中间档位与系统音量的
+  对应关系未验证。
+- 录音需 `Capture MIC Path=Main Mic`；默认 MIC OFF 时录到全 −32768。本项目无录音功能。
+- 音量的出厂默认与语义未经验证；`sys_config.conf` 里那类 `0` 表示「未设置」而非「设为 0」
+  （同文件的 `brightness=0` 而实际背光是 15）。**据此应用不去猜测或覆盖音量。**
+
+待复核（笔上线后）：
+
+1. 冷启动后读 `amixer -c 0 contents` 与 `Volume.getVolume()`，建立两者映射；
+2. 通过系统 UI 调音量，观察 `numid=3` 是否随之联动。
+
+映射确认之前，任何「按系统音量换算出 mixer 值」的写法都缺依据，不要加。
+
+
 
 ## 四、UI 适配
 
@@ -133,7 +147,7 @@ devctl --device x3s capture /tmp/x3s.png
 | sqlite3 两库 | ✓ | `[db] 状态库就绪 state.db` / `索引库就绪 local_index.db`；设备上 `sqlite3 state.db .tables` 见 kv/track_meta/track_lyric |
 | fs / exec / http 桥 | ✓ | 自检 `fs=true proc=true http=true`；`echo hi` code=0；music.163.com status=200 body 144245 |
 | weapi + Cookie | ✓ | 二维码登录 `unikey` 创建成功（code=200）；响应 set-cookie 的 `NMTID` 进会话 |
-| 音频出声 | ✓ | 设混音器后 `SoundPlayer.playFile` 3 秒样本，`/proc/asound/card0/pcm0p/sub0/status` = RUNNING，时长事件 3239ms |
+| 音频出声 | ✓ | `SoundPlayer.playFile` 3 秒样本，`/proc/asound/card0/pcm0p/sub0/status` = RUNNING，时长事件 3239ms（见 §三：应用不碰混音器） |
 | curl 下载引擎 | ✓ | `fetchToFile` 下 52,079 B 整文件成功（`{ok:true,size:52079,mode:"whole"}`，rc=0），进度轮询与 `.part` 落盘正常 |
 | 在线 URL 起播 | ✓ | `playFile(https://…mp3)` 起播，时长事件 3239ms；结束/错误语义（error 2）待复核 |
 | 封面取图/显示 | ✓ | 搜到曲目后 `downloads/<id>/cover.jpg` 落盘，首页「正在播放」卡与播放页封面正常显示 |
@@ -164,4 +178,7 @@ devctl --device x3s capture /tmp/x3s.png
 - **歌词/评论**：接口请求走 bridge 应可用，页面未在 X3S 上打开有内容的数据验证。
 - **存储**：缓存上限 LRU、`du`/`df` 空间统计、`/userdisk` 仅剩 1.3G 时的空间预检文案待核对。
 - **后台/熄屏**：X3S 的 `S99input-event-daemon` 有 270s 熄屏、600s 休眠；应用切后台冻结行为与 S7 是否一致未测。
+- **音量语义**：`Master Playback Volume`(numid=3) 与系统音量 UI / `volume` 模块读数
+  （`env.custom.volumeValue=28`）的映射关系**未验证**（见 §三）。应用不参与音量管理，
+  待复核的只是映射本身，不影响播放功能。
 - **X5**：本次只在 X3S 上验证；X5 分支的 armhf `.so` 未合入，X5 仍走 `feat/x5-adapt` 的旧方案。

@@ -189,7 +189,9 @@ export async function bridgeFs() {
       return !!b.fsMkdir(p)
     },
     rm: async function (p) {
-      return !!b.fsRm(p, 0)
+      // 对齐 S7 裸模块 fs 契约：rm 递归删目录。传 0 时 bpnnet 走 rmdir，
+      // 非空目录（音频 + 封面）删不掉 → X3S 上删除下载永远失败
+      return !!b.fsRm(p, 1)
     }
   }
 }

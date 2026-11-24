@@ -175,7 +175,7 @@ echo ""
 echo "--- [1/5] 构建探针版（BPNCM_LOG_SRV=http://$PC_IP:8888/log） ---"
 STAMP="$(mktemp)"
 BPNCM_LOG_SRV="http://$PC_IP:8888/log" bash scripts/build_probe.sh \
-  || die "探针构建失败（构建锁冲突时先确认无人构建/清 .build.lock/，见 AGENTS.md）"
+  || die "探针构建失败（构建锁冲突时先确认无人构建，或用 --force 清锁；锁信息见输出）"
 
 AMR="$(find build -maxdepth 1 -name "$PROBE_APPID.*.amr" -newer "$STAMP" 2>/dev/null | head -1)"
 [ -n "$AMR" ] || AMR="$(ls -t build/*.amr 2>/dev/null | head -1)"

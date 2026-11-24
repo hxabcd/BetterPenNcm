@@ -6,32 +6,33 @@
 # 探针应用有自己的 data 目录，与正式应用互不影响。
 #
 # 做法：临时把 package.json 的 appid 换成探针 appid、把 src/app.json 的 index 指向
-# pages/probe/probe.vue，然后照常走 build.sh；退出时（无论成败）还原两个文件。
+# pages/probe/probe.vue，然后照常构建；退出时（无论成败）还原两个文件。
 #
-# ⚠ 改源码前必须先拿到构建锁：否则在"改完"和"build.sh 加锁"这两步之间，
-#   另一个 build.sh 可能读到探针 appid 并把正式版构建成探针版。
-#   本脚本自己持锁，再用 BPNCM_LOCK_HELD=1 让 build.sh 跳过二次加锁。
+# ⚠ **改源码发生在"取锁之后、构建之前"**，两步必须在同一把锁里：否则在这两步
+#   之间另一个构建可能读到探针 appid，把正式版构建成探针版。
+#   所以真正干活的是一段 Python（见下面 heredoc）：它在同一个进程里
+#   `lock.acquire(...)` → 改源码 → `builder.build(lock_held=True)` → 还原。
 #
 # 用法：
 #   bash scripts/build_probe.sh                    # 默认探针 appid 8002026100500004
 #   PROBE_APPID=8002026100500005 bash scripts/build_probe.sh
-#   BPNCM_LOG_SRV=auto bash scripts/build_probe.sh   # 透传给 build.sh
+#   BPNCM_LOG_SRV=auto bash scripts/build_probe.sh   # 透传给 gen-buildinfo.py
 #   bash scripts/build_probe.sh --force            # 清掉残留构建锁
 #
 # 产物：build/<探针appid>.<x_y_z>.amr。装机/启动：
-#   bash scripts/install.sh --appid <探针appid> --no-backup --wait 0
+#   bash scripts/install.sh --appid <探针appid> --no-build
 set -e
 export MSYS_NO_PATHCONV=1
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJ="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJ"
 . "$SCRIPT_DIR/lib/common.sh"
-. "$SCRIPT_DIR/lock.sh"
 
-LOCK_FORCE=0
-BUILD_ARGS=()
+FORCE=0
 for a in "$@"; do
   case "$a" in
-    --force) LOCK_FORCE=1; BUILD_ARGS+=(--force) ;;
+    --force) FORCE=1 ;;
     -h|--help)
       cat <<'EOF'
 用法: bash scripts/build_probe.sh [--force]
@@ -41,52 +42,92 @@ for a in "$@"; do
   --force 清掉残留构建锁
 
 产物: build/<探针appid>.<x_y_z>.amr
-装机: bash scripts/install.sh --appid <探针appid> --no-backup --wait 0
+装机: bash scripts/install.sh --appid <探针appid> --no-build
 EOF
       exit 0 ;;
     *) die "未知参数：$a（只支持 --force；日志注入用 BPNCM_LOG_SRV=auto）" ;;
   esac
 done
 
-proj_init
 PROBE_APPID="${PROBE_APPID:-8002026100500004}"
 case "$PROBE_APPID" in ''|*[!0-9]*) die "探针 appid 必须是纯数字（收到 '$PROBE_APPID'）" ;; esac
+
+WS="$(dpd_find_workspace "$PROJ")" || die "找不到工作区根（向上没有 tools/dictpen-dev）"
+PY="$(dpd_python)" || die "需要 Python 3.11+（配置是 TOML，用内建 tomllib 解析）"
+export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
 export PROBE_APPID
+export DPD_PROBE_FORCE="$FORCE"
 
-BAK="$(mktemp -d)"
-cp package.json "$BAK/package.json"
-cp src/app.json "$BAK/app.json"
-
-restore_sources() {
-  cp "$BAK/package.json" package.json
-  cp "$BAK/app.json" src/app.json
-  rm -rf "$BAK"
-}
-# 注册成锁的退出钩子，而不是自己 trap EXIT —— 后者会覆盖 lock.sh 的释放逻辑（锁泄漏）
-lock_add_exit_hook restore_sources
-lock_acquire build
-
-stage "改写入口（临时）"
-python - "$PROBE_APPID" <<'PYEOF'
+# 交给 Python：持锁 → 改源码 → 构建 → 还原。argv 传 Windows 形式路径。
+exec "$PY" - "$(dpd_winpath_py "$PROJ")" "$(dpd_winpath_py "$WS")" <<'PYEOF'
 import json
+import os
 import sys
+from pathlib import Path
 
-appid = sys.argv[1]
+proj = Path(sys.argv[1])
+ws = Path(sys.argv[2])
+sys.path.insert(0, str(ws / "tools" / "dictpen-dev"))
 
-p = json.load(open('package.json', encoding='utf-8'))
-p['appid'] = appid
-p['name'] = 'BPNCM Probe'
-json.dump(p, open('package.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+from dpd import builder, lock, config  # noqa: E402
 
-a = json.load(open('src/app.json', encoding='utf-8'))
-a['pages']['index'] = 'pages/probe/probe.vue'
-a['pages']['probe'] = 'pages/probe/probe.vue'
-json.dump(a, open('src/app.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+probe_appid = os.environ["PROBE_APPID"]
+force = os.environ.get("DPD_PROBE_FORCE") == "1"
+
+pkg = proj / "package.json"
+app_json = proj / "src" / "app.json"
+originals = {pkg: pkg.read_bytes(), app_json: app_json.read_bytes()}
+
+
+def restore() -> None:
+    for path, data in originals.items():
+        try:
+            path.write_bytes(data)
+        except OSError as exc:
+            print(f"⚠ 还原 {path} 失败：{exc}", file=sys.stderr)
+
+
+# 项目配置里的构建设置（required / pre_steps 等）照常生效：探针版与正式版
+# 用同一套构建规则，只换 appid 与入口页。
+target = config.resolve(proj)
+b = target.build
+
+try:
+    with lock.acquire(ws, builder.LOCK_NAME, force=force,
+                      note=f"探针构建 {probe_appid}"):
+        print(f"==> 改写入口（临时）", file=sys.stderr)
+        data = json.loads(pkg.read_text(encoding="utf-8"))
+        data["appid"] = probe_appid
+        data["name"] = "BPNCM Probe"
+        pkg.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+
+        pages = json.loads(app_json.read_text(encoding="utf-8"))
+        pages["pages"]["index"] = "pages/probe/probe.vue"
+        pages["pages"]["probe"] = "pages/probe/probe.vue"
+        app_json.write_text(json.dumps(pages, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+        print(f"    探针 appid: {probe_appid}（入口 = pages/probe）", file=sys.stderr)
+
+        print("==> 构建（复用 builder）", file=sys.stderr)
+        # lock_held=True：本进程已持锁，再 acquire 会把自己挡住。
+        result = builder.build(
+            proj,
+            level=b.level,
+            required=list(b.required),
+            warn_missing=list(b.warn_missing),
+            pre_steps=[list(s) for s in b.pre_steps],
+            post_steps=[list(s) for s in b.post_steps],
+            timeout=b.timeout,
+            lock_held=True,
+        )
+finally:
+    restore()
+
+if not result.ok:
+    print("✗ 探针构建失败", file=sys.stderr)
+    sys.exit(1)
+
+print(f"==> 完成（{result.level}）  产物: {result.amr}", file=sys.stderr)
+print(f"装机：bash scripts/install.sh --appid {probe_appid} --no-build", file=sys.stderr)
 PYEOF
-info "  探针 appid: $PROBE_APPID（入口 = pages/probe）"
-
-stage "构建（复用 build.sh）"
-BPNCM_LOCK_HELD=1 bash "$SCRIPT_DIR/build.sh" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"}
-
-stage_done
-info "装机：bash scripts/install.sh --appid $PROBE_APPID --no-backup --wait 0"

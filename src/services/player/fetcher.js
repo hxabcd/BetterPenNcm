@@ -28,7 +28,7 @@
 import { download as httpDownload } from '../../core/infra/net/request.js'
 import { log } from '../../core/infra/log.js'
 import { sleep } from '../../core/infra/util.js'
-import { fileExists, fileSize, getFs, rmQuiet } from '../../core/platform/fsutil.js'
+import { fileExists, fileSize, getFs, readText, rmQuiet } from '../../core/platform/fsutil.js'
 import { has, run as shRun } from '../../core/platform/exec.js'
 
 /* ---- 参数 ---- */
@@ -88,6 +88,60 @@ async function ensureParentDir(path) {
 /** 当前通道：'curl' | 'builtin'（上层据此决定能否用 mv 提升 .part） */
 export async function transportMode() {
   return (await has('curl')) ? 'curl' : 'builtin'
+}
+
+/* ---- 退出收尾 / 防双写 ----
+ * 应用退出时 JS 会被直接掐掉，但 `wholeFetch` 拉起的 curl 是**独立进程**（`( ... & )`），
+ * 不主动杀就会继续写盘：最长 600s，且下次启动再下同一首时会和它抢同一个 `.part`。
+ *
+ * `activeParts` 记当前正在写的 `.part`（路径含歌曲 id），退出时按路径 pkill；
+ * `stopping` 是进程级退出标志 —— 杀掉 curl 后各轮询点看到它就收手，不再起新一轮。
+ */
+let stopping = false
+const activeParts = {}
+
+/** 当前是否处于「应用退出」状态（download.js 的 stopForExit 置位） */
+export function isStopping() {
+  return stopping
+}
+
+/** closeApp 失败、应用还活着时复位（否则本进程内所有下载都会立刻 aborted） */
+export function resetFetching() {
+  stopping = false
+}
+
+/**
+ * 应用退出：置退出标志 + 杀掉所有活跃 curl。返回杀掉的路径数。
+ * 幂等；调用方（download.stopForExit）最多等它几毫秒到一百毫秒。
+ */
+export async function stopFetching() {
+  stopping = true
+  const parts = Object.keys(activeParts)
+  for (let i = 0; i < parts.length; i++) {
+    try {
+      await shRun('pkill -9 -f "' + parts[i] + '" 2>/dev/null; echo ok', 8000)
+    } catch (e) {}
+  }
+  return parts.length
+}
+
+/** 开始下载前杀掉同一 `.part` 的残留 curl（上一进程被强杀时可能还在写）。
+ *  路径里带歌曲 id，不会误伤别的下载；没有残留时 pkill 无匹配也是成功。 */
+async function killStale(part) {
+  try {
+    await shRun('pkill -9 -f "' + part + '" 2>/dev/null; echo ok', 8000)
+  } catch (e) {}
+}
+
+/** 对外暴露：完整残片转正前先杀掉可能还在写的旧 curl，避免 mv 之后它继续往
+ *  同一个 inode 里追加（最终文件被写坏）。 */
+export async function killPartFetch(part) {
+  await killStale(part)
+}
+
+/** 退出时的标准返回（上层据此按 aborted 结算，不写失败日志） */
+function abortedResult() {
+  return { ok: false, size: 0, mode: 'curl', aborted: true, error: '应用退出' }
 }
 
 function parseReport(out) {
@@ -179,9 +233,20 @@ async function fetchChunk(url, start, end, part, tmp) {
   return { ok: true, appended: true, size: after, speed: rep.speed, http: rep.http, rc: rep.rc }
 }
 
-/** 分片下载主流程 */
+/** 分片下载主流程（包一层登记活跃 `.part`，退出时 stopFetching 能按路径杀掉） */
 async function curlFetch(opts) {
   const part = opts.outPath
+  activeParts[part] = true
+  try {
+    return await curlFetchInner(opts)
+  } finally {
+    delete activeParts[part]
+  }
+}
+
+async function curlFetchInner(opts) {
+  const part = opts.outPath
+  if (stopping) return abortedResult()
   const tmp = part + '.cur'
   let url = opts.url
   const total = opts.total || 0
@@ -217,6 +282,7 @@ async function curlFetch(opts) {
     }
     const end = total ? Math.min(done + chunk - 1, total - 1) : null
     const r = await fetchChunk(url, done, end, part, tmp)
+    if (stopping) return abortedResult() // 退出时 pkill 刚杀掉当前片：别再重试/换节点
     if (!r.ok) {
       failStreak++
       if (failStreak >= 2) await switchNode('失败(' + r.http + '/' + r.rc + ')')
@@ -258,10 +324,12 @@ async function curlFetch(opts) {
   }
 
   /* 尾扫：接口给的 size 偶尔比真实文件小，到点后再开区间探一次防止尾巴被截 */
-  if (total && !(opts.shouldAbort && opts.shouldAbort())) {
+  if (total && !stopping && !(opts.shouldAbort && opts.shouldAbort())) {
     let r = await fetchChunk(url, done, null, part, tmp)
+    if (stopping) return abortedResult()
     let guard = 0
     while (r.ok && r.appended && guard++ < 30) {
+      if (stopping) return abortedResult()
       if (opts.shouldAbort && opts.shouldAbort()) {
         return { ok: false, size: await fileSize(part), mode: 'curl', aborted: true, error: '已取消' }
       }
@@ -294,11 +362,21 @@ async function curlFetch(opts) {
  */
 async function wholeFetch(opts) {
   const part = opts.outPath
+  activeParts[part] = true
+  try {
+    return await wholeFetchInner(opts)
+  } finally {
+    delete activeParts[part]
+  }
+}
+
+async function wholeFetchInner(opts) {
+  const part = opts.outPath
+  if (stopping) return abortedResult()
   const rcPath = part + '.rc'
   const total = opts.total || 0
   const readSmall = async function (p) {
-    const r = await shRun('cat "' + p + '" 2>/dev/null', 5000)
-    return String((r && r.stdout) || '').trim()
+    return String(await readText(p)).trim()
   }
   let url = opts.url
   let tryNo = 0
@@ -306,6 +384,7 @@ async function wholeFetch(opts) {
   let lastErr = ''
 
   while (tryNo < WHOLE_MAX_TRY) {
+    if (stopping) return abortedResult()
     tryNo++
     // 脏文件（比目标还大）→ 清掉重来；否则**保留**给 -C - 续传（重试不丢进度）
     const cur = await fileSize(part)
@@ -331,6 +410,12 @@ async function wholeFetch(opts) {
       // 就按结果往下走 —— 否则「文件刚下完的同时用户点了取消」会被判成已取消，
       // 白丢一个完整的 .part（上层不会 promote，下次还要再跑一趟才能补上）。
       if (await fileExists(rcPath)) break
+      // 退出时 stopFetching 已 pkill：没有 rc 文件就说明是被杀掉的，别再起下一轮。
+      // **完成优先于退出**：上面 rc 先查，刚好下完的这一轮仍按成功处理（上层 promote）。
+      if (stopping) {
+        aborted = true
+        break
+      }
       if (opts.shouldAbort && opts.shouldAbort()) {
         aborted = true
         break
@@ -348,6 +433,8 @@ async function wholeFetch(opts) {
     }
 
     if (aborted) {
+      // 退出路径：stopFetching 已经 pkill 过，不必再等 250ms（退出要快）
+      if (stopping) return abortedResult()
       await shRun('pkill -9 -f "' + part + '" 2>/dev/null; echo ok', 8000)
       await sleep(250) // 等它真的放开文件句柄，别让上层立刻 mv 一个还在写的文件
       return { ok: false, size: await fileSize(part), mode: 'whole', aborted: true, error: '已取消' }
@@ -360,6 +447,7 @@ async function wholeFetch(opts) {
     if (rc === 0 && size > 0 && (!total || size >= total * 0.999)) {
       return { ok: true, size: size, mode: 'whole', error: '' }
     }
+    if (stopping) return abortedResult()
     lastErr = 'rc=' + rc + ' size=' + size + '/' + total
     log('fetch', '整文件第 ' + tryNo + ' 轮未完成：' + lastErr)
     // 失败判定与下一轮之间也可能被取消：别再白白起一轮 curl
@@ -430,14 +518,23 @@ export async function promotePart(partPath, finalPath) {
  * 返回 {ok, size, mode, error[, aborted]}
  */
 export async function fetchToFile(opts) {
-  await ensureParentDir(opts && opts.outPath)
+  if (!opts || !opts.outPath) {
+    return { ok: false, size: 0, mode: 'curl', error: '缺 outPath' }
+  }
+  if (stopping) return abortedResult()
+  await ensureParentDir(opts.outPath)
   const okCurl = await has('curl')
   if (!okCurl) return await builtinFetch(opts)
   try {
+    // 上一进程被强杀时，它拉起的 curl 可能还在写同一个 `.part`。开始前先杀掉
+    // （路径含歌曲 id，不会误伤其它下载）；没有残片就跳过，省一次 fork。
+    if (await fileExists(opts.outPath)) await killStale(opts.outPath)
+    if (stopping) return abortedResult()
     // 主路径：整文件（实测比 512KB 分片快 1.6~2.2 倍，取消也从"等当前片"
     // 变成 51ms 停住）。进度由 wholeFetch 自己轮询文件大小提供，对外签名不变。
     const r = await wholeFetch(opts)
     if (r.ok || r.aborted) return r
+    if (stopping) return abortedResult() // 退出中：别回退分片再起一轮
     // 整文件走不通（CDN 不支持续传 / 反复被掐断 / RC 非 0）→ 回退分片：
     // 失败域被片大小限制住、能逐片换节点，是最后一道防线。
     // 两条通道共用同一个 .part，所以分片会从整文件已经下到的位置接着续，不白费流量。

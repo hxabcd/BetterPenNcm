@@ -43,6 +43,7 @@ export const KEY_SETTINGS = 'ncm_settings' // 应用配置
 export const KEY_COOKIES = 'ncm_cookies' // 登录 Cookie
 export const KEY_PLAYER_STATE = 'bpncm_player_state' // 播放会话快照
 export const KEY_PLAY_HIST = 'bpncm_playhist' // 播放历史
+export const KEY_DL_PENDING = 'bpncm_dl_pending' // 批量下载队列快照（退出/被强杀后下次启动续传）
 
 /* ---------------- 读 ---------------- */
 

@@ -476,6 +476,9 @@ LAYER_EXEMPT = {
     ('src/core/infra/boot.js', '../../services/player/history.js'),
     ('src/core/infra/boot.js', '../../services/player/locallists.js'),
     ('src/core/infra/boot.js', '../../services/ncm/login.js'),
+    # 下载对账/续传是启动序列的一部分：退出时没下完的 .part 要在页面读下载列表前转正，
+    # 缺元数据的条目要就地补。同上面的 locallists 一样属于 boot 的域外装配职责。
+    ('src/core/infra/boot.js', '../../services/player/download.js'),
 }
 
 _AXIS_OF = (

@@ -20,13 +20,22 @@
  *   |---|---|---|---|---|---|
  *   | `cache`    | 播放时自动（play 通道） | **播放音质** | `data/cache/<id>/` | 受「缓存上限」滚动 | **否** |
  *   | `download` | 用户主动（batch 通道）  | **下载音质** | `data/downloads/<id>/` | 永久 | **是** |
- *   - 每个曲目目录里固定是 `track.<ext>`（+ `.part` 残片）/ `cover.jpg` / `metadata.json`，
- *     下载目录另有 `lyrics.json`（路径全部来自 utils/paths.js，读写封装在 utils/media.js）；
- *   - 队列项的 `kind` 决定落到哪个目录、完成时写哪份 metadata.json、如何收尾
- *     （download 完成 → 删掉同 id 的 cache **目录**，避免同一首占两份空间）；
+ *   - 每个曲目目录里固定是 `track.<ext>`（+ `.part` 残片）/ `cover.jpg`；
+ *     元数据与歌词在状态库的 `track_meta` / `track_lyric`（utils/media.js 统一读写）；
+ *   - 队列项的 `kind` 决定落到哪个目录、完成时写哪条 `track_meta`（kind 1=下载 / 2=缓存）、
+ *     如何收尾（download 完成 → 删掉同 id 的 cache **目录**，避免同一首占两份空间）；
  *   - 播放请求（ensureCached）也可以**提权**批量项：提权只改调度通道（lane），
  *     **不改编排队列项的 kind** —— 用户点下的下载不会因为被提权就变成缓存；
  *   - 缓存完成 → 触发 cache.enforceCacheLimit()（按播放顺序 LRU 滚动）。
+ *
+ * **下载提交协议（2026-11 稳定性改动，改这块前先看）**：
+ *   - 开始下载前 `begin` 先写基础元数据（n/a/d/c + `p` 本次档位 + `z` 预期大小 +
+ *     `f` 下载前是否有旧文件），完成后再 `put` 写实际 b/y/q 并清 p/z；
+ *     写库失败重试一次，仍失败只记日志（文件是真相，启动对账会再补），不判下载失败；
+ *   - 判重必须 `metaReady`（有歌名、无 p、有 q/y/b 之一）。缺元数据的旧行先就地补，
+ *     **不重新拉音频**；只有「只有 p、没有档位/码率」这种证据不足的行才重下一次；
+ *   - 退出：`stopForExit` 取消队列 + pkill 活跃 curl，`.part` 与 `dl_pending` 保留；
+ *     下次启动 `reconcileDownloads` 把已下满的残片转正、补元数据，再续传 `dl_pending`。
  *
  * 对外接口：
  *   - resolveUrl(id)      直链解析（**按设置音质档位**逐级回退，走 v1 接口的 level 参数，见 quality.js）
@@ -38,19 +47,23 @@
  *   - deleteCached(id)    删单条**下载**（整个 `downloads/<id>/` 目录 + 归属/本地库挂点）
  *   - cancelDownload()    取消批量下载（当前片下完即停，.part 保留可续传）
  */
-import { fetchToFile, promotePart, transportMode } from './fetcher.js'
+import { fetchToFile, promotePart, transportMode, stopFetching, resetFetching, killPartFetch } from './fetcher.js'
 import {
   musicDir,
-  putMeta, warmMeta, dropMeta, markPending,
-  putPlayMeta, warmPlayMeta, dropPlayMeta, markPlayPending,
+  putMeta, warmMeta, dropMeta, beginMeta,
+  putPlayMeta, warmPlayMeta, dropPlayMeta, beginPlayMeta,
   touchPlayMeta, enforceCacheLimit
 } from './cache.js'
 import { currentQuality, qualityInfo, qualityRank, nominalBr } from './quality.js'
-import { saveSongExtras, dropLocalSong } from './localmeta.js'
+import { saveSongExtras, dropLocalSong, loadIndex, indexOf } from './localmeta.js'
 import { markUser, markPlaylist, markSkippedExisting, clearOrigin } from './dlorigin.js'
 import { log } from '../../core/infra/log.js'
-import { raceTimeout } from '../../core/infra/util.js'
-import { fileSize, rmQuiet } from '../../core/platform/fsutil.js'
+import { raceTimeout, sleep } from '../../core/infra/util.js'
+import { fileSize, readNames, readText, rmQuiet } from '../../core/platform/fsutil.js'
+import { trackDir } from '../../core/infra/paths.js'
+import { getStorage, setStorage, removeStorage, KEY_DL_PENDING } from '../../core/infra/store.js'
+import { isOffline } from '../../core/infra/net/status.js'
+import { listTracks } from './media.js'
 import { resolveUrl } from './source.js'
 import {
   altPath, purgeInDir, songPath, prepareTrackDir, cachedPath, dlPath, playCachePath
@@ -171,6 +184,22 @@ export async function isDownloaded(songId) {
  *                见 dlorigin.js）。归属只影响本地下载页的分类，不改变文件行为。
  */
 export async function downloadSongs(songs, opts) {
+  activeBatches++
+  const batch = []
+  const src = songs || []
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] && src[i].id) batch.push(src[i])
+  }
+  try {
+    return await downloadSongsInner(songs, opts)
+  } finally {
+    activeBatches--
+    // 正常结束 / 用户取消：只把自己这批从待续传快照里摘掉；退出（exiting）时全保留
+    if (!exiting) await pendingDrop(batch)
+  }
+}
+
+async function downloadSongsInner(songs, opts) {
   const mode = (opts && opts.origin === 'playlist') ? 'playlist' : 'manual'
   const list = []
   const src = songs || []
@@ -180,16 +209,32 @@ export async function downloadSongs(songs, opts) {
   const res = { total: list.length, ok: 0, failed: 0, skipped: 0, cancelled: 0, error: '', results: [] }
   if (!list.length) return res
   const qk = currentQuality('down')
+  // 先记「待续传快照」：退出/被强杀后，下次启动据此接续（已下完的会自动跳过）
+  await pendingAdd(list, qk, mode)
   const jobs = []
   for (let i = 0; i < list.length; i++) {
     const song = list[i]
     // ⚠ 只看**下载目录**：只有播放缓存（cache/）不算已下载，照样要走一趟正式下载
     // （下载档通常更高，且下载完成后会清掉 cache 里的副本，不留两份）
     const hit = await dlPath(song.id)
-    if (hit && metaSatisfies(await warmMeta(song.id), qk)) {
-      res.skipped++
-      res.results.push({ id: song.id, status: 'skipped', existed: true })
-      continue
+    if (hit) {
+      let meta = await warmMeta(song.id)
+      const force = metaNeedsRetry(meta)
+      // 只有「当前档位已经够」时才就地补元数据并跳过。档位不够（要升质）时**不能补**：
+      // 补写会清掉 p，downloadOne 就认不出上次留下的同档位 .part，续传进度白丢。
+      if (!force && metaSatisfies(meta, qk)) {
+        if (!metaReady(meta)) {
+          const fixed = await repairMeta(song, hit, meta, 'download')
+          if (fixed) meta = fixed
+        }
+        // 补完再判一次：fresh 行用 p 回填档位后，可能发现 p 低于目标 → 仍要走升质
+        if (metaSatisfies(meta, qk)) {
+          res.skipped++
+          res.results.push({ id: song.id, status: 'skipped', existed: true })
+          continue
+        }
+      }
+      if (force) log('dl', '元数据证据不足，重下一次 ' + song.id)
     }
     log('dl', '下载入队 ' + song.id + ' ' + (song.name || '') +
       (hit ? '（升质重下 → ' + qk + '）' : ''))
@@ -251,6 +296,378 @@ export function estimateBytes(songs, qualityKey) {
   return Math.round((br / 8) * (ms / 1000))
 }
 
+/* ================= 元数据就绪 / 就地修复 / 完整残片转正 ================= */
+
+/**
+ * 元数据是否「完整可用」：有歌名、没有下载中标记 `p`、且有档位/容器/码率之一。
+ * **跳过判定必须用它**：只看文件在不在（老逻辑）会把「有歌没名字」的行永远当成已完成，
+ * 既不重下也不修，只能靠下载总览页的 enrich 碰运气。
+ */
+function metaReady(m) {
+  return !!(m && m.n && !m.p && (m.q || m.y || m.b))
+}
+
+/**
+ * 这条元数据是否「证据不足，必须重新下一次」：
+ * `p` 还在（上次没走完）+ 没有 q（档位）也没有 b（码率）→ 光看 y（容器）判不出
+ * 这份文件到底是不是本次要的档位。`f === 1` 表示下载开始时盘上没有旧文件，
+ * 那这份音频就是本次下的，p 可以当实际档位；f 为 0/缺省（升级、或旧版本留下的行）
+ * 则不能拿 p 冒充，先重下一次，成功后 q 就齐了（只影响这类历史残留，不会常态重下）。
+ */
+function metaNeedsRetry(m) {
+  if (!(m && m.p)) return false
+  if (m.q || m.b) return false
+  return m.f !== 1
+}
+
+/** 两条通道的元数据入口（写 / 读 / 下载开始标记） */
+function storeOf(kd) {
+  return kd === 'download'
+    ? { put: putMeta, of: warmMeta, begin: beginMeta }
+    : { put: putPlayMeta, of: warmPlayMeta, begin: beginPlayMeta }
+}
+
+/**
+ * 就地补元数据（**不重新拉音频**）：文件已经在盘上，只是 track_meta 缺字段/还带着 `p`。
+ *
+ * q 的取法：
+ *   - 已有 q / b（老条目，或升级失败留下的旧档）→ 以盘上这份文件为准，
+ *     **绝不能用 `p`**：p 记的是这次想升到的档，不是文件实际的档；
+ *   - 什么都没有，且 begin 记了 `f=1`（下载前没有旧文件）→ 用 `p` 回填档位；
+ *   - 其余（只有 y、f=0/缺省）→ q 留空，由 metaNeedsRetry 决定是否重下。
+ * 成功返回修复后的记录；失败返回 null（启动对账/下次下载再试）。
+ */
+async function repairMeta(song, hitPath, meta, kind) {
+  const kd = kind === 'cache' ? 'cache' : 'download'
+  if (metaReady(meta)) return meta
+  if (!song || !song.id) return null
+  const store = storeOf(kd)
+  const ext = /\.flac$/i.test(String(hitPath || '')) ? 'flac' : 'mp3'
+  const q = (meta && (meta.q || (meta.f === 1 ? (meta.p || '') : ''))) || ''
+  for (let i = 0; i < 2; i++) {
+    try {
+      const r = await store.put(song, 0, ext, q)
+      if (r && r.ok) {
+        log('dl', '就地补元数据 ' + song.id + '[' + kd + '] 档=' + (q || '未知') + ' 容器=' + ext)
+        return r.rec
+      }
+    } catch (e) {}
+  }
+  log('dl', '元数据修复失败 ' + song.id + '[' + kd + ']')
+  return null
+}
+
+/**
+ * 上一次下载其实已经把 `.part` 写满，只是没来得及 mv/promote 就退出/被系统掐掉。
+ * 认「下满」的两条证据：curl 自己写的 `.rc=0`，或 begin 记下的预期大小 `z`（≥99%）。
+ * 只有 `p === qk`（同一档位）才认；跨档残片仍由 downloadOne 丢弃。
+ * 成功返回 {ok, path, size, fromPart, metaOk}；没残片/没下满返回 null。
+ */
+async function finishCompletePart(song, kd, qk, prev) {
+  if (!song || !song.id || !prev || prev.p !== qk) return null
+  const z = prev.z || 0
+  for (let i = 0; i < 2; i++) {
+    const ext = i === 0 ? 'mp3' : 'flac'
+    const part = songPath(song.id, ext, kd) + '.part'
+    const size = await fileSize(part)
+    if (!(size > 30000)) continue
+    const rc = String(await readText(part + '.rc')).trim()
+    if (!(rc === '0' || (z > 0 && size >= z * 0.99))) continue
+    const finalPath = songPath(song.id, ext, kd)
+    const had = (await fileSize(finalPath)) > 0
+    const alt = altPath(song.id, ext, kd)
+    const altHad = (await fileSize(alt)) > 0
+    // 先杀掉可能还在写这个 .part 的旧 curl：否则 mv 之后它仍会往同一个 inode 追加，
+    // 正式文件会在「校验通过」之后被写坏。
+    await killPartFetch(part)
+    const moved = await promotePart(part, finalPath)
+    if (!moved) continue
+    await rmQuiet(part + '.rc')
+    await rmQuiet(part + '.cur')
+    await rmQuiet(alt)
+    const store = storeOf(kd)
+    let rec = null
+    for (let k = 0; k < 2; k++) {
+      try {
+        // 码率未知：清掉旧文件的 b（旧文件的码率可能属于旧档位，别张冠李戴）
+        const r = await store.put(song, 0, ext, qk, { clearBr: true })
+        if (r && r.ok) {
+          rec = r.rec
+          break
+        }
+      } catch (e) {}
+    }
+    log('dl', '完整残片直接转正 ' + song.id + '[' + kd + '] ' +
+      Math.round(size / 1024) + 'KB 档=' + qk)
+    return {
+      ok: true,
+      path: finalPath,
+      size: size,
+      ext: ext,
+      fromPart: true,
+      metaOk: !!rec,
+      replaced: had || altHad
+    }
+  }
+  return null
+}
+
+/* ================= 批量队列持久化（退出/被强杀后下次接续） ================= */
+
+const PENDING_MAX = 1000
+let pendingMap = null
+let activeBatches = 0
+let exiting = false
+
+function slimSong(s) {
+  return {
+    id: s.id,
+    name: s.name || '',
+    artist: s.artist || '',
+    durationMs: s.durationMs || 0,
+    cover: s.cover || ''
+  }
+}
+
+async function pendingLoad() {
+  if (pendingMap) return pendingMap
+  pendingMap = {}
+  try {
+    const raw = await getStorage(KEY_DL_PENDING)
+    if (raw) {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) {
+        for (let i = 0; i < arr.length; i++) {
+          const it = arr[i]
+          if (it && it.id) pendingMap[String(it.id)] = it
+        }
+      }
+    }
+  } catch (e) {}
+  return pendingMap
+}
+
+/** 把本次入队的歌并进 `dl_pending`（同 id 覆盖；只留最近 1000 首） */
+async function pendingAdd(list, qk, mode) {
+  if (!list || !list.length) return
+  const map = await pendingLoad()
+  for (let i = 0; i < list.length; i++) {
+    const s = list[i]
+    if (!s || !s.id) continue
+    map[String(s.id)] = Object.assign(slimSong(s), { q: qk || '', origin: mode, at: Date.now() })
+  }
+  const arr = Object.keys(map).map(function (k) { return map[k] })
+  if (arr.length > PENDING_MAX) {
+    arr.sort(function (a, b) { return (b.at || 0) - (a.at || 0) })
+    arr.length = PENDING_MAX
+  }
+  try {
+    await setStorage(KEY_DL_PENDING, JSON.stringify(arr))
+  } catch (e) {}
+}
+
+/** 队列正常结束/用户取消时清空；退出时保留（下次启动续传） */
+async function pendingClear() {
+  pendingMap = null
+  try {
+    await removeStorage(KEY_DL_PENDING)
+  } catch (e) {}
+}
+
+/**
+ * 一批正常结束/被用户取消：只摘掉**这一批**的 id，不碰别的批次留下的待续传项
+ * （例如上次被强杀的旧队列还没开始续传时，用户又手动下了一首）。
+ */
+async function pendingDrop(list) {
+  if (!list || !list.length) return
+  const map = await pendingLoad()
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] && list[i].id) delete map[String(list[i].id)]
+  }
+  // 还有别的批次在跑：把它们留在 map 里（下一次 pendingAdd 会合并写）
+  if (activeBatches > 0) return
+  const arr = Object.keys(map).map(function (k) { return map[k] })
+  if (!arr.length) {
+    await pendingClear()
+    return
+  }
+  try {
+    await setStorage(KEY_DL_PENDING, JSON.stringify(arr))
+  } catch (e) {}
+}
+
+/**
+ * 启动后续传上次没下完的队列（boot 在登录态就绪后调用，不 await）：
+ * 已下完的会按 metaReady+metaSatisfies 自动跳过；离线则原样留着，下次启动再试。
+ */
+export async function resumePendingDownloads() {
+  let arr = []
+  try {
+    const raw = await getStorage(KEY_DL_PENDING)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) arr = parsed
+    }
+  } catch (e) {}
+  if (!arr.length) {
+    await pendingClear()
+    return { resumed: 0 }
+  }
+  if (await isOffline()) {
+    log('dl', '上次未完成的下载 ' + arr.length + ' 首：当前离线，保留到下次启动')
+    return { offline: true, pending: arr.length }
+  }
+  await sleep(2000) // 让首页/播放恢复先起来，别抢启动带宽
+  if (exiting) return { resumed: 0 }
+  log('dl', '续传上次未完成的下载 ' + arr.length + ' 首')
+  const manual = []
+  const playlist = []
+  for (let i = 0; i < arr.length; i++) {
+    const it = arr[i]
+    if (!it || !it.id) continue
+    if (it.origin === 'playlist') playlist.push(it)
+    else manual.push(it)
+  }
+  if (manual.length) {
+    downloadSongs(manual, { origin: 'manual' }).catch(function (e) {
+      log('dl', '续传异常：' + ((e && e.message) || e))
+    })
+  }
+  if (playlist.length) {
+    downloadSongs(playlist, { origin: 'playlist' }).catch(function (e) {
+      log('dl', '续传异常：' + ((e && e.message) || e))
+    })
+  }
+  return { resumed: manual.length + playlist.length }
+}
+
+/* ================= 退出收尾 ================= */
+
+/**
+ * 退出前收尾（index.vue 的退出链调用）：
+ *   1) 取消批量队列（未开始的结算为 cancelled）
+ *   2) 清播放通道排队项，别在退出过程中再起新的缓存下载
+ *   3) 杀掉正在写的 curl（fetcher 按 `.part` 路径 pkill）
+ *   4) 最多等 800ms 让当前项落地（`.part` 保留，下次续传）
+ * **不清 dl_pending** —— 下次启动据此续传。
+ */
+export async function stopForExit() {
+  if (exiting) return
+  exiting = true
+  try { sched.cancelDownload() } catch (e) {}
+  try { sched.abortPlayQueue() } catch (e) {}
+  try { await stopFetching() } catch (e) {}
+  let idle = false
+  try { idle = await sched.waitIdle(800) } catch (e) {}
+  // 收尾后仍有未完成的：任务已按 cancelled 结算，.part 与 dl_pending 留给下次
+  log('dl', '退出前停止下载（' + (idle ? '已收尾' : '超时，残片保留') + '）')
+}
+
+/** closeApp 失败（应用还活着）时复位退出标志，别让本次进程内的下载永久不可用 */
+export function resetExit() {
+  exiting = false
+  try {
+    resetFetching()
+  } catch (e) {}
+}
+
+/* ================= 启动对账（不联网） ================= */
+
+/** 索引里的离线曲目 → repairMeta 可用的 song 形状 */
+function songFromIndex(id) {
+  const rec = indexOf(String(id))
+  if (!rec) return { id: id }
+  const names = []
+  const ars = rec.ars || []
+  for (let i = 0; i < ars.length; i++) {
+    if (ars[i] && ars[i].n) names.push(ars[i].n)
+  }
+  return {
+    id: id,
+    name: rec.n || '',
+    artist: names.join(' / '),
+    album: (rec.al && rec.al.n) || '',
+    cover: (rec.al && rec.al.c) || '',
+    durationMs: rec.d || 0
+  }
+}
+
+/**
+ * 启动对账（boot 里 await；只做原生 fs + SQLite，不联网）：
+ *   - 有正式音频但元数据不全 **且没有下载中标记** → 就地补成完成态；
+ *   - 有正式音频但还带着 `p` → 只补歌名/歌手等显示字段，**保留 p**：
+ *     这份音频可能是升级前的旧文件，下次下载要靠 p 决定「续传还是重下」；
+ *   - 只有残片且已下满（rc=0 或 z 达标）→ 直接转正 + 写完成态；
+ *   - 没有对应 `.part` 的 `.rc`/`.cur` → 清掉（上一次中断的临时文件）。
+ * 返回 {scanned, repaired, promoted, cleaned} 供日志。
+ */
+export async function reconcileDownloads() {
+  const out = { scanned: 0, repaired: 0, promoted: 0, cleaned: 0 }
+  try {
+    await loadIndex() // 离线补歌名用（歌手/专辑索引已在 boot 打开后载入内存）
+  } catch (e) {}
+  let tracks = []
+  try {
+    tracks = await listTracks('download')
+  } catch (e) {
+    return out
+  }
+  for (let i = 0; i < tracks.length; i++) {
+    const it = tracks[i]
+    const id = String(it.id)
+    out.scanned++
+    const meta = it.meta || null
+    if (it.size > 0) {
+      if (!metaReady(meta)) {
+        const song = songFromIndex(id)
+        if (song.name) {
+          if (meta && meta.p && metaNeedsRetry(meta)) {
+            // 下载未收尾且证据不足：只补显示字段，保留 p/z/f（下次下载据此续传或重下）
+            await storeOf('download').begin(song, meta.p, meta.z || 0, meta.f !== 1)
+          } else {
+            const rec = await repairMeta(song, it.path, meta, 'download')
+            if (rec && metaReady(rec)) out.repaired++
+          }
+        }
+      }
+    } else if (meta && meta.p) {
+      const fin = await finishCompletePart(songFromIndex(id), 'download', meta.p, meta)
+      if (fin) {
+        out.promoted++
+        try {
+          await purgeCacheCopy(id) // 转正后同 id 的缓存副本没必要留着
+        } catch (e) {}
+      }
+    }
+    // 清掉没有 .part 的 .rc/.cur（`.part` 还在时留给续传/转正）
+    try {
+      const dir = trackDir(id, 'download')
+      const names = await readNames(dir)
+      let hasPart = false
+      for (let j = 0; j < names.length; j++) {
+        if (names[j].slice(-5) === '.part') {
+          hasPart = true
+          break
+        }
+      }
+      if (!hasPart) {
+        for (let j = 0; j < names.length; j++) {
+          const n = names[j]
+          if (n.slice(-3) === '.rc' || n.slice(-4) === '.cur') {
+            await rmQuiet(dir + '/' + n)
+            out.cleaned++
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  if (out.repaired || out.promoted || out.cleaned) {
+    log('dl', '启动对账：扫描 ' + out.scanned + ' 首，补元数据 ' + out.repaired +
+      '，转正残片 ' + out.promoted + '，清临时文件 ' + out.cleaned)
+  }
+  return out
+}
+
 /* ================= 落盘（downloadOne：两条通道共用的真正下载动作） ================= */
 
 /**
@@ -262,14 +679,43 @@ export function estimateBytes(songs, qualityKey) {
  *                      'download'（用户下载 → downloads/<id>/）；缺省按 cache
  * 收尾差异：download 完成 → 清掉同 id 的**缓存目录**（同一首不留两份）；
  *          cache 完成 → 触发「缓存上限」LRU 滚动。
- * 返回 {ok, path, size, replaced?, aborted?, error}
+ * 返回 {ok, path, size, replaced?, aborted?, error, metaOk?}；另有
+ *   fromDisk / fromPart / repaired 等诊断字段（本地命中 / 残片转正 / 补元数据），
+ *   调度器只认 ok/path/replaced，其余供日志与测试。
  */
+/** 用户正式下载完成后，删掉同 id 的播放缓存副本（同一首不留两份） */
+async function purgeCacheCopy(id) {
+  const purged = await sched.purgePlayCache(id)
+  if (purged.files > 0) {
+    await dropPlayMeta(id)
+    notifyFileChanged(id) // player 的 localPath 可能正指着刚被删的缓存文件
+    log('dl', '下载完成，清掉播放缓存目录 ' + id + '：' + purged.files + ' 个文件 / ' +
+      Math.round(purged.bytes / 1024) + 'KB')
+  }
+  return purged
+}
+
+/** 下载完成后的共同收尾（正常路径 / 完整残片转正都走这里） */
+async function finalizeOne(id, kd) {
+  if (kd === 'download') {
+    // 用户已正式下载这首 → 删掉 cache/<id>/ 整个目录（同一首占两份空间没意义）
+    await purgeCacheCopy(id)
+    // 退出中不再发详情/歌词请求：应用马上就没了，留给下次启动的 downloads 页 enrich
+    if (!exiting) {
+      try {
+        await raceTimeout(saveSongExtras(id), 30000, null)
+      } catch (e) {}
+    }
+  } else if (!exiting) {
+    // 边听边存：趁刚写入判断一次「缓存上限」，超了就从最久没播的开始滚掉
+    enforceCacheLimit().catch(function () {})
+  }
+}
+
 async function downloadOne(song, info, opts, qk, kind) {
   const id = String(song.id)
   const kd = kind === 'download' ? 'download' : 'cache'
-  const store = kd === 'download'
-    ? { put: putMeta, of: warmMeta, mark: markPending }
-    : { put: putPlayMeta, of: warmPlayMeta, mark: markPlayPending }
+  const store = storeOf(kd)
   const t0 = Date.now()
   const since = function () {
     return Date.now() - t0
@@ -282,6 +728,43 @@ async function downloadOne(song, info, opts, qk, kind) {
     await prepareTrackDir(id, kd)
   } catch (e) {}
 
+  // 0) 上次中断但残片已经写满：不联网，直接转正 + 收尾（先于「已有音频」判断——
+  //    升级时旧文件还在，残片才是这次已经下完的那份）
+  const donePath = kd === 'download' ? await dlPath(id) : await playCachePath(id)
+  let prev = await raceTimeout(store.of(id), 8000, null)
+  const fin = await finishCompletePart(song, kd, qk, prev)
+  if (fin) {
+    await finalizeOne(id, kd)
+    return fin
+  }
+
+  // 1) 盘上已有完整音频：档位够 → 缺元数据先就地补，然后直接收尾；不够 → 继续升质
+  if (donePath) {
+    const force = metaNeedsRetry(prev)
+    // 只有「档位已经够」时才补元数据；要升质时补写会清 p，后面的 .part 续传就认不出来了
+    if (!force && metaSatisfies(prev, qk)) {
+      const wasReady = metaReady(prev)
+      if (!wasReady) {
+        const fixed = await repairMeta(song, donePath, prev, kd)
+        if (fixed) prev = fixed
+      }
+      if (metaSatisfies(prev, qk)) {
+        const size = await fileSize(donePath)
+        log('dl', '已在本地，跳过 ' + id + '[' + kd + ']' +
+          (metaReady(prev) ? '' : '（元数据仍缺，交给 enrich）'))
+        return {
+          ok: true,
+          path: donePath,
+          size: size,
+          fromDisk: true,
+          repaired: !wasReady && metaReady(prev)
+        }
+      }
+    }
+    if (force) log('dl', '元数据证据不足，重下一次 ' + id + '[' + kd + ']')
+  }
+
+  // 2) 解析直链
   let meta = info
   if (!meta || !meta.url) meta = await raceTimeout(resolveUrl(id, qk), 25000, null)
   if (!meta || !meta.url) {
@@ -291,28 +774,28 @@ async function downloadOne(song, info, opts, qk, kind) {
   log('dl', '直链就绪 ' + id + ' ' + (meta.type || 'mp3') + '/' + (meta.br || 0) +
     (meta.level ? ' lvl=' + meta.level : '') + '（' + since() + 'ms）')
 
-  const finalPath = songPath(id, meta.type, kd)
-  const hadOld = (await fileSize(finalPath)) > 0 // 升质重下：旧文件还在，下满 mv 才顶替
+  const ext = meta.type === 'flac' ? 'flac' : 'mp3'
+  const finalPath = songPath(id, ext, kd)
+  const hadOld = !!donePath // 盘上已有完整音频 = 本次是升级（begin 记 f=0）
   const mode = await raceTimeout(transportMode(), 15000, 'builtin')
   const partPath = finalPath + '.part'
   // 续传残片只认同档位：用户中途改过音质的话，旧档的 .part 接上新档字节会写出
   // 「长度对、内容是垃圾」的文件（校验只查长度，拦不住）→ 档位对不上就丢弃重下。
-  // 残片标记随目录走：cache 记播放档、download 记下载档，互不干扰。
-  // **从盘上读**（metadata.json 的 p）：进程重启后内存快照是空的，
-  // 只看内存会把上次中断留下的 .part 当跨档残片丢掉，白丢已下载的进度。
-  const prev = await raceTimeout(store.of(id), 8000, null)
+  // **从盘上读**：进程重启后内存快照是空的，只看内存会把上次中断留下的 .part
+  // 当跨档残片丢掉，白丢已下载的进度。
   const pv = (prev && prev.p) || ''
   if ((await fileSize(partPath)) > 0 && pv !== qk) {
     log('dl', '丢弃跨档位的续传残片 ' + id + '[' + kd + ']（残片档=' + (pv || '未知') + ' 本次=' + qk + '）')
     await rmQuiet(partPath)
     await rmQuiet(partPath + '.cur')
   }
-  if (mode === 'curl') {
-    // 记下本次档位：中断后重来时靠它认残片（下载成功 put 会把 p 清掉）
-    try {
-      await raceTimeout(store.mark(id, qk), 8000, null)
-    } catch (e) {}
-  }
+  // 下载开始就先写基础元数据（歌名/歌手/时长/封面 + p + 预期大小 z）：
+  // 之后任何时刻退出，都不会出现「有歌没名字」。升级时 begin 不碰旧的 q/b/y。
+  let begun = null
+  try {
+    begun = await raceTimeout(store.begin(song, qk, meta.size || 0, hadOld), 8000, null)
+  } catch (e) {}
+  if (!begun) log('dl', '基础元数据写入失败 ' + id + '（下载继续，完成后再写一次）')
   const target = mode === 'curl' ? partPath : finalPath
   log('dl', '拉取开始 ' + id + ' mode=' + mode + '（' + since() + 'ms）')
 
@@ -368,37 +851,24 @@ async function downloadOne(song, info, opts, qk, kind) {
   // 一个 id 在本目录只留一个文件：清掉另一种扩展名的旧文件（如先存了 320k mp3，改无损后重下）。
   // ⚠ 反向也成立：请求无损/Hi-Res 但服务端降级成 mp3 时，旧的 .flac 会被这里删掉 ——
   // 即「降质替换」。判定层面已有取舍兜底（见 metaSatisfies 注释），这里不再额外防护。
-  const alt = altPath(id, meta.type, kd)
+  const alt = altPath(id, ext, kd)
   const altHad = (await fileSize(alt)) > 0
   await rmQuiet(alt)
-  // 元数据（歌名/歌手/实际码率/档位/时长/封面）：显示与升级判定用；写进对应的表
-  // （缓存表多带 u = lastUsed，LRU 排序键）。写失败不影响缓存本身（文件系统才是真相）
-  try {
-    await raceTimeout(store.put(song, meta.br, meta.type === 'flac' ? 'flac' : 'mp3', qk), 8000, null)
-  } catch (e) {}
-
-  if (kd === 'download') {
-    // 用户已正式下载这首 → 删掉 cache/<id>/ **整个目录**（同一首占两份空间没意义；
-    // 缓存那份只是「听过的痕迹」，使命到此结束）—— 音频 + 封面 + 元数据一次走。
-    // 走 scheduler 的统一入口（它内部 = purgeInDir(playCacheDir(), id)，即 rm -rf 目录）
-    const purged = await sched.purgePlayCache(id)
-    if (purged.files > 0) {
-      await dropPlayMeta(id)
-      notifyFileChanged(id) // player 的 localPath 可能正指着刚被删的缓存文件
-      log('dl', '下载完成，清掉播放缓存目录 ' + id + '：' + purged.files + ' 个文件 / ' +
-        Math.round(purged.bytes / 1024) + 'KB')
-    }
-    // 元数据（歌手/专辑 id 等）+ 歌词落本地库（离线详情页/歌词用，见 localmeta.js）。
-    // 两个 API 请求串行跟在下载后面，正常 <1s；护栏 30s，失败不影响下载结果
-    // （老数据/失败项由 downloads 页 enrich 在线时补齐）。
+  // 完成态元数据：写 q/b/y 并清掉 p/z。落库失败重试一次；仍失败只记日志
+  // （文件本身仍是真相，启动对账 / 下次下载会再补，不能因此判下载失败）。
+  let metaOk = false
+  for (let i = 0; i < 2; i++) {
     try {
-      await raceTimeout(saveSongExtras(id), 30000, null)
+      const pr = await raceTimeout(store.put(song, meta.br, ext, qk), 8000, null)
+      if (pr && pr.ok) {
+        metaOk = true
+        break
+      }
     } catch (e) {}
-  } else {
-    // 边听边存：趁刚写入判断一次「缓存上限」，超了就从最久没播的开始滚掉
-    enforceCacheLimit().catch(function () {})
   }
-  return { ok: true, path: finalPath, size: size, replaced: hadOld || altHad }
+  if (!metaOk) log('dl', '元数据写入失败 ' + id + '（文件在，下次启动对账再补）')
+  await finalizeOne(id, kd)
+  return { ok: true, path: finalPath, size: size, replaced: hadOld || altHad, metaOk: metaOk }
 }
 
 /* ================= 播放通道：ensureCached ================= */
@@ -476,7 +946,7 @@ export function ensureCached(song, info, opts) {
 
 /**
  * 删单条**下载**（本地下载页的多选删除，逐首调用）：删掉整个 `downloads/<id>/` 目录
- * （音频 + .part/.part.cur 残片 + cover.jpg + lyrics.json + metadata.json 一次走），
+ * （音频 + .part/.part.cur 残片 + cover.jpg 一次走；track_meta/歌词行随目录删除），
  * 再清归属标记与本地库挂点。
  * **只动 downloads/** —— 播放缓存不在这里出现，也不该被这个入口删掉
  * （缓存由「缓存上限」LRU 与存储管理页统一回收）。

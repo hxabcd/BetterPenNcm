@@ -105,7 +105,7 @@ import { player } from '../../services/player/player.js';
 import { countToday as histToday, isLoaded as histLoaded } from '../../services/player/history.js';
 import { bindDl } from '../../ui/mixins/dlsub.js';
 import { stats } from '../../services/player/cache.js';
-import { dlSig, dlApi } from '../../services/player/download.js';
+import { dlSig, dlApi, stopForExit, resetExit } from '../../services/player/download.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js';
 import { coverPair, glowGradient } from '../../services/cover/color.js';
@@ -568,6 +568,11 @@ export default {
 
     /* ---- 左栏分派（骨架见 ui/frame.js）：主页的「返回」是退出应用，不是 $page.finish() ---- */
     async onBack() {
+      // 先收下载：后台 curl 是独立进程，不主动停的话应用关了它还在写盘，
+      // 下次启动再下同一首会两边抢同一个 .part。stopForExit 内部最多等 800ms。
+      try {
+        await stopForExit();
+      } catch (e) {}
       // 「退出时暂停音乐」（默认开，设置页可关）：先停住再关应用 —— SoundPlayer 是独立系统
       // 进程，应用退出带不走它。内部有 800ms 兜底超时，卡住也能正常退出。
       try {
@@ -578,6 +583,10 @@ export default {
         /* global $falcon */
         $falcon.closeApp();
       } catch (e) {
+        // 关应用失败（应用还活着）：把下载退出标志复位，别让本次进程内下载永久不可用
+        try {
+          resetExit();
+        } catch (e2) {}
         log("index", "closeApp 失败: " + ((e && e.message) || e));
       }
     },

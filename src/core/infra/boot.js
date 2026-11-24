@@ -17,6 +17,7 @@ import { open as openDb, ensureStateDb as openStateDb } from '../../core/platfor
 import { importFromFile, load as loadCookies, names as cookieNames } from './net/cookies.js'
 import { cachedProfile, loggedIn, fetchProfile } from '../../services/ncm/login.js'
 import { pullAll as autoPullLocalLists } from '../../services/player/locallists.js'
+import { reconcileDownloads, resumePendingDownloads } from '../../services/player/download.js'
 import { log } from './log.js'
 
 let promise = null
@@ -42,6 +43,14 @@ async function run() {
   // 索引表接着整表灌内存（之后查询不再查库，见 utils/db.js）。
   await openStateDb()
   await openDb()
+  // 下载对账（不联网）：补「有歌没名字」的元数据；把上次退出时已经下满、
+  // 只是没来得及 mv 的 `.part` 直接转正。**在页面读下载列表之前完成**，
+  // 否则本地下载页会先闪一版缺名字/少歌的数据。
+  try {
+    await reconcileDownloads()
+  } catch (e) {
+    log('boot', '下载对账异常：' + ((e && e.message) || e))
+  }
   // 配置从状态库的 kv 行读进来。**必须在任何读配置的模块之前**：
   // 下面 loadPlayerSettings / 主题广播 / 自动拉取都直接读 config 的单例缓存。
   await config.load()
@@ -64,6 +73,13 @@ async function run() {
     } catch (e) {}
   } else {
     log('boot', '未登录')
+  }
+  // 上次退出时没下完的批量队列：登录态就绪后异步接续（已下完的自动跳过；
+  // 离线会原样保留到下次启动）。**不 await**，不拖慢首页。
+  if (loggedIn()) {
+    resumePendingDownloads().catch(function (e) {
+      log('boot', '下载续传异常：' + ((e && e.message) || e))
+    })
   }
   // 自动拉取（设置 → 音质与存储，默认禁用）：只更新本地索引歌单的远端快照，
   // 不下载/不删文件。**不 await**：启动链不能被 N 个歌单的请求拖住；

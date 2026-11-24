@@ -49,18 +49,18 @@ export function playCacheDir() {
   return cacheDir()
 }
 
-/* ================= 元数据（每曲目录一份 metadata.json，两个通道各一套语义） =================
+/* ================= 元数据（状态库 track_meta，两个通道各一套语义） =================
  * 导出名与返回结构保持与「整表 JSON」时期一致：metaOf(id) 同步取一条、loadMeta() 预热。
- * 但存储已从「一张表」变成「每目录一份文件」，所以：
+ * 存储已经迁到状态库的 `track_meta` 表（每曲一行，按 kind 区分下载/缓存），所以：
  *   - loadMeta/loadPlayMeta 保留（调用点多，且它是「可以开始查了」的语义；现在无表可载）
- *   - metaOf/playMetaOf 同步查**内存快照**；快照由 put/markPending 写入，
- *     以及 warm(id) 按需从 metadata.json 回读（download.js 的查盘路径用）
+ *   - metaOf/playMetaOf 同步查**内存快照**；快照由 begin/put/markPending 写入，
+ *     以及 warm(id) 按需从 track_meta 回读（download.js 的查盘路径用）
  *   - loadMeta/loadPlayMeta 仍然清一次快照（清空通道后调用方用它做失效）
  */
 
 /**
  * 每目录元数据的内存快照工厂（kind = 'download' | 'cache'）。
- * 内存只是加速层，**盘上的 metadata.json 才是真相**。
+ * 内存只是加速层，**状态库 `track_meta` 才是真相**。
  */
 function makeDirMeta(kind) {
   const mem = {}
@@ -71,7 +71,7 @@ function makeDirMeta(kind) {
     load: async function () {
       return true
     },
-    /** 按需把某 id 的 metadata.json 读进内存快照；返回记录或 null */
+    /** 按需把某 id 的 track_meta 读进内存快照；返回记录或 null */
     warm: async function (id) {
       const k = String(id)
       const rec = await media.readMeta(k, kind)
@@ -84,23 +84,58 @@ function makeDirMeta(kind) {
       return mem[String(id)] || null
     },
     /**
-     * 写入（与盘上已有条目**合并写**：新快照缺的字段保留旧值，别覆盖成空）。
-     * br=接口实际码率；type='mp3'|'flac'；q=本次档位 key（升级判定用）。
-     * `p`（下载中的档位标记）在这里清掉 —— 下载已完成，残片认定到此为止。
+     * 下载开始时先写「基础元数据」：歌名/歌手/时长/封面 + `p`（本次档位）
+     * + `z`（接口给的预期大小）。
+     *
+     * 为什么要在下载**前**写：音频 `mv` 成正式文件之后、`put` 之前如果应用退出，
+     * 只留下一条 `{p}` 行 → 界面上就是「有歌没名字」。先写显示字段后，任何时刻退出
+     * 都不会缺名字；`z`/`p` 还让启动对账能认出「残片其实已经下满」。
+     *
+     * **不动 q/b/y**：升级重下时旧文件还在，提前写新档位会让「升级失败」被误判成
+     * 已升级（旧的音频 + 新的档位标记）。
+     * hadOld：下载开始时盘上已有完整音频（升级）。用于区分「fresh 下载完成但没来得及
+     * put」与「升级下到一半、旧文件还在」—— 后者不能拿 p 当文件的实际档位。
      */
-    put: async function (song, br, type, q) {
+    begin: async function (song, qk, total, hadOld) {
       if (!song || !song.id) return null
+      const k = String(song.id)
+      const prev = (await media.readMeta(k, kind)) || mem[k] || {}
+      const patch = {
+        n: song.name || prev.n || '',
+        a: song.artist || prev.a || '',
+        d: song.durationMs || prev.d || 0,
+        c: song.cover || prev.c || '',
+        p: qk || '',
+        z: total || prev.z || 0,
+        f: hadOld ? 0 : 1,
+        t: prev.t || Date.now()
+      }
+      mem[k] = Object.assign({}, prev, patch)
+      const ok = await media.patchMeta(k, kind, patch)
+      return ok ? mem[k] : null
+    },
+    /**
+     * 写完成态（与库里已有条目**合并写**：缺的字段保留旧值，别覆盖成空）。
+     * br=接口实际码率；type='mp3'|'flac'；q=本次档位 key（升级判定用）。
+     * `p`（下载中的档位标记）与 `z`（预期大小）在这里清掉 —— 下载已完成。
+     * 返回 `{rec, ok}`：调用方（downloadOne）要据此判断元数据是否真的落库。
+     * opts.clearBr：码率未知时把 b 清零（完整残片转正用 —— 旧文件的 br 可能属于旧档位）
+     */
+    put: async function (song, br, type, q, opts) {
+      if (!song || !song.id) return { rec: null, ok: false }
       const k = String(song.id)
       const prev = (await media.readMeta(k, kind)) || mem[k] || {}
       const rec = {
         n: song.name || prev.n || '',
         a: song.artist || prev.a || '',
-        b: br || prev.b || 0,
+        b: (opts && opts.clearBr) ? 0 : (br || prev.b || 0),
         y: type || prev.y || 'mp3',
         q: q || prev.q || '',
         d: song.durationMs || prev.d || 0,
         c: song.cover || prev.c || '',
         p: '',
+        z: 0,
+        f: 0,
         t: Date.now()
       }
       // 缓存表带 lastUsed（LRU 排序键，第一次落盘即算「刚用过」）；
@@ -112,11 +147,11 @@ function makeDirMeta(kind) {
         if (prev.addedAt) rec.addedAt = prev.addedAt
       }
       mem[k] = rec
-      await media.patchMeta(k, kind, rec)
-      return rec
+      const ok = await media.patchMeta(k, kind, rec)
+      return { rec: rec, ok: ok === true }
     },
     /**
-     * 标记「本次下载用的档位」（下载一开始就写；成功后 put 会清掉）。
+     * 只标记「本次下载用的档位」（保留给旧调用点；新代码用 begin）。
      * 用途：续传时判断 `.part` 残片是不是当前档位留下的 —— 中途改过音质的话，
      * 旧档残片必须丢弃，否则字节接在一起会写出「长度对但内容是垃圾」的文件。
      */
@@ -148,16 +183,18 @@ const pcMeta = makeDirMeta('cache')
 /* ---- 下载元数据（历史导出名保持不变，语义就是「用户下载」） ---- */
 export const loadMeta = dlMeta.load
 export const metaOf = dlMeta.of
+export const beginMeta = dlMeta.begin
 export const putMeta = dlMeta.put
 export const markPending = dlMeta.markPending
 export const dropMeta = dlMeta.drop
 export const clearMeta = dlMeta.clear
-/** 按需把某首的 metadata.json 读进内存快照（查盘前调；可能读盘） */
+/** 按需把某首的 track_meta 读进内存快照（查盘前调；可能读库） */
 export const warmMeta = dlMeta.warm
 
 /* ---- 播放缓存元数据 ---- */
 export const loadPlayMeta = pcMeta.load
 export const playMetaOf = pcMeta.of
+export const beginPlayMeta = pcMeta.begin
 export const putPlayMeta = pcMeta.put
 export const markPlayPending = pcMeta.markPending
 export const dropPlayMeta = pcMeta.drop
@@ -171,7 +208,7 @@ const touched = {} // id(String) -> true（攒一批，400ms 合并写盘）
 
 /**
  * 记一次「这首歌被播放了」（播放器在真正出声的分支调）——「缓存上限」LRU 的排序键，
- * 满了先淘汰最久没播的。**只更新已存在的条目**（还没 metadata.json 说明这首还没缓存完，
+ * 满了先淘汰最久没播的。**只更新已存在的条目**（还没 track_meta 行说明这首还没缓存完，
  * 等写入时给初值）。写盘做成 ~400ms 合并写（连点切歌别反复写文件，一次写 ≈50ms）。
  *
  * 内存快照可能是空的（刚启动、这首还没进过 put 路径）→ 这里**异步**从盘上补读一次
@@ -187,7 +224,7 @@ export function touchPlayMeta(id) {
     markTouched(k)
     return
   }
-  // 快照里没有：可能只是没预热过（metadata.json 在盘上）→ 补读一次再打点
+  // 快照里没有：可能只是没预热过（track_meta 在库里）→ 补读一次再打点
   pcMeta.warm(k).then(function (got) {
     if (!got) return // 真的没有（这首还没缓存完）：等 put 时给初值
     got.u = Date.now()
@@ -205,7 +242,7 @@ function markTouched(k) {
   }, 400)
 }
 
-/** 合并写：把攒下的 u 一次写进各自的 metadata.json（失败只记日志） */
+/** 合并写：把攒下的 u 一次写进各自的 track_meta（失败只记日志） */
 async function flushTouched() {
   const ids = Object.keys(touched)
   for (let i = 0; i < ids.length; i++) delete touched[ids[i]]
@@ -220,7 +257,7 @@ async function flushTouched() {
 
 /**
  * 把 media.listTracks 的条目归一成页面要的 Song 行（字段名与旧 listDir 完全一致）。
- * meta 可能为 null（metadata.json 缺失）→ 给默认值，调用方兜底。
+ * meta 可能为 null（track_meta 缺失）→ 给默认值，调用方兜底。
  */
 function toRow(it) {
   const m = it.meta || null
@@ -509,9 +546,9 @@ async function scanPlayCache() {
  * 执行「缓存上限」滚动（LRU）：总量超出上限时，从**最久没被播放**的开始删，
  * 直到落到上限以内。返回 {ok, removed, freed, total, limit, skipped?}。
  *
- * 排序键：metadata.json 的 u（最近一次播放）→ t（写入时间）→ 目录 mtime（兜底，
+ * 排序键：track_meta 的 u（最近一次播放）→ t（写入时间）→ 目录 mtime（兜底，
  * 处理「元数据丢了但文件还在」的老条目）。
- * 删一首 = 删整个 `<id>/` 目录（音频 + cover.jpg + metadata.json 一起走）。
+ * 删一首 = 删整个 `<id>/` 目录（音频 + cover.jpg 一起走；track_meta 行由 media.dropTrackDir 同删）。
  * 保护：player.js 通过 setCacheProtectHook 交出正在播放的 id，**绝不删在放的那首**。
  *
  * 调用时机（都由 download.js / 设置页触发，页面不直接调）：

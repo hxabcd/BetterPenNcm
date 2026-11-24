@@ -61,6 +61,20 @@ export async function fileExists(p) {
   }
 }
 
+/** 读一个小文本文件；不存在/出错/平台无 readFile 一律给 ''（不抛）。
+ *  下载收尾用它读 curl 的 `.rc`（几字节），避免为此 fork 一次 shell。 */
+export async function readText(p) {
+  try {
+    const fs = await getFs()
+    if (!fs || typeof fs.readFile !== 'function') return ''
+    const t = await fs.readFile(p)
+    if (t === undefined || t === null) return ''
+    return typeof t === 'string' ? t : String(t)
+  } catch (e) {
+    return ''
+  }
+}
+
 /** 删除路径（文件或目录，**递归**）。删不掉静默（包括「本来就不存在」） */
 export async function rmQuiet(p) {
   try {

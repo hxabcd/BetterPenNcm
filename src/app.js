@@ -1,5 +1,6 @@
 /* 应用入口：继承 $falcon.App，实现应用级生命周期 */
 import { flushNow, pauseForExit } from './services/player/player.js'
+import { stopForExit } from './services/player/download.js'
 import { log } from './core/infra/log.js'
 import { noteLifeCycle } from './core/infra/nav.js'
 
@@ -75,6 +76,11 @@ class App extends $falcon.App {
   // index.vue 里 await player.pauseForExit() 后再 closeApp（那里最可靠，不等销毁时机）；
   // 这里兜底系统/框架直接销毁应用的情形，pauseForExit 幂等（已暂停就不动）。
   onDestroy() {
+    // 兜底：系统/框架直接销毁时也尽量停掉后台 curl（正常退出路径已在 index.vue 里
+    // await 过；这里只尽力而为，来不及的部分由下次启动的下载对账收拾）。
+    try {
+      stopForExit()
+    } catch (e) {}
     flushNow()
     pauseForExit()
     super.onDestroy()

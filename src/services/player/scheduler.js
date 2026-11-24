@@ -408,6 +408,44 @@ export function cancelDownload() {
   if (!running) pump() // 没在跑：直接把队列里的作废项结算掉（settleActivity 一并收尾）
 }
 
+/**
+ * 应用退出用：清空**播放通道**排队项，并给正在跑的项打 abort 标记。
+ *
+ * `cancelDownload` 只管批量通道（token 代次）；播放通道的排队项没有 token，
+ * 不在这里摘掉的话 pump 会在退出过程中继续起新的缓存下载。正在跑的 curl 由
+ * fetcher 的 stopFetching() 负责杀掉，本函数只保证「不再起新的」。
+ */
+export function abortPlayQueue() {
+  while (waiting.length) {
+    const w = waiting.shift()
+    dropProgressHooks(String(w.song.id))
+    resolveItem(w, { ok: false, path: '', size: 0, aborted: true, error: '应用退出' })
+  }
+  if (runningW) runningW.abort = true
+}
+
+/**
+ * 等当前队列项收尾（退出链用）：超时返回 false，绝不把退出卡死。
+ * 轮询 50ms；正常情况 kill curl 后几十毫秒内 running 就会放开。
+ */
+export function waitIdle(ms) {
+  if (!running) return Promise.resolve(true)
+  return new Promise(function (resolve) {
+    const t0 = Date.now()
+    const iv = setInterval(function () {
+      if (!running) {
+        clearInterval(iv)
+        resolve(true)
+        return
+      }
+      if (Date.now() - t0 >= ms) {
+        clearInterval(iv)
+        resolve(false)
+      }
+    }, 50)
+  })
+}
+
 /* ---- 收尾 ---- */
 
 /** 清播放缓存目录里某 id 的残留（download 完成后的「不留两份」用）；返回 {files, bytes} */

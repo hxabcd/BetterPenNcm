@@ -59,7 +59,7 @@ import { saveSongExtras, dropLocalSong, loadIndex, indexOf } from './localmeta.j
 import { markUser, markPlaylist, markSkippedExisting, clearOrigin } from './dlorigin.js'
 import { log } from '../../core/infra/log.js'
 import { raceTimeout, sleep } from '../../core/infra/util.js'
-import { fileSize, readNames, readText, rmQuiet } from '../../core/platform/fsutil.js'
+import { fileSize, fileExists, readNames, readText, rmQuiet } from '../../core/platform/fsutil.js'
 import { trackDir } from '../../core/infra/paths.js'
 import { getStorage, setStorage, removeStorage, KEY_DL_PENDING } from '../../core/infra/store.js'
 import { isOffline } from '../../core/infra/net/status.js'
@@ -945,17 +945,26 @@ export function ensureCached(song, info, opts) {
 /* ================= 删除与失效 ================= */
 
 /**
- * 删单条**下载**（本地下载页的多选删除，逐首调用）：删掉整个 `downloads/<id>/` 目录
- * （音频 + .part/.part.cur 残片 + cover.jpg 一次走；track_meta/歌词行随目录删除），
- * 再清归属标记与本地库挂点。
+ * 删单条**下载**（本地下载页的多选删除 / deleteBatch 逐首调用）：删掉整个
+ * `downloads/<id>/` 目录（音频 + .part/.part.cur 残片 + cover.jpg 一次走；
+ * track_meta/歌词行随目录删除），再清归属标记与本地库挂点。
  * **只动 downloads/** —— 播放缓存不在这里出现，也不该被这个入口删掉
  * （缓存由「缓存上限」LRU 与存储管理页统一回收）。
  * 返回 {ok, files, bytes}（bytes = 删掉的字节，UI 提示「释放 X」用）。
+ * ok 以「目录确实不在了」为准（X3S 桥接层 rm 曾静默失败，不能只看删除前的计数）；
+ * 失败时**保留元数据与归属标记**（回滚 dropMeta/clearOrigin），避免留下
+ * 「文件还在却没元数据」的行（列表上退化成「歌曲 <id>」，重新删除后无法补回）。
  * 边下边删的竞态不做处理（同一首正在下载时删，文件会在下载完成后重新出现）。
  */
 export async function deleteCached(songId) {
   const id = String(songId)
   const r = await purgeInDir(musicDir(), id)
+  // 目录还在 = 目录删除失败（残片/封面等删掉了也不算成功）→ 不动元数据，按失败返回
+  const gone = !(await fileExists(musicDir() + '/' + id))
+  if (!gone) {
+    log('dl', '删除下载 ' + id + ' 失败：目录仍存在（rm 失败），保留元数据')
+    return { ok: false, files: r.files, bytes: 0 }
+  }
   await dropMeta(id)
   try {
     await clearOrigin(id) // 文件没了，归属标记一起清（dlorigin.js）
@@ -967,7 +976,106 @@ export async function deleteCached(songId) {
   sched.clearWait(id, sched.getWait(id))
   notifyFileChanged(id)
   log('dl', '删除下载 ' + id + '：整个目录 ' + r.files + ' 个文件 / ' + Math.round(r.bytes / 1024) + 'KB')
-  return { ok: r.files > 0, files: r.files, bytes: r.bytes }
+  return { ok: true, files: r.files, bytes: r.bytes }
+}
+
+/* ---- 后台批量删除（数百首不阻塞 UI：页面乐观摘行，删除在模块级继续跑） ---- */
+
+/** 进行中的批量删除（模块级单例：同一时间只允许一场） */
+const delJob = { running: false, ids: [], at: 0, done: 0, failed: 0, bytes: 0, files: 0, cur: '' }
+
+/**
+ * 批量删除的进度快照（页面轮询/订阅用）：running=false 表示没有进行中的批量删除。
+ * cur = 正在删的那首 id（页面用它做「正在删除 k/N」文案）。
+ */
+export function deleteBatchState() {
+  return {
+    running: delJob.running,
+    total: delJob.ids.length,
+    done: delJob.done,
+    failed: delJob.failed,
+    bytes: delJob.bytes,
+    files: delJob.files,
+    cur: delJob.cur,
+    at: delJob.at
+  }
+}
+
+/**
+ * 后台批量删除 N 首**下载**（本地下载页多选删除 / 本地删除歌单的孤儿清理共用）。
+ *
+ * 为什么在模块级跑而页面只乐观摘行：数百首时逐首删除（目录 rm + 三条 SQLite 写）
+ * 要跑十几秒，页面若 await 整批再刷新，UI 会长时间停在旧列表上「像没反应」；
+ * 而页面退栈后再继续 await 又会把删除绑死在那个实例上。
+ * 这里把循环移进服务层单例：调用方立即返回（排队/并入），每删完一首回调一次
+ * onEach（页面摘行、更新进度），删除本身不依赖任何页面实例存活。
+ *
+ * 数据安全：deleteCached 自包含（目录与 track_meta/归属/本地库挂点成对增删），
+ * 中途退出页面/应用只意味着「剩下的没删」—— 下次进来按目录重扫仍在，不存在
+ * 半删状态。调用方若需对账（如多选删除后重查列表），在 onLast 里自己调。
+ *
+ * @param {Array<string|number>} ids  要删除的曲目 id 列表（内部转字符串）
+ * @param {{onEach?: Function, onLast?: Function}} hooks  可选回调：
+ *   onEach(id, r, st)  —— 每首删完（r = deleteCached 返回，st = 当时的 deleteBatchState）
+ *   onLast(st)         —— 整批结束（成功或全部失败都会调；st.failed 可判断有无失败）
+ * @returns {running: boolean}  false = 已有一场在跑，本次并入未启动（批量入口先查 state 再决定是否调）
+ */
+export function deleteBatch(ids, hooks) {
+  const h = hooks || {}
+  if (delJob.running) return { running: false }
+  const list = []
+  const seen = {}
+  for (let i = 0; i < (ids || []).length; i++) {
+    const k = String(ids[i] || '')
+    if (k && !seen[k]) {
+      seen[k] = 1
+      list.push(k)
+    }
+  }
+  if (!list.length) return { running: false }
+  delJob.running = true
+  delJob.ids = list
+  delJob.at = Date.now()
+  delJob.done = 0
+  delJob.failed = 0
+  delJob.bytes = 0
+  delJob.files = 0
+  delJob.cur = ''
+  ;(async function () {
+    for (let i = 0; i < delJob.ids.length; i++) {
+      const id = delJob.ids[i]
+      delJob.cur = id
+      let r = null
+      try {
+        r = await deleteCached(id)
+      } catch (e) {
+        r = { ok: false, files: 0, bytes: 0, error: (e && e.message) || String(e) }
+      }
+      delJob.cur = ''
+      if (r && r.ok) {
+        delJob.done++
+        delJob.files += r.files || 0
+        delJob.bytes += r.bytes || 0
+      } else {
+        delJob.failed++
+      }
+      if (h.onEach) {
+        try {
+          h.onEach(id, r, deleteBatchState())
+        } catch (e) {}
+      }
+    }
+    delJob.running = false
+    delJob.cur = ''
+    log('dl', '批量删除结束：成功 ' + delJob.done + ' 失败 ' + delJob.failed +
+      ' / ' + delJob.files + ' 个文件 ' + Math.round(delJob.bytes / 1024) + 'KB')
+    if (h.onLast) {
+      try {
+        h.onLast(deleteBatchState())
+      } catch (e) {}
+    }
+  })()
+  return { running: true }
 }
 
 /**

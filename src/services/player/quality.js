@@ -20,7 +20,7 @@
  * 降级链：从选定档位往下取，最低 128k 兜底（VIP 歌拿不到高码率时的老行为）。
  * 中间档位**不等距跳**：无损 → 320k → 128k（跳过 192k，少一次请求往返）。
  */
-import config from '../../core/infra/config.js'
+import config, { DEFAULTS } from '../../core/infra/config.js'
 
 export const QUALITIES = [
   { key: 'standard', label: '标准', level: 'standard', br: 128000, note: '128k mp3' },
@@ -30,7 +30,11 @@ export const QUALITIES = [
   { key: 'hires', label: 'Hi-Res', level: 'hires', br: 2400000, note: '24bit FLAC' }
 ]
 
-export const DEFAULT_QUALITY = 'exhigh' // 默认：320k → 128k 回退
+/**
+ * 默认档位：值住 core/infra/config.js 的 DEFAULTS.playQuality（默认值只能住 core，
+ * 服务层反向读）。未设置/非法 key 的回退与设置页初始态都读这一个常量。
+ */
+export const DEFAULT_QUALITY = DEFAULTS.playQuality
 
 /**
  * 当前设置的档位 key（读 config；未设置/非法回退默认档）

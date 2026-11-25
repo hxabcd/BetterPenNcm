@@ -1,31 +1,19 @@
 /**
  * 主题（背景色 + 主题色）
  *
- * 背景色：设置里给几个预设，含「当前」与纯黑。
- * 主题色（accent）：默认红（= 加此功能前写死的网易云红），设置里可换。
+ * 背景色：设置里给几个预设，含「当前」与纯黑。主题色（accent）：默认红，设置里可换。
  *
- * 为什么不用 LESS 变量：`@bg`/`@accent` 都是编译期的，运行时换不了色。这里改成
- * 「配置里存 preset key → 组件用**内联 style** 上色」——平台只支持单类名选择器，
- * 动态状态色本来就得走内联样式（同 NavRail 的选中态做法）。
+ * 为什么不用 LESS 变量：`@bg`/`@accent` 都是编译期的，运行时换不了色 → 配置里存 preset key，
+ * 组件用**内联 style** 上色（平台只支持单类名选择器，动态状态色本来就得走内联样式）。
  * styles/common.less 里的 @bg/@accent/@accent-2 现在只是「默认预设（深灰 + 红）」的书面值。
  *
- * 改色后必须广播：页面是 navTo/finish 进出、**不会重新挂载**，不通知的话
- * 已经挂着的页（比如首页）会停在旧色。背景色与主题色共用一个事件（一起下发）。
+ * 改色后必须广播：页面是 navTo/finish 进出、**不会重新挂载**，不通知的话已经挂着的页
+ * （比如首页）会停在旧色。背景色与主题色共用一个事件（一起下发）。
  *
- * 组件用法（PageShell / NavRail / PageTopbar / index / login 都按这个接）：
- *   data:    { bg: currentBg(), accent: currentAccent() }
- *   mounted: this._bgOff = bindBgTheme(this)
- *   销毁:    unbindBgTheme(this._bgOff)
- * 只需要主题色的组件（不关心背景色的那些页面）用 ui/mixins/accent.js 的 accentMixin。
+ * 组件用 ui/mixins/accent.js 的 `accentMixin`（别自己 bindTheme）。
  *
- * accent 对象字段：
- *   c     —— 主色（原 @accent）：实心按钮底、进度条填充、选中圈底
- *   light —— 浅色（原 @accent-2）：选中态的文字/图标（暗底上主色偏闷，浅色更醒目）
- *   on    —— **实心主色之上**的前景文字色（白 or 深色，按对比度自动挑，见 pickOn）
- *   dark  —— true = 实心底上要用深色前景 → **图标**必须换深色版（fgIcon，见 assets/icons.js）
- *   a12/a14/a16/a18/a20 —— 主色的半透明叠色（原 @accent-soft 与各处 0.12~0.2 的选中底）
- * 半透明值**预先算好成字符串**（而非暴露 alpha 函数）：避免往 data 里放函数，
- * 平台的响应式实现只认朴素值。
+ * accent 对象的平台约束：半透明叠色（a12…a20）**预先算成字符串** —— 平台响应式只认朴素值，
+ * data 里不能放函数；`accent.dark` 为 true（亮色主题）时**图标**必须换深色版（fgIcon，见 assets/icons.js）。
  */
 import config from '../core/infra/config.js'
 

@@ -1,38 +1,12 @@
 /**
- * 顶层键值存储 —— 同名 API 的 **SQLite 实现**（原平台 storage 的替代）。
+ * 顶层键值存储 —— SQLite 实现（替代平台 storage），值落 `state.db` 的 `kv` 表
+ * （两个库的分工见 core/platform/db.js 头注释）。
  *
- * ## 落在哪个库
+ * 失败语义：**不抛** —— 写失败返回 false 并记日志、读失败给 null。上层
+ * （config/session/history）都持有内存态，下一次写会重试。
  *
- * `state.db` 的 `kv` 表（见 [`paths.stateDbFile()`](paths.js) / utils/db.js）。
- * 这个库放的是**用户资产**：配置、登录 Cookie、播放会话快照、播放历史，
- * 以及每曲元数据与歌词。它和 `local_index.db`（可重建的索引）分开，
- * 重置索引不会碰到登录态。
- *
- * ## 为什么不写 JSON 文件
- *
- * 平台 `fs` 模块**没有写入接口**（只有 exists/stat/statfs/readdir/readFile/mkdir/rm），
- * 所以「一个 key 一个 JSON 文件」必须借 shell 重定向去写：`printf > tmp && mv -f`。
- * 那条路每次写都是一次 `process.exec` = 一次 fork（S7 真机实测 92~139ms/次），
- * 而且内容超过 60KB 还要分片、每片再一次 fork —— 播放会话快照（500 首队列 ≈134KB）
- * 一次落盘实测 **2511ms**，正好卡在「播放器切换/等待」的用户手势上。
- * 换成本模块的 kv 表后，同一份数据的写入是**一次 bind + step**，实测 10ms。
- *
- * ## 为什么保留 storage 的调用形态
- *
- * `config.js` / `net/cookies.js` / `player/history.js` / `player/session.js` 都是
- * 「读一个 key、拿到 JSON 字符串、自己 parse」的形状。这里保持同名同签名（异步、字符串值），
- * 那些模块的调用点一行都不用改。
- *
- * ## 一致性
- *
- * 写入是单行 `INSERT OR REPLACE`，读到的永远是完整一版（SQLite 自己的原子性），
- * 不需要 `mv -f` 那套临时文件把戏。**同一 key 的并发写在这里串行化并只保留最新一版** ——
- * 播放快照每 5~15 秒一写、切歌/暂停还会即时触发，合并写把它们压成一次。
- *
- * ## 失败语义
- *
- * 与旧实现一致：**不抛**。写失败返回 false 并记日志，读失败给 null。
- * 上层（config/session/history）都持有内存态，下一次写会重试。
+ * 一致性：写入是单行 `INSERT OR REPLACE`，读到的永远是完整一版；**同一 key 的并发写
+ * 在这里串行化并只保留最新一版**（播放快照每 5~15 秒一写、切歌/暂停还即时触发，合并写压成一次）。
  */
 import { kvGet, kvPut, kvDel } from '../../core/platform/db.js'
 import { log } from './log.js'
@@ -40,7 +14,6 @@ import { log } from './log.js'
 /* ---------------- key 常量（沿用旧 storage 的名字，上层不必改自己的 KEY） ---------------- */
 
 export const KEY_SETTINGS = 'ncm_settings' // 应用配置
-export const KEY_COOKIES = 'ncm_cookies' // 登录 Cookie
 export const KEY_PLAYER_STATE = 'bpncm_player_state' // 播放会话快照
 export const KEY_PLAY_HIST = 'bpncm_playhist' // 播放历史
 export const KEY_DL_PENDING = 'bpncm_dl_pending' // 批量下载队列快照（退出/被强杀后下次启动续传）
@@ -101,7 +74,7 @@ export async function removeStorage(key) {
  * 兼容旧调用点：原先用于「确保 `<data>/storage` 目录存在」（框架不建那个目录时
  * storage 写入一律失败，见 git 历史里的 store.js 注释）。
  *
- * SQLite 实现没有这个前置条件 —— 库文件与父目录由 utils/db.js 的 ensureDb 建。
+ * SQLite 实现没有这个前置条件 —— 库文件与父目录由 core/platform/db.js 的 ensureDb 建。
  * 函数保留只是为了让 `boot.js` 等既有调用点不必改；返回值恒为 true。
  */
 export async function ensureDir() {

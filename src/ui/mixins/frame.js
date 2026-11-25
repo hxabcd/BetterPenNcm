@@ -1,20 +1,9 @@
 /**
- * 页面骨架分派（rail 骨架）。
+ * 页面骨架分派（rail 骨架）：提供默认 rail / onBack / onRailKey，页面覆写需要的钩子。
  *
- * 用法（页面只要覆写需要的钩子）：
- *   mixins: [pageFrameMixin]
- *   rail()     → 默认 [railBack()]；有上下文键的页面覆写
- *   onBack()   → 默认 this.$page.finish()；index（退应用）/ login（自定义关闭）/
- *                 多选页（先退多选）覆写
- *   onRailKey(key) → 上下文键分派；有上下文键的页面覆写
- *
- * ⚠ 约定（平台 + 交互）：
- * - 「返回」永远是第一个槽位（NavRail 的几何约定），且**返回不归 PageShell 管**
- *   （$page 在组件里不可靠）——这里就是它的落点。
- * - 上下文键最多 3 个（返回 + 3 恰好等距排满 100vh，见 NavRail 注释）；
- *   超上限时 NavRail 会在 mounted 里 log 告警（折叠机制待评估、暂不实现）。
- * - 多选态的返回语义 = 退出多选，由 multiSelectMixin 的 exitMultiIfAny() 提供，
- *   页面 onBack 写一行 `if (this.exitMultiIfAny()) return` 即可。
+ * 「返回」永远是第一个槽位，且**返回不归 PageShell 管**（$page 在组件里不可靠）——这里
+ * 就是它的落点。上下文键最多 3 个（超上限 NavRail 会 log 告警，折叠机制未实现）。
+ * 多选态的返回语义 = 退出多选，由 multiSelectMixin 的 exitMultiIfAny() 提供。
  */
 import { railBack } from '../rail.js'
 import { attachPage } from '../../core/infra/nav.js'

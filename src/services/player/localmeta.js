@@ -2,12 +2,12 @@
  * 本地音乐库：已下载歌曲的**完整元数据索引**（SQLite 索引库）与**歌词**（track_lyric 表）
  *
  * 索引落 `local_index.db` 的四张表（结构见 docs/存储重构.md §1.3）：track / track_artist /
- * album / artist。读写模型见 utils/db.js：boot 时整库灌内存，此后查询都在内存里（不分叉），
+ * album / artist。读写模型见 core/platform/db.js：boot 时整库灌内存，此后查询都在内存里（不分叉），
  * 写走单条 upsert（代价与库规模无关 —— 旧实现把整张表塞进 `store/local_index.json`，
  * 一条改动就重写 62KB）。
  *
  * 歌词落状态库 `state.db` 的 track_lyric 表（`{v, lrc, tlyric, yrc, pureMusic}`，
- * 读写走 utils/media.js），对外按形状 `{l, t, pm, y}` 给调用方（player/lyric.js 依赖这个形状）。
+ * 读写走 services/player/media.js），对外按形状 `{l, t, pm, y}` 给调用方（player/lyric.js 依赖这个形状）。
  * cache 通道的歌**不存歌词**：它们会被 LRU 滚掉，留下就是孤儿数据。
  *
  * 覆盖时机：
@@ -23,24 +23,18 @@
 import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, deleteSql, num } from '../../core/platform/db.js'
 import { readLyrics, writeLyrics, dropLyrics } from '../../services/player/media.js'
 import { fetchSongInfo, fetchLyric } from '../ncm/api.js'
-import { enqueueCovers } from '../../services/cover/cover.js'
+import { enqueueCovers, coverKey } from '../../services/cover/cover.js'
 import { enqueueArtistPortraits } from '../../services/cover/artistavatar.js'
 import { runStmts, replaceRowsSql } from './meta/sqlkit.js'
 import { log } from '../../core/infra/log.js'
 import { raceTimeout } from '../../core/infra/util.js'
+import { cmpText } from '../../core/infra/format.js'
 
 const T_TRACK = 'track'
 const T_TA = 'track_artist'
 const T_ALBUM = 'album'
 const T_ARTIST = 'artist'
 
-/**
- * 一批 SQL 的体积预算。
- *
- * 走原生 `sqlite3` 后已经没有「argv 上限」这回事（不再拼 `/bin/sh -c`、也不 fork），
- * 但语句仍是拼成一整串交给 `db.exec()`，所以保留分箱：一批太大时出错会更难定位，
- * 而且单批变小能让写落在多个事务里、主线程不至于长时间不返回。
- */
 /* ---------------- 类型归一 ---------------- */
 
 /** 数字列：非有限数一律 0（避免把 NaN 写进 SQL 造成语法错误） */
@@ -58,6 +52,15 @@ function parseArr(s) {
   } catch (e) {
     return []
   }
+}
+
+/**
+ * 曲目 id 归一：数字优先，非数字 id 原样保留（索引键是字符串，行对象要数字 id）。
+ * 索引记录 → 视图对象只走这一处。
+ */
+export function songIdOf(id) {
+  const n = Number(id)
+  return isNaN(n) ? id : n
 }
 
 /* ---------------- 索引（内存投影，形状与旧 store/local_index.json 一致） ---------------- */
@@ -421,8 +424,9 @@ export async function saveSongExtras(songId) {
         enqueueCovers([{ id: id, cover: u }], noop, 60)
         enqueueCovers([{ id: id, cover: u }], noop, 200)
         if (info.album.id) {
-          enqueueCovers([{ id: 'al' + info.album.id, cover: u }], noop, 60)
-          enqueueCovers([{ id: 'al' + info.album.id, cover: u }], noop, 200)
+          const ak = coverKey('album', info.album.id)
+          enqueueCovers([{ id: ak, cover: u }], noop, 60)
+          enqueueCovers([{ id: ak, cover: u }], noop, 200)
         }
       } catch (e) {}
     }
@@ -457,9 +461,8 @@ function toSong(id, rec) {
   for (let i = 0; i < ars.length; i++) {
     if (ars[i] && ars[i].n) names.push(ars[i].n)
   }
-  const nid = Number(id)
   return {
-    id: isNaN(nid) ? id : nid,
+    id: songIdOf(id),
     name: rec.n || '',
     artist: names.join(' / ') || '未知歌手',
     album: (rec.al && rec.al.n) || '',
@@ -620,16 +623,6 @@ export async function localAlbumView(albumId) {
 
 /* ---------------- 本地下载的聚合视图（歌手 / 专辑） ---------------- */
 
-function cmpName(a, b) {
-  const x = String(a || '')
-  const y = String(b || '')
-  try {
-    return x.localeCompare(y)
-  } catch (e) {
-    return x < y ? -1 : x > y ? 1 : 0
-  }
-}
-
 /**
  * 本地索引里的全部歌手（本地下载-歌手页）。
  * 返回 [{id, name, count, cover, albumId}]：
@@ -679,7 +672,7 @@ export async function localArtistList() {
     })
   }
   out.sort(function (a, b) {
-    return cmpName(a.name, b.name)
+    return cmpText(a.name, b.name)
   })
   return out
 }
@@ -734,7 +727,7 @@ export async function localAlbumList() {
   }
   out.sort(function (a, b) {
     if ((b.publishTime || 0) !== (a.publishTime || 0)) return (b.publishTime || 0) - (a.publishTime || 0)
-    return cmpName(a.name, b.name)
+    return cmpText(a.name, b.name)
   })
   return out
 }

@@ -3,6 +3,8 @@
  * 登录与写操作走 weapi（weapiPost 把 /api/ 换成 /weapi/，本文件不再直接用它，见 weapi.js 的调用方）。
  */
 import { request } from '../../core/infra/net/request.js'
+import { toMs } from '../../core/infra/format.js'
+import { coverKey } from '../../services/cover/cover.js'
 
 const BASE = 'https://music.163.com'
 const UA =
@@ -70,15 +72,6 @@ export function normalizeSong(raw) {
   }
 }
 
-/**
- * 搜索歌曲；返回 {songs: Song[], total}
- * 就是分类搜索的「单曲」特例 —— 真正的实现在下面的 searchByType，别在这里另拼一遍 URL。
- */
-export async function searchSongs(keyword, offset, limit) {
-  const r = await searchByType(keyword, 1, offset, limit)
-  return { songs: r.items, total: r.total }
-}
-
 /* 搜索分类（加）：四个分类都走同一个端点 /api/search/get/web（PC 端 curl 实测），
    只是 result 里的数组名不同。type 值与网易云一致：1 单曲 / 10 专辑 / 100 歌手 / 1000 歌单。
    ⚠ 老端点没有 type=1002（用户）之类的新类型，别照搬新接口文档。 */
@@ -89,7 +82,8 @@ export const SEARCH_TYPES = [
   { key: 10, label: '专辑', unit: '张', field: 'albums', count: 'albumCount' }
 ]
 
-function searchMeta(type) {
+/** 搜索分类 → 选项（label / unit / 计数字段）；未知 type 退回第一个 */
+export function searchMeta(type) {
   for (let i = 0; i < SEARCH_TYPES.length; i++) {
     if (SEARCH_TYPES[i].key === Number(type)) return SEARCH_TYPES[i]
   }
@@ -107,12 +101,8 @@ function joinArtists(arr) {
 }
 
 function yearOf(ms) {
-  if (!ms) return 0
-  try {
-    return new Date(Number(ms)).getFullYear() || 0
-  } catch (e) {
-    return 0
-  }
+  const v = toMs(ms)
+  return v ? new Date(v).getFullYear() || 0 : 0
 }
 
 /**
@@ -143,9 +133,9 @@ export async function searchByType(keyword, type, offset, limit) {
     if (meta.key === 100) {
       items.push({
         id: it.id,
-        /* 头像缓存键与本地下载-歌手/歌手详情共用 arp<id>：同一歌手同一张图，
+        /* 头像缓存键与本地下载-歌手/歌手详情共用：同一歌手同一张图，
            避免各页面各存一份、来源不一致 */
-        kid: 'arp' + it.id,
+        kid: coverKey('artist', it.id),
         name: it.name || '',
         cover: picUrl(it.picUrl || it.img1v1Url || ''),
         sub: '单曲 ' + (it.musicSize || 0) + ' · 专辑 ' + (it.albumSize || 0)
@@ -158,7 +148,7 @@ export async function searchByType(keyword, type, offset, limit) {
       const size = it.size || 0
       items.push({
         id: it.id,
-        kid: 'al' + it.id,
+        kid: coverKey('album', it.id),
         name: it.name || '',
         cover: it.picUrl || it.blurPicUrl || '',
         sub: who + (y ? ' · ' + y : '') + (size ? ' · ' + size + ' 首' : '')
@@ -169,7 +159,7 @@ export async function searchByType(keyword, type, offset, limit) {
     const creator = it.creator || {}
     items.push({
       id: it.id,
-      kid: 'pl' + it.id,
+      kid: coverKey('playlist', it.id),
       name: it.name || '',
       cover: it.coverImgUrl || '',
       sub: (it.trackCount || 0) + ' 首 · by ' + (creator.nickname || '未知')
@@ -265,9 +255,6 @@ function arr(v) {
  *   yrc.lyric    逐字原文（[行开始,时长](字开始,时长,0)文本）；没有逐字的曲目该字段缺省
  *   pureMusic    true = 纯音乐（lrc 只有元信息行）
  * 返回 {lrc, tlyric, yrc, pureMusic}
- *
- * 勘误：早先（31c8d9c）注释称「明文接口无论怎么带 yv 都没有 yrc，逐字必须走 weapi」——
- * 实测不成立，明文 v1 就有 yrc；当时应是把逐字请求打在了经典 /api/song/lyric 上。
  */
 export async function fetchLyric(songId) {
   const url = BASE + '/api/song/lyric/v1?id=' + songId + '&lv=-1&kv=-1&tv=-1&yv=-1'

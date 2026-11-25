@@ -33,7 +33,7 @@
  * 播放页整页 500ms 重渲染不会带动本组件（props 不含 position/active）。
  *
  * 滚动：touchmove 只记录最新坐标，rAF 合并成每帧一次；松手短惯性；
- * 自动跟歌与回位共用同一套 rAF。窗口化两条不变量与旧版一致：
+ * 自动跟歌与回位共用同一套 rAF。窗口化两条不变量：
  *   1. 换窗口必须与瞬时位移同帧（trackStyle 的 T = topOff + prefix(winStart)）；
  *   2. 平滑滑动期间窗口不动，滑完收回；覆盖不了扫过范围就瞬时对齐。
  *
@@ -104,7 +104,7 @@ export default {
   components: { 'lyric-track': LyricTrack },
   mixins: [accentMixin],
   props: {
-    /** [{time, end, text, trans, words}]，按时间升序（utils/player/lyric.js 产出） */
+    /** [{time, end, text, trans, words}]，按时间升序（services/player/lyric.js 产出） */
     lines: { type: Array, default: function () { return [] } },
     /** 是否显示译文 */
     showTrans: { type: Boolean, default: true },
@@ -191,7 +191,7 @@ export default {
       }
     },
     /**
-     * 整条轨道唯一一次 translateY；窗口起点之前的高度要加回来（推导见旧版注释，公式不变）。
+     * 整条轨道唯一一次 translateY；窗口起点之前的高度要加回来（见 trackStyle 的 T 公式）。
      * **不用 CSS transition**：本平台对 transform 的过渡插值不可靠（实测硬跳），且过渡期间
      * 窗口/节点一变就闪。改成 JS 补间（animateTo）逐帧写 transform，所见即所得。
      */

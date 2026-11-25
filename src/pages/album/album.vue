@@ -64,7 +64,7 @@ import { setAlbumSubscribed, albumSubscribed } from '../../services/ncm/subscrib
 import { toPlaylist, playNext, playNextText } from '../../services/player/acts.js'
 import { localAlbumView } from '../../services/player/localmeta.js'
 import { isOffline } from '../../core/infra/net/status.js'
-import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
+import { ensureCover, coverKey, BIG_COVER } from '../../services/cover/cover.js'
 import { fmtDate, fmtSize, clipText } from '../../core/infra/format.js'
 import { downloadSongs, dlText, startText, resultText, spaceCheck, dlSig, dlApi } from '../../services/player/download.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
@@ -217,7 +217,7 @@ export default {
         self.shown = PAGE_SONG
         self.sub = self.meta
         self.hint = '专辑没有曲目'
-        ensureCover({ id: 'al' + r.album.id, cover: r.album.cover }, function (cid, path) {
+        ensureCover({ id: coverKey('album', r.album.id), cover: r.album.cover }, function (cid, path) {
           if (path) self.cover = path
         }, BIG_COVER)
         log('album', '就绪 ' + r.album.name + ' 曲目=' + r.songs.length)
@@ -242,7 +242,7 @@ export default {
         self.songs = lv.songs
         self.shown = PAGE_SONG
         self.hint = '本地没有该专辑的曲目'
-        ensureCover({ id: 'al' + lv.album.id, cover: lv.album.cover }, function (cid, path) {
+        ensureCover({ id: coverKey('album', lv.album.id), cover: lv.album.cover }, function (cid, path) {
           if (path) self.cover = path
         }, BIG_COVER)
         log('album', '本地索引视图 ' + lv.album.name + ' 曲目=' + lv.songs.length)

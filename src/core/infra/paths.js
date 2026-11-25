@@ -10,7 +10,7 @@
  * 两条通道的语义（贯穿全应用）：
  *   downloads/ —— 用户主动下载，**永久保留**，计入「本地下载」
  *   cache/     —— 边听边存，受「缓存上限」LRU 滚动，不计入「本地下载」
- * 两者都按 **每 track 一个目录** 组织，目录内是固定文件名（track.* / cover.jpg / metadata.json）。
+ * 两者都按 **每 track 一个目录** 组织，目录内是固定文件名（track.* / cover.jpg）。
  */
 
 /** $dataDir 归一化：去尾斜杠 + 折叠中间重复斜杠（末尾带 / 时切片会留下一个 '//'） */
@@ -43,11 +43,16 @@ export function thumbsDir() {
 }
 
 /**
- * kind → 通道根目录。'download' = 用户下载，其余一律按播放缓存。
- * 这是**唯一**的 kind 归一化点：调用方传 'download' / 'cache'，不自己写 if。
+ * kind 归一化：'download' 原样，其余（含 undefined / 拼错）一律按播放缓存。
+ * 这是**唯一**的 kind 归一化点：调用方拿到外部传来的 kind 先过一次，不自己写 if。
  */
+export function toKind(kind) {
+  return kind === 'download' ? 'download' : 'cache'
+}
+
+/** kind → 通道根目录（经 toKind 归一，缺省 = 播放缓存） */
 export function rootOf(kind) {
-  return kind === 'download' ? downloadsDir() : cacheDir()
+  return toKind(kind) === 'download' ? downloadsDir() : cacheDir()
 }
 
 /* ---------------- 单个 track 的目录与文件 ---------------- */
@@ -90,7 +95,7 @@ export function dbFile() {
  * 与索引库分开的理由：这些是**用户资产**（丢了要重新登录/丢进度），
  * 而索引是可重建的派生数据。分开后「重置索引」不会碰到登录态。
  * 两者都是 SQLite —— 平台 `fs` 没有写接口，文本数据写文件只能 fork 一次 shell
- * （真机 92~139ms，134KB 快照实测 2511ms），见 docs/存储层.md。
+ * （真机 92~139ms，134KB 快照实测 2511ms），见 docs/存储重构.md §4。
  */
 export function stateDbFile() {
   return normDir() + '/state.db'

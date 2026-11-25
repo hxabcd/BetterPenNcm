@@ -1,8 +1,8 @@
 /**
  * 媒体源层之一：本地音频的探测与清理。
  *
- * 目录契约见 docs/存储重构.md §2，路径唯一真源是 utils/paths.js，
- * 「一首歌一个目录」的读写封装在 utils/media.js —— 本模块不再自己拼路径。
+ * 目录契约见 docs/存储重构.md §2，路径唯一真源是 core/infra/paths.js，
+ * 「一首歌一个目录」的读写封装在 services/player/media.js —— 本模块不再自己拼路径。
  *
  *   <downloads|cache>/<id>/track.mp3 | track.flac   正式文件（永远是完整文件）
  *   <downloads|cache>/<id>/track.*.part(.cur)       续传残片（下载中）
@@ -17,11 +17,6 @@
 import { rootOf, trackDir } from '../../core/infra/paths.js'
 import { audioPath, otherAudioPath, hitAudio } from '../../services/player/media.js'
 import { getFs, fileExists, readNames, statOf, removeTree } from '../../core/platform/fsutil.js'
-
-/** kind → 通道根目录（cache = 边听边存，download = 用户下载） */
-export function dirOf(kind) {
-  return rootOf(kind)
-}
 
 /** 音频文件路径：扩展名由直链格式定（无 type 时按 mp3，兼容老接口回包） */
 export function songPath(id, ext, kind) {
@@ -60,15 +55,16 @@ export async function cachedPath(songId) {
 }
 
 /**
- * 清掉某个根目录下某 id 的**整个目录**（正式文件 + .part/.part.cur 续传残片 + 封面 + 元数据）；
+ * 清掉某个 track 的**整个目录**（正式文件 + .part/.part.cur 续传残片 + 封面；元数据行由调用方删）；
  * 返回 {files, bytes}（删之前的统计，UI 提示「释放 X」用）。
- *
- * 参数保持「根目录 + id」形态：scheduler.js 与 download.js 各自传自己的根目录，
- * 本函数只做 `<dir>/<id>` 的 rm -rf，不关心是 download 还是 cache。
+ * 目录路径走 paths.trackDir —— 本模块不自己拼 `<root>/<id>`。
  */
-export async function purgeInDir(dir, id) {
-  const base = String(dir || '').replace(/\/+$/, '')
-  const target = base + '/' + String(id)
+export async function purgeTrack(id, kind) {
+  return purgePath(trackDir(id, kind))
+}
+
+/** 真正干活的：统计目录内容再 rm -rf（目录不存在也算删成功） */
+async function purgePath(target) {
   const names = await readNames(target)
   let bytes = 0
   for (let i = 0; i < names.length; i++) {

@@ -1,33 +1,14 @@
 /**
  * 下载归属标记 —— 区分「用户自己的单曲」与「为本地索引歌单批量下载的文件」。
  *
- * 为什么需要它：本地下载页把已下载文件分成三类——
- *   单曲下载 / 歌单内歌曲 / 遗留歌曲（原歌单已移出索引，但按策略 A 保留文件）。
- * 只靠文件系统无法知道一首歌是怎么来的；于是给每首已下载歌曲记一个**归属标记**：
+ *   user（1）     —— 用户主动下载（播放器下载键、专辑/歌手/搜索、列表多选）；
+ *                    **没有标记的文件按 user 处理**，且 user 一旦写入就是终态。
+ *   playlist（2） —— 只在「下载全部」、同步、自动同步时写入；失去所有已索引歌单引用后
+ *                    才归入「遗留歌曲」（由 locallists.js 的 classifyWithRefs 动态派生）。
  *
- *   user     —— 用户主动下载（播放器下载键、专辑/歌手/搜索、列表多选），
- *               以及本功能上线前就存在的遗留文件（没有标记 = 按 user 处理）。
- *   playlist —— 只在「歌单详情 → 下载全部」、同步、自动同步时写入；
- *               这类文件在失去所有已索引歌单引用后，才归入「遗留歌曲」。
- *
- * 分类不需要记「来自哪个歌单」：只要知道它是不是歌单批量下载的，
- * 再结合当前所有已索引歌单的 baseIds ∪ remoteIds 动态派生即可
- * （见 locallists.js 的 classifyWithRefs）。这样移出索引 / 同步 D 都不必维护
- * 一张容易过期的孤儿表，重启、重复同步、崩溃都不会留下陈旧状态。
- *
- * 规则（与 download.js 的调用点一一对应）：
- *   - user 一旦写入就是终态：后续歌单批量下载只跳过，不改写。
- *   - playlist 写入前先看已有标记：已有 user 则保持 user。
- *   - 批量下载**跳过已存在的文件**时：没有标记 → 补 user（遗留文件按用户资产处理，
- *     绝不把用户已有的文件「认领」成歌单归属）；已有标记 → 保持。
- *   - 删除文件（任何入口）→ 清标记；清空已下载 → 清全表。
- *
- * 存储：索引库 `local_index.db` 的 `track.dl_origin` 列（0=无 1=user 2=playlist）。
- * 与曲目索引共用 track 行，但**只写这一列**：
- *   - 曲目没进过索引（本功能上线前的老文件）也会有一行：name 为空、只有 dl_origin。
- *     localmeta 的「已索引」判据是 name 非空，所以这类行不会被当成有详情的曲目。
- *   - 反过来，清标记只把列置 0，不删行（行里的索引数据仍有效）。
- * 读写模型见 utils/db.js：内存态是读的真相，写走批量 upsert（一批一个事务）。
+ * 存储：索引库 `local_index.db` 的 `track.dl_origin` 列（0=无 1=user 2=playlist），与曲目索引
+ * 共用 track 行但**只写这一列**：没进过索引的老文件也会有一行（name 为空、只有 dl_origin，
+ * localmeta 的「已索引」判据是 name 非空）；清标记只把列置 0，不删行。
  */
 import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, num } from '../../core/platform/db.js'
 import { log } from '../../core/infra/log.js'
@@ -118,11 +99,6 @@ export function loadOrigin() {
 export function originOf(id) {
   if (!mem) return 0
   return mem[String(id)] || 0
-}
-
-/** 是不是用户自己的单曲；**没有标记也按 user 处理**（遗留文件） */
-export function isUserOrLegacy(id) {
-  return originOf(id) !== ORIGIN_PLAYLIST
 }
 
 export function isUser(id) {
@@ -254,17 +230,4 @@ export async function clearAllOrigins() {
     log('origin', '清空归属标记失败：' + ((e && e.message) || e))
   }
   log('origin', '已清空下载归属标记')
-}
-
-/** 当前标记表快照（诊断/日志用；返回 ids 数组） */
-export async function originSnapshot() {
-  await load()
-  const user = []
-  const playlist = []
-  const keys = Object.keys(mem || {})
-  for (let i = 0; i < keys.length; i++) {
-    if (mem[keys[i]] === ORIGIN_USER) user.push(keys[i])
-    else if (mem[keys[i]] === ORIGIN_PLAYLIST) playlist.push(keys[i])
-  }
-  return { user: user, playlist: playlist }
 }

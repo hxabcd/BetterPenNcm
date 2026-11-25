@@ -20,7 +20,7 @@
       </div>
 
       <!-- 缓存上限（config.cacheLimitMb，默认 1G）：**只约束「边听边存」的播放缓存**（cache/），
-           超出按「最久没播放」先滚掉；手动下载（music/）不受它约束 -->
+           超出按「最久没播放」先滚掉；手动下载（downloads/）不受它约束 -->
       <div class="dl-row">
         <text class="dl-label">缓存上限</text>
         <div class="dl-chips">
@@ -62,20 +62,16 @@ import OptToggle from '../../components/OptToggle.vue'
 import CueRow from '../../components/CueRow.vue'
 import { go } from '../../core/infra/nav.js'
 import { QUALITIES, qualityInfo, currentQuality, DEFAULT_QUALITY } from '../../services/player/quality.js'
-import { enforceCacheLimit } from '../../services/player/cache.js'
-import config from '../../core/infra/config.js'
+import { cacheLimitMb, enforceCacheLimit } from '../../services/player/cache.js'
+import config, { DEFAULTS } from '../../core/infra/config.js'
+import { limitLabel } from '../../core/infra/format.js'
 import { log } from '../../core/infra/log.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
 
-/** 「缓存上限」可选档位（MB）；mb=0 表示不限 */
-const CACHE_LIMITS = [
-  { mb: 256, label: '256M' },
-  { mb: 512, label: '512M' },
-  { mb: 1024, label: '1G' },
-  { mb: 2048, label: '2G' },
-  { mb: 4096, label: '4G' },
-  { mb: 0, label: '不限' }
-]
+/** 「缓存上限」可选档位（MB，按升序；0 = 不限）。文案统一由 format.js 的 limitLabel 给 */
+const CACHE_LIMITS = [256, 512, 1024, 2048, 4096, 0].map(function (mb) {
+  return { mb: mb, label: limitLabel(mb) }
+})
 
 export default {
   name: 'setdl',
@@ -88,7 +84,7 @@ export default {
       playQ: DEFAULT_QUALITY,
       downQ: DEFAULT_QUALITY,
       cacheLimits: CACHE_LIMITS,
-      cacheLimit: 1024, // 真值来自 config，mounted 里读；0 = 不限
+      cacheLimit: DEFAULTS.cacheLimitMb, // 真值来自 config，mounted 里读；0 = 不限
       autoPull: false
     }
   },
@@ -98,11 +94,10 @@ export default {
     await config.load()
     this.playQ = currentQuality('play')
     this.downQ = currentQuality('down')
-    const cl = Number(config.get('cacheLimitMb'))
-    this.cacheLimit = isNaN(cl) ? 1024 : cl // 0 是合法值（不限），别用 || 兜
+    this.cacheLimit = cacheLimitMb() // 0 = 不限，由 cache.js 统一读
     this.autoPull = config.get('autoPull') === true
     log('setdl', '音质与存储挂载 播放音质=' + this.playQ + ' 下载音质=' + this.downQ +
-      ' 缓存上限=' + (this.cacheLimit || '不限') + ' 自动拉取=' + (this.autoPull ? '开' : '关'))
+      ' 缓存上限=' + limitLabel(this.cacheLimit) + ' 自动拉取=' + (this.autoPull ? '开' : '关'))
   },
   methods: {
     /**
@@ -128,8 +123,8 @@ export default {
       if (mb === this.cacheLimit) return
       this.cacheLimit = mb
       await config.set('cacheLimitMb', mb)
-      this.hint = '缓存上限 ' + (mb ? mb + 'MB' : '不限')
-      log('setdl', '缓存上限 -> ' + (mb ? mb + 'MB' : '不限'))
+      this.hint = '缓存上限 ' + limitLabel(mb)
+      log('setdl', '缓存上限 -> ' + limitLabel(mb))
       try {
         const r = await enforceCacheLimit()
         if (r && r.removed) {

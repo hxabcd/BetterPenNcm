@@ -135,12 +135,12 @@
  *   3. FLAC 直链 playFile 可播性（PC 端 range_server.py 提供 /probe.flac）
  *   4. position:absolute 的 top/left/right 组合（页面上色块，截图判读）
  *   5. v-if 切换含 slot / 不含 slot 组件（页面上色块，3 秒翻转）
- *   6. 导航层自测：utils/nav.js 的「逻辑页 → 实例槽位」push/pop 语义 + 两类边界
+ *   6. 导航层自测：core/infra/nav.js 的「逻辑页 → 实例槽位」push/pop 语义 + 两类边界
  *      （平台回退弹层后的槽位释放、15 层深度压力），日志 `[nav]` / `[navtest]`，
  *      PC 侧断言见 scripts/nav_selftest.sh；正式版不打包本页
  *
  * FLAC 直链主机取自构建时注入的 LOG_SRV（同机不同端口），避免把内网 IP 写进源码。
- * 日志走 utils/log.js：console.warn 兜底进 /data/applog/YD_PEN_APP.log。
+ * 日志走 core/infra/log.js：console.warn 兜底进 /data/applog/YD_PEN_APP.log。
  */
 import { log, brief } from '../../core/infra/log.js'
 import { sleep } from '../../core/infra/util.js'
@@ -478,7 +478,7 @@ async function testFlac() {
 }
 
 /* ==================== 导航层自测 ====================
- * 验证 utils/nav.js 的「逻辑页 → 实例槽位」是否得到标准 push/pop：
+ * 验证 core/infra/nav.js 的「逻辑页 → 实例槽位」是否得到标准 push/pop：
  *   - 同一逻辑页连续 go 两次 → 分别拿到 <base> / <base>2 两个槽位（都是 push，不销毁下层）；
  *   - go(player) 走 reuse（全局目的地页，不叠第二层）；
  *   - $falcon.closePageByName(槽位) 只关当前一层，下层页面仍存活 → 日志里有对应 page-unload。

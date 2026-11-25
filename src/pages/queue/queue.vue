@@ -47,27 +47,12 @@
 
 <script>
 /**
- * 播放列表页（当前播放队列，独立页面）
+ * 播放列表页（当前播放队列，独立页面）：当前曲高亮，点任意一首跳播（player.playAt）。
  *
- * 显示当前播放队列，当前曲高亮，点任意一首跳播（player.playAt）。
- * 行高 23vh（与 SongRow 一致）；不做封面下载 —— 队列页要的是"一眼看清顺序"，
- * 少一个异步源少一份坑。
- *
- * 多选（操作**只有移除出队列**）：
- *   左栏 [多选] → 多选态 [× 退出多选, 移除]；顶栏全选；点行勾选。
- *   移除 = player.removeFromQueue(ids)：原始队列与随机临时队列同删、index 重定位；
- *   **在播曲也能移除**：删到它 → 接着播「原来的下一首」
- *   （当前曲之后第一个活下来的，后面没了绕回队首；当时是暂停态则只换曲、不出声）；
- *   删完一首不剩 → 停播回空态（首页卡/播放页写「未在播放」，会话快照也一并删掉）。
- *   两次点按确认（同各页删除的既有做法）。
+ * 多选的动作**只有移除出队列**（player.removeFromQueue）：原始队列与随机临时队列同删、
+ * index 重定位；**在播曲也能移除** —— 删到它就接着播「原来的下一首」（后面没了绕回队首，
+ * 当时是暂停态则只换曲、不出声）；删到一首不剩则停播回空态。两次点按确认。
  * 随机模式下显示/操作的都是**临时队列**（切回其它模式即恢复原序）。
- *
- * 窗口与折叠：
- *   - 队列 ≤ PAGE_QUEUE（50 首）：一批就装得下 → **整列渲染、不折叠**；进页面若当前曲在
- *     首屏之外，用 `$page.$dom.scrollToElement` 滚到当前曲附近（上方留 2 行）。
- *   - 长队列：只渲染 [start, end) 窗口（当前曲为锚点，前面折成「前面还有 N 首」）。
- *   - 前向展开窗口**上滑**（start/end 同时前移、末尾丢弃补「加载更多」），并滚到
- *     「旧内容原地不动」的绝对位置——不这么做的话，插入的 50 行会把当前内容整体顶下去。
  */
 import PageShell from "../../components/PageShell.vue";
 import PageTopbar from "../../components/PageTopbar.vue";
@@ -88,16 +73,15 @@ import { armMixin } from '../../ui/mixins/arm.js';
 import { multiSelectMixin } from '../../ui/mixins/multi.js';
 import { pageFrameMixin } from '../../ui/mixins/frame.js';
 import { bindPageVis } from '../../ui/vis.js';
-import { PAGE_QUEUE, moreText } from '../../ui/paging.js';
+import { PAGE_QUEUE, moreText, ROW_PX_SONG } from '../../ui/paging.js';
 import { vhPx } from '../../core/platform/viewport.js';
 
-/* 与 LESS 成对维护的几何（px）：行高 .qu-row = @row-h 23vh，折叠条 18vh，定位行 14vh。
-   窗口锚定滚动要用像素算「插入多少行 = 内容上移多少」，所以这里必须有一份。 */
-const ROW_PX_CONST = 23; // 行高 vh（SongRow 23vh）
+/* 与 LESS 成对维护的几何（px）：折叠条 18vh，定位行 14vh；行高用 paging.ROW_PX_SONG
+   （.qu-row = @row-h 23vh，与 SongRow 同高）。窗口锚定滚动要用像素算「插入多少行 =
+   内容上移多少」，所以这里必须有一份。 */
 const FOLD_PX_CONST = 18;
 const LOC_PX_CONST = 14;
-/* 三个 vh 常数按本机型换算成 px（S7 2.4 / X3S·X5 2.54）——写死 2.4 会在窄屏上错 6% */
-const ROW_PX = ROW_PX_CONST * vhPx();
+/* 两个 vh 常数按本机型换算成 px（S7 2.4 / X3S·X5 2.54）——写死 2.4 会在窄屏上错 6% */
 const FOLD_PX = FOLD_PX_CONST * vhPx();
 const LOC_PX = LOC_PX_CONST * vhPx();
 /* 前向展开的步长：比整页少 6 行。锚定后视口里的旧内容位于窗口第 K 行附近，
@@ -137,7 +121,7 @@ export default {
       }
       return { start: start, end: end, list: this.songs.slice(start, end) };
     },
-    /* ---- 行派生（色值全部走主题色，见 utils/theme.js） ----
+    /* ---- 行派生（色值全部走主题色，见 ui/theme.js） ----
        一次算好整窗的行视图，模板只读字段。**必须放在 computed**：模板
        `v-for="r in rows"` 编译成取字段，放 methods 会拿到函数 → 整窗 0 行、页面中间空
        （坑 24；theme_verify.py 第四道现已扫 v-for 集合名）。
@@ -333,7 +317,7 @@ export default {
       const full = this.win.start === 0 && this.win.end === n;
       if (!full || idx < 3) return; // 长队列的窗口本身就以当前曲为锚点；短队列前 3 首在首屏
       // 整列渲染时顶部没有折叠/定位行，锚点就在第一行之前：直接滚到第 idx-2 行的顶部
-      this.scrollToOffset((idx - 2) * ROW_PX, "locate");
+      this.scrollToOffset((idx - 2) * ROW_PX_SONG, "locate");
       log("queue", "短队列定位到第 " + (idx + 1) + " 首（上方留 2 行）");
     },
     /** 滚动位置（原生 px）；只做锚定计算，不进 data */
@@ -365,7 +349,7 @@ export default {
       /* 目标滚动位置 = s + k*ROW + (新 chrome − 旧 chrome)；
          scrollToElement 定的是「第 0 行位置(新 chrome) + offset」，所以
          offset = s + k*ROW − 旧 chrome（与新 chrome 无关，定位行出现/消失都成立）。 */
-      const offset = s + k * ROW_PX - chrome;
+      const offset = s + k * ROW_PX_SONG - chrome;
       this.scrollToOffset(offset, "expandBefore");
       // 布局如果比 30ms 慢，90ms 再兜一次（绝对定位，不会累积误差）
       const self = this;

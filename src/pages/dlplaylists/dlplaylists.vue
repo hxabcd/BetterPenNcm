@@ -59,6 +59,7 @@ import { pageFrameMixin } from '../../ui/mixins/frame.js'
 import { PAGE_ROW, AUTO_BATCH, ROW_PX_LIB } from '../../ui/paging.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
 import { listPageMixin } from '../../ui/mixins/listpage.js'
+import { coverKey } from '../../services/cover/cover.js'
 
 const PAGE = PAGE_ROW // 索引歌单一次渲染 40 行（平台 ≤50 行）
 
@@ -170,13 +171,14 @@ export default {
           let sub = '已下载 ' + sm.local + ' / ' + sm.total + ' 首'
           if (sm.added) sub += ' · 新增 ' + sm.added
           if (sm.removed) sub += ' · 移除 ' + sm.removed
+          const cid = coverKey('playlist', rec.id)
           rows.push({
-            key: 'pl' + rec.id,
+            key: cid,
             pid: rec.id,
             name: rec.name || ('歌单 ' + rec.id),
             sub: sub,
             cover: rec.cover,
-            coverId: 'pl' + rec.id
+            coverId: cid
           })
         }
         if (this._dead) return

@@ -4,42 +4,33 @@
  * **两个音频概念，两个目录，同一套「每 track 一个目录」布局**（契约见 docs/存储重构.md §2）：
  *   | 概念 | 目录 | 音质 | 出现位置 | 生命周期 |
  *   |---|---|---|---|---|
- *   | 下载 download | data/downloads/<id>/ | 「下载音质」 | **本地下载页 / 首页下载卡 / 播放页下载键** | 用户主动下，永久保留，只在用户删时消失 |
- *   | 缓存 cache | data/cache/<id>/ | 「播放音质」 | **不出现**在任何「本地下载」清单里 | 边听边存，受「缓存上限」LRU 滚动，满了按最久未播放先删 |
+ *   | 下载 download | data/downloads/<id>/ | 「下载音质」 | **本地下载页 / 首页下载卡 / 播放页下载键** | 用户主动下，永久保留 |
+ *   | 缓存 cache | data/cache/<id>/ | 「播放音质」 | **不出现**在任何「本地下载」清单里 | 边听边存，受「缓存上限」LRU 滚动 |
  *   | 浏览缩略图 | data/cache/thumbs/ | — | — | 可整体清空，不属于任何曲目（cover.js / clearCoverCache） |
  *
- * 元数据：**不再有整表 JSON**，每首一条记录在索引库 `local_index.db` 的 `track_meta` 表
- * （{n,a,b,y,q,d,c,origin,addedAt}；缓存多一个 u=lastUsed、p=续传档位标记）：
- *   - 读：media.readMeta（一次 prepare，微秒级）
- *   - 写：media.patchMeta（合并写，单行 upsert）
- *   - 删：随目录一起走（media.dropTrackDir，原生 fs.rm 递归删除）
+ * 元数据：**不再有整表 JSON**，每首一条记录在**状态库 `state.db`** 的 `track_meta` 表
+ * （{n,a,b,y,q,d,c,origin,addedAt}；缓存多一个 u=lastUsed、p=续传档位标记），歌词在 `track_lyric`；
+ * 读写都经 media.js（readMeta / patchMeta / dropTrackDir），本模块只管内存快照与清理。
  *
- * ⚠ 元数据**不写 metadata.json**：平台 `fs` 没有写接口，写文件只能 fork 一次 shell
- *   （真机 92~139ms），而下载一首歌会写它两次、播放打点再写一次 —— 全在播放链路上。
+ * 设计原则：**文件系统为真相，元数据可缺失** —— readdir 永远是准的，不维护「索引说有人、
+ * 文件却没了」的伪真相；元数据只负责「显示得好看」与「LRU 排序」，缺了不影响功能。
  *
- * 设计原则不变：**文件系统为真相，元数据可缺失**
- *   - 有什么目录（readdir）永远是准的，不维护「索引说有人、文件却没了」的伪真相；
- *   - 元数据只负责「显示得好看」与「LRU 排序」，缺了不影响功能。
- *
- * 容量实测（真机探针）：
- *   - fs.statfs 返回 {free,total} 但语义可疑（free>total），**可用空间一律走 exec df**
- *
- * 所有 shell 走 `process.exec('/bin/sh', ['-c', cmd])`（root；见 运行时API参考 §6）；
- * exec 不可用时回退纯 fs 实现（慢但不失败）。
+ * 容量实测（真机探针）：fs.statfs 返回 {free,total} 但语义可疑（free>total），
+ * **可用空间一律走 exec df**；exec 不可用时回退纯 fs 实现（慢但不失败）。
  */
 import * as media from '../../services/player/media.js'
-import { trackDir } from '../../core/infra/paths.js'
+import { trackDir, trackFile } from '../../core/infra/paths.js'
 import { clearCovers } from '../../services/cover/cover.js'
 import { clearLocalLibrary } from './localmeta.js'
 import { clearAllOrigins } from './dlorigin.js'
 import { log } from '../../core/infra/log.js'
-import config from '../../core/infra/config.js'
+import config, { DEFAULTS } from '../../core/infra/config.js'
 import { cacheDir, downloadsDir, musicDir, rootOf, thumbsDir } from '../../core/infra/paths.js'
 import { fileExists, readNames, statOf } from '../../core/platform/fsutil.js'
 import { has, run as shRun } from '../../core/platform/exec.js'
 import { ensureRoot } from './files.js'
 
-/* ================= 路径（统一走 utils/paths.js —— 别再各拼各的） ================= */
+/* ================= 路径（统一走 core/infra/paths.js —— 别再各拼各的） ================= */
 
 /** 下载根目录的历史导出名（download.js / 页面沿用旧名；实现 = paths.downloadsDir） */
 export { musicDir }
@@ -196,7 +187,6 @@ export const loadPlayMeta = pcMeta.load
 export const playMetaOf = pcMeta.of
 export const beginPlayMeta = pcMeta.begin
 export const putPlayMeta = pcMeta.put
-export const markPlayPending = pcMeta.markPending
 export const dropPlayMeta = pcMeta.drop
 export const clearPlayMeta = pcMeta.clear
 export const warmPlayMeta = pcMeta.warm
@@ -330,9 +320,14 @@ export async function stats() {
       const C = thumbsDir()
       // 曲目计数：只数「数字目录 + 有非空 track.mp3/flac」，两种扩展名只计一次
       const trackCount = function (dir) {
+        // 文件名从 paths.trackFile 取（扩展名集合 = media.AUDIO_EXT），别在这里重写一遍
+        const hasAudio = media.AUDIO_EXT.map(function (ext) {
+          const p = trackFile('0', ext)
+          return '[ -s "$d/' + p.slice(p.lastIndexOf('/') + 1) + '" ]'
+        }).join(' || ')
         return 'for d in "' + dir + '"/*/; do [ -d "$d" ] || continue; ' +
           'b=${d%/}; b=${b##*/}; case "$b" in ""|*[!0-9]*) continue; esac; ' +
-          'if [ -s "$d/track.mp3" ] || [ -s "$d/track.flac" ]; then n=$((n+1)); fi; done'
+          'if ' + hasAudio + '; then n=$((n+1)); fi; done'
       }
       const fileCount = function (dir) {
         return 'for f in "' + dir + '"/*; do [ -f "$f" ] && n=$((n+1)); done'
@@ -472,18 +467,26 @@ async function wipeTrackDirs(kind) {
     const name = names[i]
     if (!name || !/^\d+$/.test(name)) continue
     await media.dropTrackDir(name, kind)
-    if (!(await fileExists(root + '/' + name))) n++
+    if (!(await fileExists(trackDir(name, kind)))) n++
   }
   return n
 }
 
 /* ================= 「缓存上限」与 LRU 滚动 ================= */
 
-/** 缓存上限（字节）；0 = 不限。设置页写 config.cacheLimitMb（默认 1024 = 1G）。 */
+/**
+ * 缓存上限（MB）；0 = 不限。设置页写 config.cacheLimitMb。
+ * 0 是合法值，所以只把「未设置 / 非法」回落成默认（DEFAULTS），不能用 `|| 0` 兜 —— 那会把默认混成不限。
+ */
+export function cacheLimitMb() {
+  const raw = Number(config.get('cacheLimitMb'))
+  const mb = isNaN(raw) ? DEFAULTS.cacheLimitMb : raw
+  return mb > 0 ? mb : 0
+}
+
+/** 缓存上限（字节）；0 = 不限 */
 export function cacheLimitBytes() {
-  const mb = Number(config.get('cacheLimitMb'))
-  if (!mb || isNaN(mb) || mb <= 0) return 0
-  return Math.round(mb * 1048576)
+  return Math.round(cacheLimitMb() * 1048576)
 }
 
 /* 保护名单钩子：player.js 注册，返回「正在播放 / 不能被回收」的 id 数组。

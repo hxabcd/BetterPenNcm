@@ -81,36 +81,19 @@
 
 <script>
 /**
- * 定时播放子页（设计稿 PlayerPage 14:1570 的 SetTimerPanel 14:1756 / TimerPanel 14:1758 /
- * SetCustomTimerPanel 14:1757，三态合一个组件）
+ * 定时播放子页（三态合一：选时长 / 倒计时 / 自定义键盘；几何与设计稿编号见 docs/播放页.md）。
  *
- * 它是「进度控制」（TimeShiftPanel / SeekPanel）内部的子页：由进度控制右上「定时播放」进入，
- * 顶栏「返回」在自定义键盘里回选时长、在选时长/倒计时里抛 `back` 回进度控制面板。
- * 打开/关闭整个子面板由播放页负责（本组件只 emit `back`/`toast`）。
+ * 它是「进度控制」（SeekPanel）内部的子页：由进度控制右上「定时播放」进入，顶栏「返回」
+ * 在自定义键盘里回选时长、在选时长/倒计时里抛 `back` 回进度控制面板。整个子面板的开合
+ * 由播放页负责（本组件只 emit `back`/`toast`）。铺满父级给的 480×240 底、**自己不上底色**。
  *
- * 尺寸：父级给 480×240 的底（TOK.subBg + 左侧 12px 圆角），本组件铺满、**自己不上底色**。
- * 几何一律设计稿 px（1vh=2.4px；480 这类 >240px 的宽度必须写 px）。内部仍是「内容区 456×168」：
- *   顶栏 48px（底边 TOK.line）：左「返回」= 图标 24 + 文字 20px；右「播完整首」= 24×24 圆角 8px
- *     复选框（未选底 TOK.cardBg；选中实心主题色 + fgIcon('check') 16px）+ 文字 20px，均 padding 6px。
- *   一、选时长：3 列 × 2 行，键 144×78、圆角 10px、底 TOK.cardBg、文字 24px，列/行距 12px。
- *   二、倒计时：H:MM:SS 48px 粗体居中 + 「播放至 HH:MM」16px TOK.text2 居中；
- *      下方 96×36 键（圆角 10px、底 TOK.cardBg、stop 图标 24px）= 取消。
- *   三、自定义：左 201×168（大数字 48px 白 + min 16px TOK.text3 + 播放至 16px TOK.text2）；
- *      右 245×168 键盘 3 列 × 4 行（键 79×39、间距 4px、圆角 10px、底 TOK.cardBg；数字 24px、
- *      第 10 键 del 图标、第 12 键 check 图标，均 24px）。输入 1~999（最多 3 位，初值 90）。
+ * 三态以 sleeptimer 模块为准（本组件不自己算到期）：running 态里看到 active 变 false = 定时
+ * 到点 → 自动回 presets 并 toast 结果；取消要先切回 presets 再 cancel，否则订阅回调会把
+ * cancel 当成「到点」再弹一次（双 toast）。
  *
- * 三态来源（以定时模块为准，本组件不自己算到期）：
- *   - mount 时 sleepTimer.state().active ? running : presets；
- *   - 订阅 sleepTimer（每秒一次）：running 态里看到 active 变 false = 定时到点 → 自动回 presets，
- *     并 emit('toast') 说明结果（播完整首 / 直接暂停两种文案）。
- *   - 取消：先把 pane 切回 presets 再 cancel —— cancel 是同步广播，若面板还停在 running
- *     会被上面的订阅回调当成「到点」再弹一次提示（会双 toast）。
- *
- * 平台注意：
- *   - 模板裸绑定只来自 props/computed/data（本组件无 props；数据全在 data，图标/颜色走 computed）；
- *   - fgIcon 是 accentMixin 的方法，只能包进 computed（checkIcon）再绑，不能裸绑定；
- *   - 样式只用单类名；动态色（复选框选中底）内联 :style；间距用 margin（不认 gap）；
- *     border-radius:50% 不生效 → 全部写 px；
+ * 平台注意（详见 docs/平台约束与自检.md）：
+ *   - fgIcon 是 accentMixin 的方法，只能包进 computed 再绑（裸绑定拿到的是函数）；
+ *   - border-radius:50% 不生效 → 圆角全写 px；间距用 margin（不认 gap）；
  *   - 页面会挂两遍 → mounted 订阅自带判重（this._sub），beforeDestroy 里注销。
  */
 import { sleepTimer } from '../../services/player/sleeptimer.js'

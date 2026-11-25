@@ -6,7 +6,7 @@
  * ⚠ **exec 昂贵**：一次调用 = 一次 fork（S7 真机实测 92~139ms，宿主进程带着
  *   Skia/QuickJS/字体，页表大、复制更贵）。所以：
  *     - 轮询/进度只许 `fs.stat` / `fs.exists`（native，零 fork）；
- *     - 写文件不在这里（平台 `fs` 没有写接口，但数据一律进 SQLite，见 utils/db.js）。
+ *     - 写文件不在这里（平台 `fs` 没有写接口，但数据一律进 SQLite，见 core/platform/db.js）。
  *
  * 语义：
  *   - 探测失败按「不可用」缓存（false），不会反复探；`has()` 永不抛。
@@ -85,7 +85,7 @@ async function probe(cap) {
  * 能力是否可用：has('curl') / has('du') / has('awk') / has('stat') / has('df') / has('ffmpeg')。
  * 未知 key 返回 false。**首次调用会同步等待一次探测**（一次 fork，真机 92~139ms）。
  *
- * ⚠ 数据库**不在**这里：`sqlite3` 有原生模块（`import('sqlite3')`），走 utils/db.js，
+ * ⚠ 数据库**不在**这里：`sqlite3` 有原生模块（`import('sqlite3')`），走 core/platform/db.js，
  *   不要再给它加 CLI 探测 —— 那个通道每次调用都要 fork 一次。
  */
 export async function has(cap) {

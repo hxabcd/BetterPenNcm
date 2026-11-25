@@ -626,7 +626,7 @@ export default {
   align-items: flex-start;
   justify-content: flex-start;
   padding: 12px;
-  /* 底色由内联 :style 给（主题可换，见 utils/theme.js）；本页其余仍是硬编码 px/色值 */
+  /* 底色由内联 :style 给（主题可换，见 ui/theme.js）；本页其余仍是硬编码 px/色值 */
 }
 /* 左侧边栏：三个入口竖直排列 */
 .sidebar {

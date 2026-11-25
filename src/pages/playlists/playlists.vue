@@ -67,6 +67,7 @@ import { pageFrameMixin } from '../../ui/mixins/frame.js';
 import { pageBusMixin } from '../../ui/mixins/pagebus.js';
 import { PAGE_CARD, AUTO_BATCH, ROW_PX_CARD } from '../../ui/paging.js'
 import { fitColumns } from '../../core/platform/viewport.js'
+import { coverKey } from '../../services/cover/cover.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js';
 import { listPageMixin } from '../../ui/mixins/listpage.js'
 
@@ -216,10 +217,10 @@ export default {
   mounted() {
     this._dead = false;
     // 歌单详情页改过歌单（改名/删除/收藏状态）→ 本页重拉一次（loadUserPlaylists 带 force）；
-    // 注册/退役见 utils/ui/pagebus.js
+    // 注册/退役见 ui/mixins/pagebus.js
     this.onPageEvent("bpncm:playlist-changed", "load");
     /* 本页会在栈里同时存活多个实例（浏览态 / 「添加到歌单」选择态 / 歌手专辑），
-       参数通道 utils/nav.js 的 pending 按**实例槽位 key** 记账，
+       参数通道 core/infra/nav.js 的 pending 按**实例槽位 key** 记账，
        所以这里必须用真实 $pageName 取参数，写死 "playlists" 会让第二层实例的 pick 参数静默丢失。 */
     this._routePage = (this.$page && this.$page.$pageName) || "playlists";
     const p = paramsFor(this._routePage, this.$page ? this.$page.options : null);
@@ -292,13 +293,13 @@ export default {
         log("playlists", "加载失败 " + ((e && e.message) || e));
       }
     },
-    /** 歌手专辑：分页拉取，映射成 PlaylistCard 的通用形状（id 加 al 前缀避免撞歌曲线图缓存） */
+    /** 歌手专辑：分页拉取，映射成 PlaylistCard 的通用形状（id 用专辑封面键避免撞歌曲封面缓存） */
     async loadAlbums(more) {
       const r = await fetchArtistAlbums(this.artistId, more ? this.albums.length : 0, ALBUM_PAGE);
       const cards = [];
       for (let i = 0; i < r.albums.length; i++) {
         const a = r.albums[i];
-        cards.push({ id: "al" + a.id, albumId: a.id, name: a.name, count: a.size, cover: a.cover });
+        cards.push({ id: coverKey('album', a.id), albumId: a.id, name: a.name, count: a.size, cover: a.cover });
       }
       this.albums = more ? this.albums.concat(cards) : cards;
       this.more = r.more;

@@ -99,7 +99,7 @@ export async function openTextEdit(opts) {
         }
       }
       // 备用通道（$falcon.on）拿到的是框架事件壳 {type,timestamp,data} —— 先脱壳再解析，
-      // 否则会把壳当负载、解析出空文本（实证见 utils/events.js 顶部）
+      // 否则会把壳当负载、解析出空文本（实证见 core/infra/events.js 顶部）
       if (payload && payload.type === 'textEditFinished' && payload.data !== undefined) {
         payload = payload.data
         if (typeof payload === 'string' && payload.charAt(0) === '{') {
@@ -133,12 +133,4 @@ export async function openTextEdit(opts) {
       finish(null)
     }
   })
-}
-
-/** 清空输入框内容（可选） */
-export async function clearContent() {
-  try {
-    const g = await getInst()
-    if (typeof g.clearTextEditContent === 'function') g.clearTextEditContent()
-  } catch (e) {}
 }

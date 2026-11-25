@@ -1,34 +1,16 @@
 /**
- * 页面导航（路由层）—— 把平台的「页面 key 单实例 + 回退式 navTo」补成标准的「压栈 / 出栈」语义。
+ * 页面导航（路由层）—— 逻辑页名 → 实例槽位；完整规则见 docs/页面导航.md。
  *
- * 平台模型（S7 端 libfalcon.so 的 FalconApp::launchPage 反汇编 + 设备端 jsfm-nvue 生命周期分发实证）：
+ * 平台 navTo 语义（S7 端 libfalcon.so 的 FalconApp::launchPage 反汇编 + 设备端生命周期分发实证）：
  *   - 一个 page key 在 app 内只有**一个实例**，页面栈是实例序列；
- *   - navTo(key, params) 命中「已在栈里」的 key 时：把该页**上面的页面全部销毁**（逐页 FalconPage::autoPop()，
- *     默认开启且本项目从未关闭），把旧实例挪回栈顶，只补发 onNewOptions —— **不重新挂载**；
- *     命中「当前页」时只原地补发 onNewOptions；
+ *   - navTo(key) 命中「已在栈里」的 key 时，把该页**上面的页面全部销毁**、旧实例挪回栈顶，
+ *     只补发 onNewOptions —— **不重新挂载**；命中当前页则原地补发；
  *   - finish() 关闭当前页，露出栈里前一个页面。
- * 也就是说平台的 navTo 是「回到 / 重进那一页」，不是「再开一层」。而本工程页面代码（mounted 里读参数、
- * 返回用 $page.finish()）是按标准 push/pop 写的 —— 直接用平台语义就会出现「层级退回」：目标页恰好已在栈里时，
- * 中间层被销毁、旧实例参数不更新，返回落错层。
+ *   即平台的 navTo 是「回到那一页」，不是「再开一层」；所以页面只写 go('<逻辑页名>')、
+ *   返回只写 this.$page.finish()，槽位分配由本模块负责。
  *
- * 本模块的解法：**逻辑页 → 实例槽位**。
- *   - 页面代码只认识**逻辑页名**（app.json 里该 .vue 的基础 key）：go('list', params) 表达「压入一层 list」。
- *   - 每个逻辑页在 app.json 里预编译若干别名 key（同一 .vue 各编译一份 `.falcon_/<key>.js.bin`，
- *     别名模块只是 re-export，产物只有几百字节），作为该逻辑页的实例槽位。
- *   - go() 总是挑一个**当前不在栈里**的槽位 navTo —— 平台必然走「新建实例」分支，于是得到真正的 push；
- *     返回（finish）关闭当前页得到 pop，**不会销毁调用页**。
- *   - 实例存活由页面生命周期记账（App.onPageLifeCycle 主通道 + pageFrameMixin 挂载时 attachPage 兜底）。
- *   - player 是全局目的地页，保留平台语义（已在栈中则回退到它），其余页一律压栈。
- *   - 连点合并：同一逻辑页 + 同一参数在 500ms 内重复 go() 只生效一次（S7 慢，用户「没反应再点一下」
- *     很常见；不合并会让同一页真叠两层）。日志 `dup-ignore` 可查。
- *   - 槽位耗尽（同一逻辑页同时开得太多，正常流程不应出现，见 docs/页面导航.md 的边界说明）时
- *     复用**最上层**的同类实例（平台只弹掉它上面的页面，代价最小），记 `degrade` 日志；
- *     此时页面 mounted 已读过旧参数，内容可能不是最新参数 —— 属异常路径，优先加槽位。
- *   - `scripts/theme_verify.py` 会巡检逻辑页名与槽位配置。
- *
- * 参数通道：真机 navTo 的参数不可靠（见 git 历史与 PenMusic 实证），仍走本模块的 pending 记录：
- * 按**槽位 key** 记账，另按**逻辑页名**兜底（兼容页面里写死逻辑页名的写法）；
- * pending 覆盖式、不消费，以兼容「页面会挂两遍」。
+ * 参数通道：真机 navTo 的参数不可靠，本模块按**槽位 key** 记账（另按**逻辑页名**兜底，
+ * 兼容页面里写死逻辑页名的写法）；pending 覆盖式、不消费，以兼容「页面会挂两遍」。
  */
 import { log } from './log.js'
 import { markVisible, dropPage } from './vis.js'
@@ -333,12 +315,5 @@ function stackKeysJson() {
 export function stackKeys() {
   const out = []
   for (let i = 0; i < LIVE.length; i++) out.push(LIVE[i].key)
-  return out
-}
-
-/** 逻辑页 → 槽位表（只读副本，供自检脚本 / 探针核对配置；目前无生产调用方，预留诊断） */
-export function pageTable() {
-  const out = {}
-  for (const logical in PAGES) out[logical] = PAGES[logical].slots.slice()
   return out
 }

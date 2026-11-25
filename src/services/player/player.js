@@ -1,37 +1,15 @@
 /**
- * 播放器单例 —— 跨页面共享的播放状态与控制
+ * 播放器单例 —— 跨页面共享的播放状态与控制（多页面间 ES 模块是同一实例，各页直接 import）。
  *
- * 基础行为：
- *   - **统一出声入口**：本地文件与在线直链一律走 `playFile(locator, pos, rate)`
- *     （平台实测：fileName 给直链时同样认 position 与 rate）。命中缓存播本地秒开；
- *     没缓存先取直链流播出声（重连发 Range 拿 206 从指定位置续播），下载退到后台做**播放缓存**，
- *     下次同一首秒开。⚠ **「播放缓存」≠「下载」**（分家）：缓存落 `$dataDir/cache`、
- *     按**播放音质**、受设置项「缓存上限」按播放顺序 LRU 滚动、**不出现在本地下载里**；
- *     用户主动下载落 `$dataDir/music`、按**下载音质**、永久保留
- *   - **seek / 续播（▶）/ 改倍速不再等整首下载**：有本地文件用文件、没有就直链定位起播；
- *     直链取不到（受限 / 网络差）才回退旧的「等缓存」（needLocal）
- *   - **进度 = 原生事件锚定 + 墙钟插值兜底**：`reportPosition=1` 的 mediaPlayerPositionChanged
- *     约每 50ms 一条（信号对象 .on 订阅；SoundPlayer 是全系统单例、事件全服务广播，
- *     必须按 playFile 返回的 uuid 过滤）；事件只重锚墙钟（positionMs/baseMs/startedAt），
- *     显示仍由 500ms tick 输出；DurationChanged 回填时长、EndChanged 是播完的精确信号
- *     （与墙钟判定共用 requestEnd 去重）
- *   - **循环模式**：列表循环 / 顺序播放 / 单曲循环 / 随机播放（持久化进 config）
- *   - **随机播放是「假随机」**：进随机时把原始队列打乱成一份**临时队列**
- *     （当前曲作锚点留在队首），之后下一首就沿临时队列走 —— 一轮之内每首恰好放一次，不会重复；
- *     走到队尾再重洗一轮。**原始队列永不被改动**，切回其它模式即恢复原顺序。
- *   - **播完自动连播**：按模式决定下一首；顺序播放到头才停
+ * 出声统一走 `playFile(locator, pos, rate)`：本地文件与在线直链同一条路（平台实测：
+ * fileName 给直链时同样认 position 与 rate）。命中缓存播本地秒开，没缓存先取直链流播出声
+ * （重连发 Range 拿 206 从指定位置续播），下载退到后台做**播放缓存**；
+ * 「播放缓存」≠「下载」，两条通道的分工见 download.js 头注释。
  *
- * 不变的坑：
+ * 不变的平台坑：
  *   - 无 pause：暂停 = stop()，续播 = playFile(源, positionMs, rate)
- *   - 事件回调 20~25 条/秒：里面禁止打日志（log 每条一次 HTTP POST）与 emit
- *
- * 页面用法：`import { player } from '…/player/player.js'`
- *   const off = player.on(s => { this.st = s })   // 订阅
- *   this.st = player.state()                       // 读当前
- *   player.playList(songs, i) / toggle() / next() / prev() / stop() / seekTo(ms) / setRate(r) / setLoopMode(m)
- * 不要在页面里直接操作原生播放器（sound.js / download.js）。
- *
- * 已验证：多页面间 ES 模块为同一实例（粉笔冒烟测试 n=1→2）。
+ *   - 进度事件 20~25 条/秒、且 SoundPlayer 是全系统单例（事件全服务广播，必须按 playFile
+ *     返回的 uuid 过滤）：回调里禁止打日志（log 每条一次 HTTP POST）与 emit
  */
 import { cachedPath, resolveUrl, ensureCached, setFileChangedHook, touchPlayCache } from './download.js'
 import { setCacheProtectHook } from './cache.js'

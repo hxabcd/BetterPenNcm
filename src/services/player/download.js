@@ -1,55 +1,18 @@
 /**
- * 媒体源层 —— 对外门面。
+ * 媒体源层 —— 对外门面：对外 API 与跨模块编排都在本文件，队列/调度在 scheduler.js、
+ * 任务清单在 tasks.js、路径探测在 files.js、直链解析在 source.js、传输在 fetcher.js。
  *
- * 本文件只保留三样东西：
- *   1. **对外 API**（下面的 export 列表，其它模块的 import 保持稳定）；
- *   2. **编排**：ensureCached / downloadSongs / downloadOne / deleteCached 等跨模块流程；
- *   3. 本地文件变更钩子（player.js 注册）。
- * 队列与调度在 scheduler.js，活动快照/任务清单在 tasks.js，路径探测在 files.js，
- * 直链解析在 source.js，进度转发在 progress.js，下载传输在 fetcher.js。
- *
- * 当前播放路径：播放不再等整首下完，点歌先用直链出声（player.js 统一走
- * `playFile(直链, pos, rate)`，本地文件也是同一条路），下载退居幕后做缓存。
- * 两条通道（详见 scheduler.js 头部）：
- *   - **play 通道**（ensureCached）：播放要用的缓存，**最新请求优先**（新请求作废旧的等者）
- *   - **batch 通道**（downloadSongs）：用户主动下载（播放器页「下载」/ 列表多选下载），
- *     FIFO 不淘汰、重试不丢；播放通道优先调度，整体仍是单并发（不跟流播抢带宽）
- *
- * **「缓存」与「下载」分家**（两条通道，同一套「每 track 一个目录」布局，见 docs/存储重构.md §2）：
- *   | kind | 谁产生 | 音质 | 目录 | LRU | 出现在「本地下载」 |
- *   |---|---|---|---|---|---|
- *   | `cache`    | 播放时自动（play 通道） | **播放音质** | `data/cache/<id>/` | 受「缓存上限」滚动 | **否** |
- *   | `download` | 用户主动（batch 通道）  | **下载音质** | `data/downloads/<id>/` | 永久 | **是** |
- *   - 每个曲目目录里固定是 `track.<ext>`（+ `.part` 残片）/ `cover.jpg`；
- *     元数据与歌词在状态库的 `track_meta` / `track_lyric`（utils/media.js 统一读写）；
- *   - 队列项的 `kind` 决定落到哪个目录、完成时写哪条 `track_meta`（kind 1=下载 / 2=缓存）、
- *     如何收尾（download 完成 → 删掉同 id 的 cache **目录**，避免同一首占两份空间）；
- *   - 播放请求（ensureCached）也可以**提权**批量项：提权只改调度通道（lane），
- *     **不改编排队列项的 kind** —— 用户点下的下载不会因为被提权就变成缓存；
- *   - 缓存完成 → 触发 cache.enforceCacheLimit()（按播放顺序 LRU 滚动）。
- *
- * **下载提交协议（2026-11 稳定性改动，改这块前先看）**：
- *   - 开始下载前 `begin` 先写基础元数据（n/a/d/c + `p` 本次档位 + `z` 预期大小 +
- *     `f` 下载前是否有旧文件），完成后再 `put` 写实际 b/y/q 并清 p/z；
- *     写库失败重试一次，仍失败只记日志（文件是真相，启动对账会再补），不判下载失败；
- *   - 判重必须 `metaReady`（有歌名、无 p、有 q/y/b 之一）。缺元数据的旧行先就地补，
- *     **不重新拉音频**；只有「只有 p、没有档位/码率」这种证据不足的行才重下一次；
- *   - 退出：`stopForExit` 取消队列 + pkill 活跃 curl，`.part` 与 `dl_pending` 保留；
- *     下次启动 `reconcileDownloads` 把已下满的残片转正、补元数据，再续传 `dl_pending`。
- *
- * 对外接口：
- *   - resolveUrl(id)      直链解析（**按设置音质档位**逐级回退，走 v1 接口的 level 参数，见 quality.js）
- *   - cachedPath(id)      任意本地命中（下载优先，其次播放缓存；.flac/.mp3 都探，存在且 >30KB）
- *   - dlPath(id)          只探「下载目录」（「已下载」判定 / 升质比较用）
- *   - ensureCached(song)  播放通道：确保本地有完整文件（没有就缓存到 cache/）；单并发、最新请求优先
- *   - downloadSongs(ss)   用户通道：批量下载 → {total, ok, failed, skipped, cancelled, error}
- *   - estimateBytes(ss)   粗估一批歌按当前下载档的体积（列表页空间预检用）
- *   - deleteCached(id)    删单条**下载**（整个 `downloads/<id>/` 目录 + 归属/本地库挂点）
- *   - cancelDownload()    取消批量下载（当前片下完即停，.part 保留可续传）
+ * 两条通道，同一套「每 track 一个目录」布局（见 docs/存储重构.md §2）：
+ *   - **play 通道**（ensureCached）：播放要用的缓存，落 `data/cache/<id>/`、按**播放音质**、
+ *     受「缓存上限」LRU 滚动、**不出现在本地下载**；最新请求优先（新请求作废旧的等者）。
+ *   - **batch 通道**（downloadSongs）：用户主动下载，落 `data/downloads/<id>/`、按**下载音质**、
+ *     永久保留、计入本地下载；FIFO 不淘汰、重试不丢。
+ *   整体单并发（不跟流播抢带宽），播放通道优先调度；播放请求可以**提权**批量项，但只改调度
+ *   通道、不改队列项的 kind —— 用户点下的下载不会因被提权就变成缓存。
+ *   元数据与歌词在状态库 `track_meta` / `track_lyric`（services/player/media.js 统一读写）。
  */
 import { fetchToFile, promotePart, transportMode, stopFetching, resetFetching, killPartFetch } from './fetcher.js'
 import {
-  musicDir,
   putMeta, warmMeta, dropMeta, beginMeta,
   putPlayMeta, warmPlayMeta, dropPlayMeta, beginPlayMeta,
   touchPlayMeta, enforceCacheLimit
@@ -60,13 +23,13 @@ import { markUser, markPlaylist, markSkippedExisting, clearOrigin } from './dlor
 import { log } from '../../core/infra/log.js'
 import { raceTimeout, sleep } from '../../core/infra/util.js'
 import { fileSize, fileExists, readNames, readText, rmQuiet } from '../../core/platform/fsutil.js'
-import { trackDir } from '../../core/infra/paths.js'
+import { trackDir, toKind } from '../../core/infra/paths.js'
 import { getStorage, setStorage, removeStorage, KEY_DL_PENDING } from '../../core/infra/store.js'
 import { isOffline } from '../../core/infra/net/status.js'
-import { listTracks } from './media.js'
+import { listTracks, MIN_AUDIO_BYTES } from './media.js'
 import { resolveUrl } from './source.js'
 import {
-  altPath, purgeInDir, songPath, prepareTrackDir, cachedPath, dlPath, playCachePath
+  altPath, purgeTrack, songPath, prepareTrackDir, cachedPath, dlPath, playCachePath
 } from './files.js'
 import { addProgressHook } from './progress.js'
 import * as sched from './scheduler.js'
@@ -154,16 +117,6 @@ function metaSatisfies(meta, key) {
   if (b >= 320000) return target <= qualityRank('exhigh')
   if (b >= 192000) return target <= qualityRank('higher')
   return target <= qualityRank('standard')
-}
-
-/**
- * 某首歌是否已**下载**（播放器页「下载」键显示完成图标用）：下载目录有文件 + 档位达标。
- * ⚠ 只有播放缓存（cache/）不算已下载 —— 那是「听过」，不是「下过」。
- */
-export async function isDownloaded(songId) {
-  const hit = await dlPath(songId)
-  if (!hit) return false
-  return metaSatisfies(await warmMeta(songId), currentQuality('down'))
 }
 
 /**
@@ -320,9 +273,9 @@ function metaNeedsRetry(m) {
   return m.f !== 1
 }
 
-/** 两条通道的元数据入口（写 / 读 / 下载开始标记） */
+/** 两条通道的元数据入口（写 / 读 / 下载开始标记）；kind 归一走 paths.toKind */
 function storeOf(kd) {
-  return kd === 'download'
+  return toKind(kd) === 'download'
     ? { put: putMeta, of: warmMeta, begin: beginMeta }
     : { put: putPlayMeta, of: warmPlayMeta, begin: beginPlayMeta }
 }
@@ -338,7 +291,7 @@ function storeOf(kd) {
  * 成功返回修复后的记录；失败返回 null（启动对账/下次下载再试）。
  */
 async function repairMeta(song, hitPath, meta, kind) {
-  const kd = kind === 'cache' ? 'cache' : 'download'
+  const kd = toKind(kind)
   if (metaReady(meta)) return meta
   if (!song || !song.id) return null
   const store = storeOf(kd)
@@ -370,7 +323,7 @@ async function finishCompletePart(song, kd, qk, prev) {
     const ext = i === 0 ? 'mp3' : 'flac'
     const part = songPath(song.id, ext, kd) + '.part'
     const size = await fileSize(part)
-    if (!(size > 30000)) continue
+    if (!(size > MIN_AUDIO_BYTES)) continue
     const rc = String(await readText(part + '.rc')).trim()
     if (!(rc === '0' || (z > 0 && size >= z * 0.99))) continue
     const finalPath = songPath(song.id, ext, kd)
@@ -714,7 +667,7 @@ async function finalizeOne(id, kd) {
 
 async function downloadOne(song, info, opts, qk, kind) {
   const id = String(song.id)
-  const kd = kind === 'download' ? 'download' : 'cache'
+  const kd = toKind(kind)
   const store = storeOf(kd)
   const t0 = Date.now()
   const since = function () {
@@ -825,7 +778,7 @@ async function downloadOne(song, info, opts, qk, kind) {
   log('dl', '拉取结束 ' + id + ' ok=' + !!(r && r.ok) + ' size=' + size + '（' + since() + 'ms）' +
     (r && r.error ? ' err=' + r.error : ''))
   const want = meta.size || 0
-  if (!r.ok || !size || size < 30000 || (want > 0 && size < want * 0.9)) {
+  if (!r.ok || !size || size < MIN_AUDIO_BYTES || (want > 0 && size < want * 0.9)) {
     if (mode !== 'curl') await rmQuiet(finalPath) // 回退通道不留半截
     return {
       ok: false,
@@ -958,9 +911,9 @@ export function ensureCached(song, info, opts) {
  */
 export async function deleteCached(songId) {
   const id = String(songId)
-  const r = await purgeInDir(musicDir(), id)
+  const r = await purgeTrack(id, 'download')
   // 目录还在 = 目录删除失败（残片/封面等删掉了也不算成功）→ 不动元数据，按失败返回
-  const gone = !(await fileExists(musicDir() + '/' + id))
+  const gone = !(await fileExists(trackDir(id, 'download')))
   if (!gone) {
     log('dl', '删除下载 ' + id + ' 失败：目录仍存在（rm 失败），保留元数据')
     return { ok: false, files: r.files, bytes: 0 }

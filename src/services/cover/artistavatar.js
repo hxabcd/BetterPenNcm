@@ -14,15 +14,15 @@
  *     解析一次真头像，离线则只用已缓存的图。
  */
 import { fetchArtistHead } from '../../services/ncm/api.js'
-import { ensureCover, cachedCover, cachedCoverOnDisk, dropCover } from './cover.js'
+import { ensureCover, cachedCover, cachedCoverOnDisk, dropCover, BIG_COVER, coverKey } from './cover.js'
 import { loadArtistMeta, artistMetaSync, rememberArtist, normalizePic } from './artistmeta.js'
 import { isOffline } from '../../core/infra/net/status.js'
 import { log } from '../../core/infra/log.js'
 
 /** 列表行头像盒 26vh ≈ 62px，60 已点对点够用 */
 export const PORTRAIT_SIZE = 60
-/** 歌手详情大头像（与 cover.js 的 BIG_COVER 同值） */
-export const PORTRAIT_BIG = 200
+/** 歌手详情大头像 = 大封面同一档尺寸（唯一定义在 cover.js 的 BIG_COVER） */
+export const PORTRAIT_BIG = BIG_COVER
 
 const PREFETCH_MAX = 64
 const NEG_TTL = 7 * 24 * 3600 * 1000
@@ -33,9 +33,9 @@ const headQueue = []
 let headActive = 0
 let prefetchChain = Promise.resolve()
 
-/** 真头像的封面缓存键；兜底图请用 al<albumId> */
+/** 真头像的封面缓存键；兜底图请用 coverKey('album', albumId) */
 export function portraitId(artistId) {
-  return 'arp' + artistId
+  return coverKey('artist', artistId)
 }
 
 /**

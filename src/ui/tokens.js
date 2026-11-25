@@ -1,24 +1,14 @@
 /**
- * 设计令牌的**唯一来源**（静态部分）。
+ * 设计令牌的**唯一来源**（静态部分：色板 / 字号阶梯 / 结构尺寸）。
  *
- * 分工（三条，别越界）：
- *   1. **共享的静态值 → 本文件**（色板 / 字号阶梯 / 结构尺寸）。改共享值 = 改这里一行；
- *      仅单页使用的一次性尺寸可以直接写在组件里。
- *   2. `styles/common.less` 的令牌段**由 `scripts/gen_tokens.py` 从本文件生成/校验**
- *      （`python scripts/gen_tokens.py --check` 校验、`--write` 重生成）—— 手改 LESS 会被校验拦下。
- *   3. **运行时可换的值**（背景色 bg、主题色 accent 系）仍在 `utils/theme.js`（PRESETS/ACCENTS），
- *      消费方式是内联 `:style`；本文件**不含**它们（LESS 里那三个书面值 @accent/@accent-soft/@accent-2
- *      是手写段，生成器不管，保留原「书面默认值」语义）。
+ * `styles/common.less` 的令牌段由 `scripts/gen_tokens.py` 从本文件生成/校验
+ * （`--check` 校验、`--write` 重生成）—— 手改 LESS 会被校验拦下。
+ * **运行时可换的值**（背景色 bg、主题色 accent 系）在 `ui/theme.js`（PRESETS/ACCENTS），
+ * 消费方式是内联 `:style`，本文件不含它们 —— LESS 里 @accent/@accent-soft/@accent-2 那三个
+ * 书面值是手写段，生成器不管。
  *
- * 消费方式：
- *   - JS：`import { TOK } from '../../ui/tokens.js'` → `{ backgroundColor: TOK.panel2 }`
- *   - 模板：需要时按老规矩把 TOK 放进 data（同 `ICON: ICON` 的做法；平台模板不解析模块作用域）
- *   - LESS：直接用生成段里的 `@panel-2` 等
- *   - **不要再写这些共享值的字面量**：theme_verify.py 第五道在 `src/{pages,components,styles}` 内按 TOK 的颜色值巡检（白名单：本文件、
- *     `styles/common.less` 整文件、gen_tokens.py）。
- *
- * 新增一个 token 的步骤：① 本表加一行（值 + DESC 说明）② 如需 LESS 侧就用，LESS_NAME 里登记名
- * ③ 跑 `python scripts/gen_tokens.py --write`。
+ * **不要再写这些共享值的字面量**：theme_verify.py 第五道在 `src/{pages,components,styles}` 内
+ * 按 TOK 的颜色值巡检（白名单：本文件、`styles/common.less` 整文件、gen_tokens.py）。
  */
 
 /** 值表（键 → 值）。camelCase 键；LESS 侧名见 LESS_NAME */

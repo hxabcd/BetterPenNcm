@@ -89,7 +89,7 @@ export default {
   },
   mounted() {
     this.sync()
-    // 登录完成 → 重读登录态（注册/退役见 utils/ui/pagebus.js）
+    // 登录完成 → 重读登录态（注册/退役见 ui/mixins/pagebus.js）
     this.onPageEvent('bpncm:login-done', 'sync')
   },
   methods: {

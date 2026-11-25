@@ -47,6 +47,7 @@ import EmptyHint from '../../components/EmptyHint.vue'
 import ContextSheet from '../../components/ContextSheet.vue'
 import { railBack, railBtn, ICON } from '../../ui/rail.js'
 import { go } from '../../core/infra/nav.js'
+import { cmpText } from '../../core/infra/format.js'
 import { localAlbumList } from '../../services/player/localmeta.js'
 import { log } from '../../core/infra/log.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
@@ -65,27 +66,11 @@ const SORTS = [
 const PAGE = PAGE_CARD // 一次最多 40 张卡（4 列 10 行 / 2 列 20 行，均在 ≤50 行内）
 
 /**
- * 默认列数按屏幕逻辑宽度选：S7 是 1020 → 4 列；
- * 更窄的设备用 3/2 列，避免 4 列卡被固定 30vh 封面挤得只剩歌名。
- * `$falcon.env.screenWidth` 是 PenMusic 实证可用的运行时字段（屏宽 px）；
- * 取不到时保持 4 列（S7 默认）。
- */
-/**
  * 默认列数：按**内容区宽度**自动选（S7 1020 宽 → 4 列；X3S/X5 800 宽 → 3 列）。
  * 不再读 `env.screenWidth` —— 那个字段在 X3S 上根本不存在（只有 deviceWidth）。
  */
 function defaultCols() {
   return fitColumns(76, 5, 7, 4).cols
-}
-
-function cmpName(a, b) {
-  const x = String(a || '')
-  const y = String(b || '')
-  try {
-    return x.localeCompare(y)
-  } catch (e) {
-    return x < y ? -1 : x > y ? 1 : 0
-  }
 }
 
 export default {
@@ -119,7 +104,7 @@ export default {
       out.sort(function (a, b) {
         if (k === 'count') return dir * ((a.count || 0) - (b.count || 0))
         if (k === 'year') return dir * ((a.publishTime || 0) - (b.publishTime || 0))
-        return dir * cmpName(a.name, b.name)
+        return dir * cmpText(a.name, b.name)
       })
       return out
     },

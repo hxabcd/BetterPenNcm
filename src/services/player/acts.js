@@ -17,7 +17,7 @@ import { player } from '../../services/player/player.js'
  * 单首时把曲名带过去当副题；多首只报数量（副题由选择页按 pickIds 自己算）。
  * 返回实际带过去的曲目数（0 = 没有可加的曲目，页面据此提示）。
  *
- * 选择态 = `playlists` 的第二层实例：由 utils/nav.js 分配一个当前不在栈里的槽位 key 再 navTo，
+ * 选择态 = `playlists` 的第二层实例：由 core/infra/nav.js 分配一个当前不在栈里的槽位 key 再 navTo，
  * 平台必然新建实例（不弹掉调用页，也不复用栈里的浏览态）；返回用 $page.finish() 回到触发页。
  * 页面代码只传逻辑页名，不直接调平台 navTo。
  */

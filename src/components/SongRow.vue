@@ -34,39 +34,31 @@
 </template>
 
 <script>
-import { fmtDur, fmtSize } from '../core/infra/format.js'
+import { aliasSuffix, fmtDur, fmtSize, isVipFee } from '../core/infra/format.js'
 import { ensureCover } from '../services/cover/cover.js'
 import { ICON } from '../assets/icons.js'
 import { accentMixin } from '../ui/mixins/accent.js'
+import { HOLD_SWALLOW_MS } from '../ui/mixins/arm.js'
 import { TOK } from '../ui/tokens.js'
 
 /**
  * 歌曲行：封面（含无封面占位）/ 歌名(+别名+VIP) / 歌手 / [档位·体积] / 时长
  *   `showQuality` 打开时多一列「档位 · 体积」，本地下载页用它。
- *   queue 页的行仍是自绘：它是「序号列 + 当前播放高亮 + 点击跳播」的另一种行形态，
- *   行度量与本组件对齐（勾选圈 9vh、选中底 a12）。
+ *   queue 页的行仍是自绘（序号列 + 当前播放高亮 + 点击跳播），行度量与本组件对齐。
  *
- * 封面由行组件自己在 mounted 时按需取（cover.js 异步队列）——回调里给组件
- * 自己的 localCover 赋值（普通属性 = 必然响应式），绕开页面级动态 key 的问题；
+ * 封面由行组件自己在 mounted 时按需取（cover.js 异步队列）——回调里给组件自己的
+ * localCover 赋值（普通属性 = 必然响应式），绕开页面级动态 key 的问题；
  * cover url 可能后补（下载页补元数据时）→ watch 兜底，`_coverSrc` 判重。
  *
- * selectable/sel：曲目列表页「多选」模式的多选（点整行 = 勾选/取消，由页面在 @select
- * 里分派）。props 名与社区应用 PenMusic 的同名行组件一致；album/artist 页不传 → 默认
- * false，行为与外观零变化。
- *
- * 事件：@select（点整行）、@hold（长按整行）。
+ * 事件：@select（点整行）、@hold（长按整行 → 歌曲详情页 songinfo，与播放页点歌名等效）。
  *   - @hold = **原生 `@longpress`（按住 500ms 派发）+ $emit('hold')**。事件名避开
  *     `tap`/`longpress`/`swipe` 这类手势名：预编译器（falcon-vue-precompiler 的
  *     bindEvents）会给绑了手势事件的节点无条件写 `data-evt-<名>` 属性，自定义组件上就多出
  *     一条「原生手势 + 组件 $emit」双通道，可能一次触发两次（见 PageTopbar.vue 注释）。
- *   - ：**长按整行 → 歌曲详情页（songinfo）**，与播放页点歌名等效。这改掉了
- *     「按住一会儿再松手仍会起播」的旧行为 —— greenui 的长按触发后不再走 click；
- *     list/album/artist/downloads 四处语义一致（下载页 起对齐）。
- *   - `HOLD_SWALLOW_MS`：设备端 native 长按实现未必逐字节同 web 版渲染器，真发了 click
- *     就会「打开详情页」+「顺手起播/勾选」双动作 —— 长按后这段窗口内的 click 一律吞掉
- *     （同播放页 toggleLike 的防御写法）。正常情况（互斥）这段永不生效。
+ *   - 长按进详情页这改掉了「按住一会儿再松手仍会起播」的旧行为 —— greenui 的长按触发后
+ *     不再走 click；list/album/artist/downloads 四处语义一致（下载页同样对齐）。
+ *   - 长按余波按 `ui/mixins/arm.js` 的 `HOLD_SWALLOW_MS` 吞掉（与播放页收藏同一口径）。
  */
-const HOLD_SWALLOW_MS = 3000 // 长按后吞掉 click 的窗口（防御性，见上方注释）
 export default {
   name: 'SongRow',
   mixins: [accentMixin],
@@ -140,13 +132,12 @@ export default {
       return q + ' · ' + fmtSize(s.size)
     },
     isVip() {
-      return this.song.fee === 1 || this.song.fee === 4
+      return isVipFee(this.song.fee)
     },
-    /** 别名显示为灰色括号，多个用 / 连接（格式对齐 MusicVault：tns+alia 拆分去重后的列表） */
+    /** 别名显示为灰色括号（前导空格是行内排版，不并进 aliasSuffix） */
     aliasText() {
-      const a = this.song.aliases
-      if (!a || !a.length) return ''
-      return ' (' + a.join('/') + ')'
+      const t = aliasSuffix(this.song.aliases)
+      return t ? ' ' + t : ''
     }
   },
   watch: {

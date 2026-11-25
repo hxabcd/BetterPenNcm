@@ -17,7 +17,7 @@
  *   本函数按「最可能绝对」排序优先返回 pageY，所以调用方拿到的是**节点相对**值。
  *   → 「点哪跳哪」要用节点相对值算（PenMusic 的 ProgressBar 之所以能减常量是因为它的
  *     监听节点左边缘就在 x=0，横向两者恰好相等；竖向它没做绝对定位所以没暴露）。
- *   本项目用例：LyricPanel 的双击跳行直接用 pageY 减去自己的轨道位移即可，**不要再减面板顶边**。
+ *   本项目用例：LyricBoard 的双击跳行直接用 pageY 减去自己的轨道位移即可，**不要再减面板顶边**。
  */
 
 const AXIS_KEYS = {
@@ -74,9 +74,4 @@ export function touchAxis(event, axis) {
     if (isFinite(n)) return n
   }
   return fromTouch(event, axis)
-}
-
-/** 便捷：{x, y}，取不到的分量为 NaN */
-export function touchPoint(event) {
-  return { x: touchAxis(event, 'x'), y: touchAxis(event, 'y') }
 }

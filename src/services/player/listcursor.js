@@ -16,21 +16,11 @@
  */
 import { KINDS, PAGE, appendUnique } from './listkinds.js'
 import { fetchArtistSongs } from '../ncm/api.js'
-import { fetchTracksMore } from '../ncm/playlist.js'
+import { fetchTracksMore, TRACKS_CHUNK } from '../ncm/playlist.js'
 import { markUnliked } from '../ncm/like.js'
 import { log } from '../../core/infra/log.js'
+import { cmpText } from '../../core/infra/format.js'
 import { remove as histRemove } from './history.js'
-
-/** 名称比较：优先 localeCompare（快速 JS 引擎里退化为码位序，中文不是拼音序，够用），异常时退回手写比较 */
-function cmpName(a, b) {
-  const x = String(a || '')
-  const y = String(b || '')
-  try {
-    return x.localeCompare(y)
-  } catch (e) {
-    return x < y ? -1 : x > y ? 1 : 0
-  }
-}
 
 /**
  * 本地排序（artistsongs 是服务端排序、原样透出）。
@@ -43,8 +33,8 @@ export function sorted(vm, arr) {
   const out = arr.slice()
   const dir = vm.sortAsc ? 1 : -1
   out.sort(function (a, b) {
-    if (k === 'name') return dir * cmpName(a.name, b.name)
-    if (k === 'artist') return dir * cmpName(a.artist, b.artist)
+    if (k === 'name') return dir * cmpText(a.name, b.name)
+    if (k === 'artist') return dir * cmpText(a.artist, b.artist)
     if (k === 'at') return dir * ((a.at || 0) - (b.at || 0))
     return 0
   })
@@ -85,7 +75,7 @@ export async function loadAllSongs(vm, token) {
   let out = []
   let off = 0
   while (off < ids.length) {
-    const batch = ids.slice(off, off + 300)
+    const batch = ids.slice(off, off + TRACKS_CHUNK)
     off += batch.length
     const more = await fetchTracksMore(batch)
     if (vm._dead || want !== vm._loadToken) return out

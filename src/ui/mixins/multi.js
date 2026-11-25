@@ -1,17 +1,12 @@
 /**
- * 多选模式状态机 —— 全工程唯一实现。
+ * 多选模式状态机 —— 全工程唯一实现（通常与 armMixin 一起用）。
  *
- * 用法：
- *   mixins: [multiSelectMixin]              // 通常与 armMixin 一起用
- *   multiList()  { return this.songs }      // **页面必须提供**：多选的「整单」范围
- *   multiTotal() { return this.totalCount } // 可选：顶栏计数口径（缺省 = multiList().length）
- *   onMultiEnter() / onMultiExit()          // 可选钩子：页面特有的进入/退出副作用
+ * 页面必须提供 multiList()（多选的「整单」范围），可选 multiTotal() 覆写顶栏计数口径、
+ * onMultiEnter() / onMultiExit() 挂钩子。页面侧保留：rail 槽位怎么给、row 怎么分派、
+ * 动作本身（删除/下载）。顶栏文案句式由 multiBarSub 统一给。
  *
- * 页面侧保留的职责（不进本模块）：rail 槽位怎么给、row 怎么分派、动作本身（删除/下载）。
- * 顶栏文案由 multiBarSub 统一给句式；armed 待确认提示优先于它（各页 barSub 自己排）。
- *
- * 与 armMixin 的耦合：选择变化 / 进入 / 退出多选时自动 disarm()（有则调）——
- * 「选择变了，二次确认作废」这条语义从此不用在五个页面里各写一遍。
+ * 与 armMixin 的耦合：选择变化 / 进入 / 退出多选时自动 disarm() —— 「选择变了，二次确认
+ * 作废」这条语义不用在五个页面里各写一遍。
  */
 import { selHas, selToggle, selAllPicked, selAllIds } from '../../ui/dlselect.js'
 
@@ -23,9 +18,9 @@ export const multiSelectMixin = {
     }
   },
   computed: {
-    /** 是否已全选（范围 = multiList()，与 toggleAll 同口径） */
+    /** 是否已全选（范围 = multiList()，与 toggleAll 同口径；公式在 ui/dlselect.js） */
     allPicked() {
-      return selAllPicked(this.selIds, this.multiList())
+      return selAllPicked(this.selIds, this.multiList().length)
     },
     /** 多选态顶栏副题（统一句式）；非多选态返回空串，由页面自己的 sub 接管 */
     multiBarSub() {

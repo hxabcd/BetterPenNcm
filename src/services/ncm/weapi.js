@@ -61,5 +61,3 @@ export async function weapiPost(path, payload, opts) {
   }
   return { status: r.status, json: json, body: r.body, headers: r.headers, encMs: encMs }
 }
-
-export const WEAPI_BASE = BASE

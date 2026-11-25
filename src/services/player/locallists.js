@@ -1,58 +1,23 @@
 /**
- * 本地歌单索引 —— 把「已添加到本地索引」的歌单及其远端/本地快照落 SQLite 索引库。
+ * 本地歌单索引 —— 已加入索引的歌单记录与快照。
  *
- * 落点：`local_index.db` 的 `playlist` + `playlist_track` 两张表（结构见 docs/存储重构.md §1.3）。
- * 旧实现是 `store/local_playlists.json` 整表 63KB、写一次重写整份；现在是单条 upsert，
- * 写代价与库规模无关（读写模型见 utils/db.js）。
+ * 存储：`local_index.db` 的 `playlist` + `playlist_track`（结构见 docs/存储重构.md §1.3）。
+ * 记录形状：{id, name, cover, creator, trackCount, updateTime, baseIds, remoteIds,
+ *   lastPullAt, addedAt, lastSyncAt, meta:{id:{n,a,al,c,d,fee}}}；`addedAt`/`updateTime`/
+ * `lastSyncAt`/`meta` 在库里没有列，只活在内存里（重启后 addedAt 按 pulled_at 回填）。
  *
- * 数据模型（对外记录形状不变，页面/调用点无需改）：
- *   {
- *     id, name, cover, creator, trackCount, updateTime,
- *     baseIds:   [曲目 id],   // 曾见过的远端曲目集合（含旧快照；D 判定用）
- *     remoteIds: [曲目 id],   // 最近一次拉取的远端快照
- *     lastPullAt, addedAt, lastSyncAt,
- *     meta: { "<id>": {n,a,al,c,d,fee} }  // 仅给「远端有、本地还没下」的 A 条目做显示/下载用
- *   }
- *
- * 列映射与取舍（playlist 表只有契约里的八列）：
- *   - `base_ids` / `remote_ids` 列存 JSON 数组文本，与旧记录字段一一对应；
- *   - `lastPullAt` → `pulled_at`，`trackCount` → `track_cnt`；
- *   - `addedAt` 没有列：**重启后按 `pulled_at` 回填**（仍是「越新越前」，只是拉取也会刷新它）；
- *   - `updateTime` / `lastSyncAt` / `meta` 没有列：只在内存里存活。
- *     `meta` 丢了不阻断任何流程 —— 拉取/打开歌单视图时在线会自动补齐（见 fetchMeta），
- *     只有「离线 + 重启后第一次看 A 行」会显示占位名 `歌曲 <id>`。
- *   - `playlist_track` 是「本歌单引用的曲目」的关系视图（base ∪ remote，ord = 并集里的位置），
- *     每次写 playlist 行时一并重建，供迁移/脚本按关系查询。
- *
- * 拉取 / 同步（对齐 git fetch / pull）：
- *   - **A / D 一律相对本地文件计算，不相对 baseIds**：
- *       A（新增）= remoteIds − 本地已下载；D（移除）= baseIds − remoteIds，且本地有文件。
- *     所以「加入索引前歌单里就已有、但一直没下载」的曲目，打开本地歌单列表立刻就是 A，
- *     不需要等远端再次变动。
- *   - 拉取（pullList）：只更新 remoteIds + 歌单元信息 + lastPullAt，并为 A 补元数据；
- *       不下载、不删文件。旧的 remoteIds 并入 baseIds，保证「曾进过歌单、本地有文件」的曲目
- *       在远端移除后还能判成 D。
- *   - 同步（syncList）：先拉取，再下载**所有 A**（远端有、本地没有），把 D 从 baseIds 移除
- *       （**不删文件**，策略 A）。成功后 baseIds = 当前远端快照；失败的 A 保持 A，下次重试。
- *   - 「下载全部」（downloadAll）：拉取后把整张远端曲目下载下来；已索引时 baseIds = 当前远端快照；
- *       **未索引**时按用户单曲下载（origin=manual），不会制造「没有索引却有遗留」。
+ * **A / D 一律相对本地文件计算，不相对 baseIds**（对外口径）：
+ *   A（新增）= remoteIds − 本地已下载；D（移除）= baseIds − remoteIds，且本地有文件。
+ *   所以「加入索引前歌单里就已有、但一直没下载」的曲目，打开本地歌单列表立刻就是 A。
+ *   拉取（pullList）只更新 remoteIds + 歌单元信息 + lastPullAt，旧 remoteIds 并入 baseIds；
+ *   同步（syncList）= 拉取 + 下载所有 A + 把 D 从 baseIds 移除（**不删文件**，策略 A）；
+ *   失败的 A 保持 A，下次重试。「下载全部」对**未索引**歌单按用户单曲下载（origin=manual）。
  *
  * 分类不在这里维护孤儿表：由 dlorigin.js 的归属标记 + 本模块的「是否被任一索引歌单引用」
- * 动态派生（见 classifyWithRefs / splitDownloads）：
- *   - referenced → 歌单内
- *   - !referenced && playlistOwned → 遗留歌曲
- *   - !referenced && (userOwned/无标记) → 单曲下载
- * 因此移出索引只删记录，不碰文件；重新加回索引/被其它歌单引用时自动回到歌单视图。
- *
- * 接口边界：
- *   - A/D 需要「本地已下载」这份事实。页面已经把 `listSongs()` 结果传进来时直接复用
- *     （playlistView / listSummary / syncList 的 localIds 参数）；没传时本模块才自己扫一次。
- *     `pullAll` 会把本地集合扫一次后复用给所有歌单，避免 N 次 exec。这是刻意例外：
- *     否则「从未下载过的远端曲目」永远无法成为 A。
- *   - 下载动作统一走 download.js 的 downloadSongs，归属标记由它写 dlorigin。
+ * 动态派生（classifyWithRefs / splitDownloads），所以移出索引只删记录、不碰文件。
  */
 import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, deleteSql, num } from '../../core/platform/db.js'
-import { fetchPlaylistInfo, fetchPlaylistAllSongs, fetchTracksMore } from '../ncm/playlist.js'
+import { fetchPlaylistInfo, fetchPlaylistAllSongs, fetchTracksMore, TRACKS_CHUNK } from '../ncm/playlist.js'
 import { downloadSongs, deleteCached } from './download.js'
 import { listSongs } from './cache.js'
 import { isOffline } from '../../core/infra/net/status.js'
@@ -263,11 +228,6 @@ export async function allLists() {
   return out
 }
 
-/** 同步取一条（须先 await loadLists()） */
-export function listOf(pid) {
-  return (mem && mem[String(pid)]) || null
-}
-
 export async function isIndexed(pid) {
   await load()
   return !!(mem && mem[String(pid)])
@@ -471,8 +431,8 @@ async function fetchMeta(ids) {
   if (!list.length) return out
   try {
     let got = 0
-    for (let off = 0; off < list.length; off += 300) {
-      const batch = list.slice(off, off + 300)
+    for (let off = 0; off < list.length; off += TRACKS_CHUNK) {
+      const batch = list.slice(off, off + TRACKS_CHUNK)
       const songs = await fetchTracksMore(batch)
       for (let i = 0; i < songs.length; i++) {
         const s = songs[i]

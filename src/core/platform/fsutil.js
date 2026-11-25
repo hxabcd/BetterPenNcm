@@ -6,7 +6,7 @@
  *   - **只做原生调用**：`fs` 的 exists / stat / statfs / readdir / readFile / mkdir / rm
  *     都是 native（微秒级、不分叉）。建目录与递归删除都走 `mkdir` / `rm`，不再 fork shell。
  *   - 平台 `fs` **没有写入接口**（`writeFile` / `rename` / `unlink` 是 undefined），
- *     所以**这里没有写函数**：文本一律进 SQLite（`utils/db.js` 的 kv / track_meta /
+ *     所以**这里没有写函数**：文本一律进 SQLite（`core/platform/db.js` 的 kv / track_meta /
  *     track_lyric）。历史上的 `printf > tmp && mv -f` 通道已删除 —— 它每次写都是一次
  *     `process.exec`（真机 92~139ms），134KB 的播放快照分片写实测 2511ms。
  */

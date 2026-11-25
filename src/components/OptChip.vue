@@ -8,7 +8,7 @@
 /**
  * 选项胶囊 —— 设置族三页（playeropts / setdl / setlook）共用。
  *
- * 选中态配色全走主题色（内联 style —— 平台只认单类名、且主题色运行时可换，见 utils/theme.js）。
+ * 选中态配色全走主题色（内联 style —— 平台只认单类名、且主题色运行时可换，见 ui/theme.js）。
  *
  * 用法：<opt-chip text="开" :on="x" @pick="fn" />
  * ⚠ 事件名用 `pick` 不用 `tap`：预编译器会给绑了手势名的节点再挂一条原生手势通道，

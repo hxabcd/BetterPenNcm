@@ -11,8 +11,6 @@
 import { currentAccent, currentBg, THEME_EVENT } from '../theme.js'
 import { fgIcon as pickFgIcon } from '../../assets/icons.js'
 
-/** 广播主题变化后组件侧的刷新动作（bindTheme 的 apply）保持在本文件内聚 */
-
 /**
  * 组件挂载时调用：订阅 + 立即取当前色（bg 与 accent 一起下发）。返回的 handler 交给 unbindTheme。
  */

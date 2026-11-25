@@ -1,6 +1,6 @@
 <template>
   <page-shell :rail="rail" @rail="onRail">
-    <!-- 顶栏：logo + 构建号 + 状态（底色跟随主题，见 utils/theme.js） -->
+    <!-- 顶栏：logo + 构建号 + 状态（底色跟随主题，见 ui/theme.js） -->
     <div class="idx-bar" :style="bgStyle">
       <text class="idx-logo" :style="{ color: accent.c }">BetterPenNcm</text>
       <text class="idx-ver">{{ buildTag }}</text>
@@ -105,7 +105,7 @@ import { player } from '../../services/player/player.js';
 import { countToday as histToday, isLoaded as histLoaded } from '../../services/player/history.js';
 import { bindDl } from '../../ui/mixins/dlsub.js';
 import { stats } from '../../services/player/cache.js';
-import { dlSig, dlApi, stopForExit, resetExit } from '../../services/player/download.js';
+import { dlSig, dlApi, stopForExit, resetExit, dlText as dlBarText } from '../../services/player/download.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { ensureCover, BIG_COVER } from '../../services/cover/cover.js';
 import { coverPair, glowGradient } from '../../services/cover/color.js';
@@ -204,7 +204,7 @@ export default {
     },
     /**
      * 「正在播放」卡上的**静态柔光渐变**（加，换形状）：
-     * 渐变的形状/方向是写死的（utils/coverColor.js 的 GLOW_DEG / GLOW_STOPS，
+     * 渐变的形状/方向是写死的（services/cover/color.js 的 GLOW_DEG / GLOW_STOPS，
      * 现在 = **左上角 → 右下角的对角双色渐变**），**只有颜色随封面走** ——
      * 播放中取封面主色（+ 次色，单色系封面就只用主色），
      * 未播放 / 取不到封面 / 平台不支持时回落当前主题色。
@@ -289,16 +289,13 @@ export default {
     },
     /**
      * 本地下载卡副行（**只显示曲目数量**，体积不再上屏）：
-     * '—'（未加载）→「N 首」→「暂无下载」；下载中优先显示进度「下载中 k/N」。
+     * 下载中交给 download.js 的 dlText（算式只有那一份），否则 '—' /「N 首」/「暂无下载」。
+     * 卡片定宽 169px，去掉尾部的 ` · NN%` 才不折行；进度百分比在下载页看。
      * ⚠ 体积（dlBytes / fmtSize）仍要拉：下载页顶栏与日志用得上，只是这张卡不再显示。
      */
     dlText() {
-      const d = this.dl;
-      if (d && d.active) {
-        if (d.stopping) return "正在停止下载…";
-        const k = d.done + d.failed + (d.cancelled || 0);
-        return "下载中 " + (k < d.total ? k + 1 : k) + "/" + d.total;
-      }
+      const dl = dlBarText(this.dl);
+      if (dl) return dl.replace(/\s·\s\d+%$/, "");
       if (!this.dlLoaded) return "—";
       if (!this.dlCount) return "暂无下载";
       return this.dlCount + " 首";
@@ -307,7 +304,7 @@ export default {
   mounted() {
     const self = this;
     this._dead = false;
-    live = this; // 启动链回调的落点（一次性 Promise，不是订阅 —— 见 utils/ui/pagebus.js 的边界说明）
+    live = this; // 启动链回调的落点（一次性 Promise，不是订阅 —— 见 ui/mixins/pagebus.js 的边界说明）
     // 柔光开关（设置 → 个性化）。这里 config 可能还没 load（boot 在下面才跑），
     // 未 load 时 get 返回 undefined → `!== false` 判为开，与 DEFAULTS 一致，不会闪错。
     this.glowOn = config.get("glowOn") !== false;
@@ -361,7 +358,7 @@ export default {
         live.loadRecommend();
       });
     }
-    // ---- 跨页事件（注册/退役见 utils/ui/pagebus.js；由页面栈上层存活实例处理）----
+    // ---- 跨页事件（注册/退役见 ui/mixins/pagebus.js；由页面栈上层存活实例处理）----
     this.onPageEvent("bpncm:login-done", "onLoginDone");
     this.onPageEvent("bpncm:playlist-changed", "onPlaylistChanged");
     this.onPageEvent("bpncm:playhist", "onPlayhist");
@@ -395,7 +392,7 @@ export default {
     onPlaylistChanged(evt) {
       // 歌单详情页删/收藏了歌单 → 「我的歌单」卡的计数要跟着变（否则一直是旧数字）。
       // 改名不影响卡片上的计数（首页卡片只显示总数「N 个歌单」），不为它重拉整份歌单列表。
-      // 负载被框架套了一层壳（{type,timestamp,data}），必须解包 —— 见 utils/events.js
+      // 负载被框架套了一层壳（{type,timestamp,data}），必须解包 —— 见 core/infra/events.js
       const d = evtJson(evt) || {};
       if (d.op !== "rename") this.loadPlaylists(true);
     },
@@ -529,7 +526,7 @@ export default {
 
     /* ---- 每日推荐（卡片只需「有几首」；列表页才要曲目本体） ---- */
     /**
-     * 取当日推荐数。命中当日缓存（模块级，见 utils/ncm/recommend.js）就是零成本，
+     * 取当日推荐数。命中当日缓存（模块级，见 services/ncm/recommend.js）就是零成本，
      * 所以 mounted / onShow / 登录成功三处都敢直接调。
      * force=true（刚登录 / 换账号）强制重取 —— 缓存不区分账号，退出登录时已作废，这里双保险。
      */
@@ -719,7 +716,7 @@ export default {
   flex: none;
   flex-direction: row;
   align-items: center;
-  /* 底色由内联 :style 给（主题可换，见 utils/theme.js） */
+  /* 底色由内联 :style 给（主题可换，见 ui/theme.js） */
   padding-left: 3vh;
   padding-right: 3vh;
   border-bottom-width: 1px;
@@ -789,7 +786,7 @@ export default {
    卡面在 @panel 底色之上还有一层**静态柔光渐变**（左上角最亮、沿对角收到右下，
    封面有两个色相时颜色也从主色过渡到次色），
    颜色由模板内联 `:style="glowStyle"` 给 —— 播放中 = 封面取色，未播放 = 当前主题色，
-   两者都是运行时的值，写在这里没用（见 utils/coverColor.js）。 */
+   两者都是运行时的值，写在这里没用（见 services/cover/color.js）。 */
 .idx-now {
   /* 宽度由模板内联 :style 给（vh→px 定宽，190vh），见 computed 的 nowW */
   flex-direction: row;

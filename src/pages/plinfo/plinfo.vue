@@ -47,27 +47,17 @@
  * 歌单详情页（从曲目列表页的**顶栏**点进来，见 components/PageTopbar.vue 的 link/tap）
  *
  * 两种入口，左栏上下文菜单不同：
+ *   A. 普通入口：返回 / 更多（下载全部、添加到本地索引、重命名、删除）/ 播放全部 ——
+ *      「我喜欢」是系统歌单，不能改名/删除；
+ *   B. 从「本地下载」进入（dltracks 传 entry:'dl'，歌单必然已在本地索引里）：多一个**移除本地
+ *      索引**，「更多」里多本地删除 / 删除：本地删除会把「移出后会变成遗留歌曲」的文件一并删掉
+ *      （仍被其它索引歌单引用、或是用户单曲归属的保留）；删除额外调接口删远端歌单（不可逆）。
+ *      两个破坏性项都在面板底部，仍是两次点按确认（armMixin）。
  *
- * A. 普通入口（在线曲目列表页点顶栏）：
- *   返回 / 更多（下载全部、添加到本地索引、重命名）/ 播放全部 / 删除（可写歌单）
- *   返回 / 更多 / 播放全部（「我喜欢」：系统歌单，不能改名/删除）
+ * 「添加到本地索引」只落歌单信息 + 全量 trackIds，不下载文件；再次点击 = 移出索引，
+ * **只删记录、不删文件**（策略 A），失去所有索引引用的歌单文件自动归入「遗留歌曲」。
  *
- * B. 从「本地下载」进入（dltracks 传 entry:'dl'，此时歌单必然已在本地索引里）：
- *   返回 / 更多 / 播放全部 / **移除本地索引**（索引切换键，底键）
- *   「更多」面板：下载全部 / 重命名（自己创建）/ 收藏切换（订阅）/ 本地删除 / 删除
- *   - **本地删除**：移除本地索引，并把「移出后会变成遗留歌曲」的文件直接删掉
- *     （不留孤儿；仍被其它索引歌单引用、或用户单曲归属的文件保留）。
- *   - **删除**：本地删除 + 调用接口把远端歌单也删掉（仅自己创建的歌单；云端删除不可逆）。
- *   两个破坏性项都在「更多」面板底部，仍是两次点按确认（armMixin）。
- *
- * 「添加到本地索引」是本模块的核心本地能力：
- *   - 只落歌单信息 + 全量 trackIds（local lists），不下载文件；
- *   - 再次点击 = 移出索引，**只删记录、不删文件**（策略 A）；
- *   - 移出后失去所有索引引用的歌单批量下载文件会自动归入「遗留歌曲」
- *     （见 dlorigin.js / locallists.js 的分类）。
- *
- * 删除成功后的返回逻辑保留：
- * 广播 → closePageById(fromPage) → finish，二级兜底是列表页自退。
+ * 删除成功后的返回：广播 → closePageById(fromPage) → finish，二级兜底是列表页自退。
  */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
@@ -80,14 +70,15 @@ import {
   fetchPlaylistAllSongs,
   setSubscribed,
   renamePlaylist,
-  deletePlaylist
+  deletePlaylist,
+  roleOf
 } from '../../services/ncm/playlist.js'
 import { addList, removeList, removeListLocal, isIndexed, downloadAll } from '../../services/player/locallists.js'
 import { player } from '../../services/player/player.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
 import { dlText, dlSig, dlApi } from '../../services/player/download.js'
 import { fmtSize } from '../../core/infra/format.js'
-import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
+import { ensureCover, coverKey, BIG_COVER } from '../../services/cover/cover.js'
 import { openTextEdit, available as imeAvailable } from '../../core/platform/systemKeyboard.js'
 import config from '../../core/infra/config.js'
 import { log } from '../../core/infra/log.js'
@@ -129,11 +120,13 @@ export default {
     }
   },
   computed: {
+    /** 歌单归属（决定可写键/收藏键）：判定口径唯一在 ncm/playlist.js 的 roleOf */
     role() {
-      const me = Number(config.get('userId')) || 0
-      if (!this.creatorId) return ''
-      if (this.creatorId !== me) return 'subscribed'
-      return this.specialType === 5 ? 'liked' : 'created'
+      return roleOf({
+        creatorId: this.creatorId,
+        specialType: this.specialType,
+        me: config.get('userId')
+      })
     },
     meta() {
       if (!this.creatorId) return ''
@@ -267,7 +260,7 @@ export default {
         self.creator = info.creator
         self.trackCount = info.trackCount
         self.hint = ''
-        ensureCover({ id: 'pl' + self.pid, cover: info.cover }, function (cid, path) {
+        ensureCover({ id: coverKey('playlist', self.pid), cover: info.cover }, function (cid, path) {
           if (path && !self._dead) self.cover = path
         }, BIG_COVER)
         log('plinfo', '详情就绪 ' + info.name + ' 曲目=' + info.trackCount + ' 归属=' + self.role)

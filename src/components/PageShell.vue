@@ -25,9 +25,9 @@ import { railBack } from '../ui/rail.js'
  *     <scroller …>…</scroller>
  *   </page-shell>
  *
- * `rail` 是 [{key, icon, on?, text?}]，由 utils/rail.js 的构造函数拼；
+ * `rail` 是 [{key, icon, on?, text?}]，由 ui/rail.js 的构造函数拼；
  * 第一个槽位固定是返回（railBack()）。**返回不在这里处理** —— 组件里拿不到
- * `this.$page` 不可靠，所以 back 事件原样抛给页面，由 utils/ui/frame.js 的
+ * `this.$page` 不可靠，所以 back 事件原样抛给页面，由 ui/mixins/frame.js 的
  * pageFrameMixin 分派到 onBack()（默认 `this.$page.finish()`）。
  */
 export default {
@@ -74,7 +74,7 @@ export default {
   width: 100vw;
   height: 100vh;
   flex-direction: row;
-  /* 底色由内联 :style 给（主题可换，见 utils/theme.js） */
+  /* 底色由内联 :style 给（主题可换，见 ui/theme.js） */
 }
 .psh-body {
   flex: 1;

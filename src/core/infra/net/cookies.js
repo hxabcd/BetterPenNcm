@@ -5,7 +5,7 @@
  * 响应也不会自动存。所以这里手工维护一个 jar：
  *   收：响应头 set-cookie（字符串或数组都处理）；登录接口还会在响应体里回一个 cookie 串
  *   发：每次请求前把 jar 拼成 Cookie 头（由 net/request.js 注入）
- *   存：序列化进 SQLite（kv 表的 ncm_cookies 行，见 utils/store.js），应用重启不丢登录态
+ *   存：序列化进 SQLite（kv 表的 ncm_cookies 行，见 core/infra/store.js），应用重启不丢登录态
  *
  * 值不落明文文件：库里只存 JSON 串，日志里也从不回显（存量在 `data/local_index.db`）。
  */
@@ -170,7 +170,7 @@ export function isLoaded() {
  *   扫码「确认授权」时被**环境风控**拦（801/802 全程正常、服务端认得出账号），
  *   与接口加密、会话 cookie 均无关 —— 官方客户端能过靠的是设备指纹上报。
  *   可靠路径 = 从 PC 递一份有效 MUSIC_U 进来（MusicVault config.json 的 cookie 字段
- *   → adb push 本文件）。登录链路已改走系统 curl（utils/ncm/wecurl.js），
+ *   → adb push 本文件）。登录链路已改走系统 curl（services/ncm/wecurl.js），
  *   能回收 NMTID 等响应 cookie，且 803 成功后 persistSession() 会自动落库，
  *   重启不再需要重新扫码。
  *

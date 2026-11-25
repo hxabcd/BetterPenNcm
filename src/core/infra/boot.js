@@ -40,7 +40,7 @@ async function prepareStore() {
 async function run() {
   await prepareStore()
   // 两个库都建表：索引库（可重建）+ 状态库（配置/凭据/会话/元数据/歌词）。
-  // 索引表接着整表灌内存（之后查询不再查库，见 utils/db.js）。
+  // 索引表接着整表灌内存（之后查询不再查库，见 core/platform/db.js）。
   await openStateDb()
   await openDb()
   // 下载对账（不联网）：补「有歌没名字」的元数据；把上次退出时已经下满、

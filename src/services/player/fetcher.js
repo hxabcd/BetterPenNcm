@@ -11,8 +11,7 @@
  *
  * 应用内实测（同一首 10.69MB 当场 A/B）——
  * **分片本身就是最大的开销来源**：`process.exec` 一次 fork 在这台 32 位 ARMv7 上要
- * 92~139ms（宿主 miniapp 进程内存大，fork 复制页表贵；早期一版记录 48~52ms 偏低），
- * 而每片要付 2 次 exec：
+ * 92~139ms（宿主 miniapp 进程内存大，fork 复制页表贵），而每片要付 2 次 exec：
  *   512KB 片 1990KB/s ｜ 2MB 片 3439KB/s ｜ 4MB 片 7758KB/s ｜ **整文件一次 11002KB/s**
  *   整首墙钟：分片现状 1981~2118ms → 整文件 950~1225ms（**1.6~2.2 倍**）
  *   2026-10-17 局域网复测（固定片长、2 exec/片）：整文件 1.09s、4MB 片 2.56s、512KB 片 4.61s；
@@ -60,7 +59,7 @@ const WHOLE_SPEED_LIMIT_BPS = 16 * 1024
 const WHOLE_SPEED_TIME_SEC = 30
 const POLL_TICK_MAX = 2400 // 轮询空转上限（2400 × 300ms = 12 分钟，兜住 rc 文件丢失)
 
-/* ---- 能力探测：统一走 utils/exec.js（curl 一次探测、进程内缓存） ----
+/* ---- 能力探测：统一走 core/platform/exec.js（curl 一次探测、进程内缓存） ----
  * 原 detect()/execFn 的本地实现已删；`fileSize` / `fileExists` / `sleep` 也用公共版
  * （fsutil.js / util.js）。文件是否存在的轮询约束（native 调用、不 fork）见 fsutil.fileExists。 */
 

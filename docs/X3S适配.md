@@ -106,6 +106,8 @@ S7（1020 宽）→ 4 列、X3S/X5（800 宽）→ 3 列；`cardWidthPx(cols)` �
 用户手选列数时装不下也不溢出——卡变窄而已。
 
 
+### 4.3 播放页与其它页面
+
 - **播放页**：三列 63.5+480+480 在 800 宽下装不下 → 控制区铺满 736px（左列 172 / 右列 564），
   辅助面板改为右侧抽屉（480 宽、`subBg`、左圆角，点遮罩/再点同键收回），进页默认焦点态。
   与 X5 同方案；实现见 `src/pages/player/player.vue`、`src/components/player/ControlPanel.vue`、
@@ -182,3 +184,9 @@ devctl --device x3s capture /tmp/x3s.png
   （`env.custom.volumeValue=28`）的映射关系**未验证**（见 §三）。应用不参与音量管理，
   待复核的只是映射本身，不影响播放功能。
 - **X5**：本次只在 X3S 上验证；X5 分支的 armhf `.so` 未合入，X5 仍走 `feat/x5-adapt` 的旧方案。
+
+### 机型适配层（未实施）
+
+- **差异散点**（换机型要改的地方，目前散在各文件、无模块收口）：curl 传输（`services/player/fetcher.js` + `services/ncm/wecurl.js`，约 70 处 shell 面积——有原生下载 API 的机型需整块重写）、SoundPlayer 单例 / 无 pause / 事件广播假设（`services/player/sound.js`；引擎适配器 `services/player/engine/` 已写好但未接线）、外部工具硬编码（`services/cover/color.js:213` 的 `/usr/bin/ffmpeg`、`services/player/cache.js:391` 的 `df -k /userdisk`——要探测或改路径）、触摸坐标字段形状（`core/platform/touch.js` 的字段兜底表）。视口几何已由 `core/platform/viewport.js` 收口（`screenSize` / `vhPx` / `isNarrow` / `fitColumns`），不在此列。
+- **收口思路**：各能力入口已收敛（exec / fsutil / db / net·request / player·sound / systemKeyboard / net·status / store / paths 各一处；唯一例外是 `log.js` 刻意绕开 request 层防递归；原生 `soundPlayer` 裸模块只在 `services/player/sound.js` 里 import），换机型 = 改这些入口的适配。`core/platform/caps.js` 集中声明机型能力（外部工具可用性、触摸坐标字段、可写区探测方式），启动探测一次、内存缓存，失败降级为现有行为；`fetcher` / `wecurl` 的 curl 调用面收成 `core/platform/transport.js` 端口（wholeFetch / 分片 / 进度 / cookie jar 四能力，curl 为默认适配器），有原生下载 API 的机型只加适配器、不动下载引擎（scheduler / tasks）。
+- **顺序与工作量**：caps 约半天、transport 约 1 天，两件独立；transport 放在音频引擎分层（[`音频引擎分层设计.md`](音频引擎分层设计.md) 的 CAPABILITIES 适配器）之后做，先在一个域验证适配器模式再复制。caps 的探测结果要能被探针页打印核对。

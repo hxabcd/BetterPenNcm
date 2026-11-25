@@ -18,7 +18,7 @@
         </div>
       </div>
 
-      <!-- 主题色（accent）：色块底色即该预设色本身；点了立即生效（写配置 + 广播，见 utils/theme.js）。
+      <!-- 主题色（accent）：色块底色即该预设色本身；点了立即生效（写配置 + 广播，见 ui/theme.js）。
            影响范围：实心主控键/进度条/选中态/首页四张卡的裸图标与播放页收藏态心形（后者按色换 PNG）。 -->
       <div class="lk-acrow">
         <text class="lk-nm">主题色</text>

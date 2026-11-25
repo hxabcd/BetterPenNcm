@@ -339,8 +339,3 @@ function countTrans(lines) {
   for (let i = 0; i < lines.length; i++) if (lines[i].trans) n++
   return n
 }
-
-/** 清空缓存（换账号/调试用） */
-export function clearLyricCache() {
-  for (const k in cache) delete cache[k]
-}

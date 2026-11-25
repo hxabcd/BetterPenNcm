@@ -4,7 +4,7 @@
  * 为什么需要：console.log 不会进 /data/applog/YD_PEN_APP.log（设备实测），
  * 唯一可靠的观测通道是把日志 POST 回 PC 上的 scripts/logserver.py。
  *
- * 注意：这里**直接**使用内建 http 模块，不经过 utils/net/request.js——
+ * 注意：这里**直接**使用内建 http 模块，不经过 core/infra/net/request.js——
  *   1) 避免与 Cookie 层互相递归（request -> cookies -> log -> request）
  *   2) 日志请求不该带业务 Cookie
  * 所有日志都在尝试失败时静默（PC 没起 logserver 时不能影响业务）。
@@ -42,14 +42,9 @@ async function loadHttp() {
 }
 
 const ring = [] // 最近若干条，供界面直接显示（PC 不在线时也能看）
-const subs = []
 
 export function tail(n) {
   return ring.slice(-(n || 8))
-}
-
-export function onLog(fn) {
-  subs.push(fn)
 }
 
 export function log(tag, msg) {
@@ -62,11 +57,6 @@ export function log(tag, msg) {
     (msg === undefined || msg === null ? '' : String(msg))
   ring.push(line)
   if (ring.length > MAX) ring.shift()
-  for (let i = 0; i < subs.length; i++) {
-    try {
-      subs[i](line)
-    } catch (e) {}
-  }
   // 第二通道：console.warn 会以 console(<appid>).warn.N 前缀进 /data/applog/YD_PEN_APP.log
   // （console.log 不进；console.warn 会进系统日志）——PC 收不到时有兜底
   try {

@@ -21,9 +21,12 @@ export function selToggle(ids, id) {
   return next
 }
 
-/** 是否全选（范围 = 当前已加载的行） */
-export function selAllPicked(ids, songs) {
-  const n = songs ? songs.length : 0
+/**
+ * 是否全选 —— 全工程唯一公式。第二个参数是**计数**不是数组：口径由调用方定
+ * （mixin 传本批行数；list 页传整单总数，「全不选」才不会因翻页翻回「全选」）。
+ */
+export function selAllPicked(ids, totalCount) {
+  const n = Number(totalCount) || 0
   return n > 0 && ids.length >= n
 }
 

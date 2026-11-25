@@ -1,18 +1,12 @@
 /**
- * 列表页骨架接线（S3 收编 8 个列表页的页内重复，docs/目录与分层重构方案.md §6.3.1）。
+ * 列表页骨架接线（收编 8 个列表页的四类页内重复）：moreLabel 文案转发、本地切片 loadMore、
+ * infiniteBottomPx 底部估算（infinite mixin 的判据）、beforeDestroy 时 _dlOff 订阅兜底清理。
  *
- * 收编的四类样板（页内重复才是大头）：
- *   1. moreLabel(n, unit)       —— 10 份逐字重复的「加载更多」文案转发（坑：模板不能裸调 import）
- *   2. 本地切片 loadMore        —— 「已取回还有没渲染的行」的展开逻辑（album/artist/playlists/dlqueue*）
- *   3. infiniteBottomPx         —— 「已渲染行数 × 行高」的底部估算（infinite mixin 的判据）
- *   4. _dlOff 订阅清理          —— beforeDestroy 忘写 _dlOff() 时兜底（dlSubscriberMixin 同款）
- *
- * 各页的**数据源字段名不同**（songs/rows/visible/viewAll、行高常量各异），mixin 不猜：
- * 页面给 config（onListPageSetup 或直接覆写 listPageConfig）声明「切片数组在哪、行高多少」，
- * 缺省按最常见形态取（sliceKey='songs'）。
+ * 各页的数据源字段名不同（songs/rows/visible/viewAll、行高常量各异）：页面覆写
+ * `listPageConfig()` 声明「切片数组在哪、行高多少」，缺省按最常见形态取（sliceKey='songs'）。
  *
  * list/dltracks/dlplaylists 等带网络游标或三段列表的页**不接**本 mixin 的 loadMore
- * （它们各自的分派更复杂），只接 moreLabel 与订阅清理。
+ * （分派更复杂），只接 moreLabel 与订阅清理。
  */
 import { AUTO_BATCH, moreText } from '../paging.js'
 

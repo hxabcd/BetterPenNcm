@@ -17,9 +17,9 @@
  * 为什么不复用 SongRow：那三类没有歌手名/时长这两列，行结构是「封面 + 上下两行文字」，
  * 硬套 SongRow 会空出右半屏。反过来也一样：本组件不接多选（那三类没有「下载选中」的语义）。
  *
- * 封面用 item.kid 当缓存键（'arp'+id / 'al'+id / 'pl'+id）：歌手/专辑/歌单的 id 与歌曲 id
+ * 封面用 item.kid 当缓存键（coverKey 生成的前缀键）：歌手/专辑/歌单的 id 与歌曲 id
  * 是**各自独立编号**的，不前缀就会在 cover.js 的缓存里互相顶掉（封面张冠李戴）。
- * 歌手用 arp 前缀与本地下载-歌手/歌手详情共用同一个真头像缓存。
+ * 歌手用与本地下载-歌手/歌手详情同一个真头像键。
  * 行内自己取封面（mounted → ensureCover → 组件自己的 localCover），
  * 与 SongRow 同款写法：绕开「页面 data 动态 key 不触发重渲染」那条平台坑。
  */
@@ -28,7 +28,7 @@ import { ensureCover } from '../services/cover/cover.js'
 export default {
   name: 'EntryRow',
   props: {
-    /** {id, kid, name, sub, cover} —— 由 utils/ncm/api.js 的 searchByType 归一 */
+    /** {id, kid, name, sub, cover} —— 由 services/ncm/api.js 的 searchByType 归一 */
     item: { type: Object, required: true }
   },
   data() {

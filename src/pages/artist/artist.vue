@@ -91,7 +91,7 @@ import { fetchArtist, fetchArtistSongs, fetchArtistAlbums } from '../../services
 import { setArtistFollowed } from '../../services/ncm/subscribe.js'
 import { localArtistView } from '../../services/player/localmeta.js'
 import { isOffline } from '../../core/infra/net/status.js'
-import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
+import { ensureCover, coverKey, BIG_COVER } from '../../services/cover/cover.js'
 import { resolveArtistPortrait, rememberArtistPortrait, portraitId } from '../../services/cover/artistavatar.js'
 import { clipText } from '../../core/infra/format.js'
 import { log } from '../../core/infra/log.js'
@@ -150,12 +150,12 @@ export default {
     hasMoreSongs() {
       return this.offline && this.hotSongs.length > this.songList.length
     },
-    /** 专辑按 PlaylistCard 的通用形状映射；id 加 'al' 前缀避免与歌曲 id 撞封面缓存 */
+    /** 专辑按 PlaylistCard 的通用形状映射；id 用专辑封面键避免与歌曲 id 撞封面缓存 */
     albumCards() {
       const out = []
       for (let i = 0; i < this.albums.length; i++) {
         const a = this.albums[i]
-        out.push({ id: 'al' + a.id, albumId: a.id, name: a.name, count: a.size, cover: a.cover })
+        out.push({ id: coverKey('album', a.id), albumId: a.id, name: a.name, count: a.size, cover: a.cover })
       }
       return out
     },
@@ -327,11 +327,11 @@ export default {
         if (!self._dead && seq === self._loadSeq) self.avatar = path
       }, BIG_COVER)
     },
-    /** 代表专辑封面（与本地下载-歌手列表同一张）：缓存键 al<albumId>，下载时已预热 */
+    /** 代表专辑封面（与本地下载-歌手列表同一张）：缓存键是专辑封面键，下载时已预热 */
     applyFallbackCover(cover, albumId, id, seq) {
       if (!cover) return
       const self = this
-      const key = albumId ? 'al' + albumId : 'arf' + id
+      const key = albumId ? coverKey('album', albumId) : coverKey('artistFallback', id)
       ensureCover({ id: key, cover: cover }, function (cid, path) {
         if (path && !self._dead && seq === self._loadSeq && !self.avatar) self.avatar = path
       }, BIG_COVER)

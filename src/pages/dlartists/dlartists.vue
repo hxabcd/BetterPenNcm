@@ -42,6 +42,7 @@ import EmptyHint from '../../components/EmptyHint.vue'
 import ContextSheet from '../../components/ContextSheet.vue'
 import { railBack, railBtn, ICON } from '../../ui/rail.js'
 import { go } from '../../core/infra/nav.js'
+import { cmpText } from '../../core/infra/format.js'
 import { localArtistList } from '../../services/player/localmeta.js'
 import { log } from '../../core/infra/log.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
@@ -56,16 +57,6 @@ const SORTS = [
 ]
 
 const PAGE = PAGE_ROW // 一次渲染 ≤50 行（平台坑 5）；ArtistRow 较高，取 40
-
-function cmpName(a, b) {
-  const x = String(a || '')
-  const y = String(b || '')
-  try {
-    return x.localeCompare(y)
-  } catch (e) {
-    return x < y ? -1 : x > y ? 1 : 0
-  }
-}
 
 export default {
   name: 'dlartists',
@@ -96,7 +87,7 @@ export default {
       const dir = this.sortAsc ? 1 : -1
       out.sort(function (a, b) {
         if (k === 'count') return dir * ((a.count || 0) - (b.count || 0))
-        return dir * cmpName(a.name, b.name)
+        return dir * cmpText(a.name, b.name)
       })
       return out
     },

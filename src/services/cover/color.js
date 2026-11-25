@@ -205,7 +205,7 @@ function fail(msg, unusable) {
 }
 
 async function run(path) {
-  // 命令通道走 utils/exec.js（exec 可用性 + ffmpeg 能力都在那边探一次、缓存）
+  // 命令通道走 core/platform/exec.js（exec 可用性 + ffmpeg 能力都在那边探一次、缓存）
   if (!(await has('ffmpeg'))) throw fail('ffmpeg 不可用（或 process.exec 缺失）', true)
   seq++
   const tmp = TMP + '_' + seq + '.bin'
@@ -270,13 +270,6 @@ function finish(p, hex) {
       wait[i](hex)
     } catch (e) {}
   }
-}
-
-/** 清内存缓存（调试/存储页用） */
-export function clearColorCache() {
-  const ks = Object.keys(mem)
-  for (let i = 0; i < ks.length; i++) delete mem[ks[i]]
-  execBroken = false
 }
 
 /* ------------------------------------------------------------------ *

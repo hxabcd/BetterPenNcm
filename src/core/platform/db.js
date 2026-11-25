@@ -1,14 +1,12 @@
 /**
  * SQLite 通道 —— **原生 `sqlite3` 模块**（`import('sqlite3')`），不走 CLI。
  *
- * ⚠ 不要改回 `process.exec` + `/usr/bin/sqlite3`。那条路每次调用都是一次 fork
- *   （S7 真机实测 92~139ms/次），而且 SQL 不能走命令行参数（非 ASCII 会经过一次
- *   本机代码页转换），只能「写一个临时 .sql 文件再 `.read`」—— 于是每读一次表还得
- *   额外付两次文件 I/O。原生模块一次 bind+step 是微秒级，也没有任何编码环节。
- *   同一份 134KB 数据真机实测：原生 sqlite 写入 10ms、读回 2ms；
- *   走 shell 分片写文本文件要 2511ms（见 docs/存储层.md）。
+ * ⚠ 不要改回 `process.exec` + `/usr/bin/sqlite3`：每次调用 = 一次 fork（S7 真机实测
+ *   92~139ms/次），且 SQL 不能走命令行参数（非 ASCII 会经本机代码页转换），只能写临时
+ *   .sql 文件再 `.read`，每读一次表还要多付两次文件 I/O。同一份 134KB 数据真机实测：
+ *   原生 sqlite 写入 10ms / 读回 2ms，shell 分片写文本 2511ms（见 docs/存储重构.md §4）。
  *
- * ## 两个库，职责不混
+ * ## 两个库，职责不混（各一条长连接 conn.index / conn.state）
  *
  *   local_index.db（`paths.dbFile()`）—— **只有索引**
  *     album / artist / track / track_artist / playlist / playlist_track
@@ -17,32 +15,17 @@
  *
  *   state.db（`paths.stateDbFile()`）—— **用户资产**
  *     kv           配置 / 登录 Cookie / 播放会话快照 / 播放历史
- *     track_meta   每曲元数据（原 metadata.json）
- *     track_lyric  每曲歌词（原 lyrics.json）
- *     丢一个要重新登录 / 丢播放进度，所以和索引库里外分开：
- *     重置索引不会碰到登录态，反之亦然。
- *
- * 两个库各有一个长连接（`conn.index` / `conn.state`），互不干扰。
- *
- * ## 为什么保留「拼 SQL 文本」的写接口
- *
- * `upsertSql` / `deleteSql` 返回语句文本，`exec(list)` 把它们打包进一个事务。
- * 调用方（localmeta / locallists / dlorigin / artistmeta）已按这个形状写好，
- * 而语句文本现在直接交给 `db.exec()`，**不再经过 shell** —— 所以值里的引号只需按
- * SQL 自己的规则转义（`q()`：`'` → `''`），不必再套一层 shell 转义。
+ *     track_meta   每曲元数据      track_lyric  每曲歌词
+ *     丢一个要重新登录 / 丢播放进度，所以和索引库里外分开：重置索引不会碰到登录态。
  *
  * ## 故障语义
  *
  * 所有函数**不抛**：通道不可用（没有 sqlite3 原生模块 / 打不开库）时 `data()` 给空表，
- * 上层按「没有本地库」降级。文件系统才是真相 —— 索引丢了能从文件与网络重建，
- * 这比「整个应用起不来」好。
+ * 上层按「没有本地库」降级 —— 文件系统才是真相，索引丢了能重建，好过整个应用起不来。
  */
 import { ensureDir } from './fsutil.js'
 import { dbFile, stateDbFile, normDir } from '../infra/paths.js'
 import { log } from '../../core/infra/log.js'
-
-/** 索引表名常量（只在这里出现，不接受外部拼装） */
-export const TABLES = ['album', 'artist', 'track', 'track_artist', 'playlist', 'playlist_track']
 
 /** 索引库 DDL。全部 `IF NOT EXISTS`：老库升级时只补表，不重建已有索引。 */
 const DDL_INDEX = [
@@ -506,16 +489,4 @@ export function upsertSql(table, cols, pk) {
 /** 简单删除语句 */
 export function deleteSql(table, whereSql) {
   return 'DELETE FROM ' + table + ' WHERE ' + whereSql + ';'
-}
-
-/**
- * 等待所有在飞的**索引**写落盘（boot/退出/迁移收尾用）。
- * 不抛：失败已由 flush 记过日志。
- *
- * kv / 每曲文档走的是 `runStmt`（单行 upsert 立刻返回），没有排队，不需要等。
- */
-export function flushAll() {
-  return flush().then(function () {
-    return writeChain
-  })
 }

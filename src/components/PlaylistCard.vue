@@ -17,8 +17,8 @@ import { ensureCover } from '../services/cover/cover.js'
  * 横向封面卡：封面 + 名称 + 曲目数
  *
  * 通用卡：歌单页（网格，一行 4 张）与歌手页的专辑行（横向滑动）共用。
- * 所以 prop 叫 `item` 而不是 `playlist` —— 专辑按 {id: 'al'+专辑id, name, count: 曲目数,
- * cover} 映射进来即可；id 带前缀是为了不和歌曲 id 在 cover 缓存里撞车。
+ * 所以 prop 叫 `item` 而不是 `playlist` —— 专辑按 {id: coverKey('album', 专辑id), name,
+ * count: 曲目数, cover} 映射进来即可；id 带前缀是为了不和歌曲 id 在 cover 缓存里撞车。
  * 封面由卡片自己 mounted 时按需取（同 SongRow 的理由）。
  */
 export default {

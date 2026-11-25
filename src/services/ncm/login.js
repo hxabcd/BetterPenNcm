@@ -3,7 +3,7 @@
  *
  * 为什么必须加密：旧版明文 /api/ 扫码接口已被服务端封禁——真机实测中，
  * 手机扫码确认后轮询回来的是 code=8821「请切换其他登录方式或升级新版本再试」。
- * 换成 /weapi/ 加密后即可正常登录（加密实现见 utils/ncm/crypto.js，已与用户
+ * 换成 /weapi/ 加密后即可正常登录（加密实现见 services/ncm/crypto.js，已与用户
  * MusicVault 项目的纯 Python 实现逐字节对拍通过）。
  *
  * 流程：
@@ -14,7 +14,7 @@
  *   4) 803 时登录态在**响应体 cookie 字段**里（旧明文接口是走 Set-Cookie 响应头）
  *   5) POST /weapi/w/nuser/account/get        {}                -> {profile:{nickname,...}}
  *
- * 登录态由 utils/net/cookies.js 统一持久化，其他业务请求自动带 Cookie 头。
+ * 登录态由 core/infra/net/cookies.js 统一持久化，其他业务请求自动带 Cookie 头。
  */
 import { weapiPost } from './weapi.js'
 import { md5Hex } from './crypto.js'

@@ -89,30 +89,14 @@
 
 <script>
 /**
- * 播放页「评论」子面板（设计稿 PlayerPage 14:1570 / CommentPanel 14:1754，480×240）
+ * 播放页「评论」子面板（480×240；几何表见 docs/播放页.md，px 与设备 1:1）。
+ * 组件**自己不上底色**：父级 .ply-sub 给 TOK.subBg + 左侧圆角。
  *
- * 视觉（Figma 证据与几何表见 docs/播放页.md，px 与设备 1:1）：
- *   顶栏 48px：评论 24px 粗体白 + 总数 14px 白（Title 96×29 @(12,9.5)，两者顶对齐）；
- *              右侧 IconButton 120×36 @(348,6)：图标 24 + 文字 20 + padding 6、内容间距 4。
- *   内容区 480×192：上/左右 12；热门行 24 高（左 padding 10）→ 卡片（456 宽、行距 10）；
- *   评论卡 = 456 宽 / padding 8 / 圆角 8 / 行距 6：
- *     用户行 44 高（padding 4/6）：头像 36 圆 + 10 + 昵称 20px 白；
- *     正文 24px 白、行高 29、左右 padding 4（宽 432）；
- *     状态行 28 高（padding 4/8）：日期 16px TOK.text2 + 右侧 点赞数 16px + thumbs-up 20px（间距 4）。
- *   组件**自己不上底色**：父级 .ply-sub 给 TOK.subBg + 左侧圆角（CONTRACT §0）。
+ * 接口：services/ncm/comments.js —— 读评论明文匿名可用；点赞/发评论走 weapi，未登录返回 301。
  *
- * 数据/接口：utils/ncm/comments.js（读取明文匿名可用；点赞/发评论走 weapi，未登录 301）。
- * 状态机：
- *   loading（首屏）→ 成功：hot + list + total，失败：failed（点整块重试）；
- *   more → 底部「加载更多」按 cursor 追加；发评论成功 → 重载 offset 0 并 toast。
- *   换歌：watch songId 入口自判重（平台 watch 不去重），重载并丢弃上一首的在途结果（_gen）。
- *
- * ⚠ 平台约束（docs/平台约束与自检.md）：
- *   - 一次渲染 ≤50 行 → 评论卡合计最多 RENDER_MAX=50 张，超出后不再追加（换成「已显示前 N 条」提示）；
- *   - 模板裸绑定必须来自 props/computed/data（本组件所有 :x 都是 data/computed/v-for 别名）；
- *   - 样式只写单类名；颜色一律走 LESS 生成段（静态）或 TOK/accent 内联（动态）；
- *   - 页面会挂两遍 → 每个实例各自加载（数据同源，重复请求无害），异步回调都过 _dead/_gen 守卫。
- *   - 子组件不渲染 hint-toast：提示一律 this.$emit('toast', 文案) 交给页面。
+ * 平台约束（详见 docs/平台约束与自检.md）：一次渲染 ≤50 行 → 评论卡合计最多 RENDER_MAX 张，
+ * 超出换成「已显示前 N 条」提示；页面会挂两遍 → 异步回调都过 _dead/_gen 守卫；
+ * 子组件不渲染 hint-toast，提示一律 this.$emit('toast', 文案) 交给页面。
  */
 import { TOK } from '../../ui/tokens.js'
 import { ICON } from '../../assets/icons.js'

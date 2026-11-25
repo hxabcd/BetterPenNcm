@@ -46,24 +46,16 @@
 
 <script>
 /**
- * 本地下载-曲目列表（四种 kind 共用一个页面）：
- *   all      —— 全部已下载文件
- *   single   —— 单曲下载（用户自己的单曲 / 升级前遗留文件）
- *   orphan   —— 遗留歌曲（歌单批量下载、但已不被任何索引歌单引用；策略 A 保留文件）
- *   playlist —— 某个已索引歌单的曲目（额外显示状态卡片 + A/D 标记）
+ * 本地下载-曲目列表（四种 kind 共用一个页面，kind 由页面参数传入）：
+ *   all 全部已下载 ｜ single 单曲下载 ｜ orphan 遗留歌曲（歌单批量下载、但已不被任何索引歌单
+ *   引用；策略 A 保留文件）｜ playlist 某个已索引歌单（额外显示状态卡片 + A/D 标记）。
  *
- * 歌单内的行（A/D 都相对「本地文件」计算，不相对 baseIds 的上次快照）：
- *   - 正常：本地已下载、且仍在远端歌单里
- *   - A（新增，灰字 + 绿色 A）：remoteIds − 本地已下载。也就是「远端有、本地没下」，
- *       包括加入索引前歌单里就已有的未下载曲目。点击时按联网状态决定：
- *       在线 → 流播；离线 → 提示「还没下载」。
- *   - D（移除，仅歌名白色 + 删除线，标记列红 D；其余列保持原样式）：baseIds − remoteIds 且本地有文件，
- *       即「本地有、远端歌单已移除」。点击播本地；同步后从歌单消失（策略 A 保留文件）。
- *       去向由归属决定：歌单批量下载的文件 → 「遗留歌曲」；用户单曲 / 升级前遗留文件 →
- *       「单曲下载」。
+ * 歌单内的行（A/D 都相对「本地文件」计算，不相对 baseIds 的上次快照，口径见 locallists.js）：
+ *   - A（新增）= remoteIds − 本地已下载：在线点击流播，离线提示「还没下载」；
+ *   - D（移除）= baseIds − remoteIds 且本地有文件：点击播本地，同步后从歌单消失（策略 A 保留
+ *     文件），去向由归属决定（歌单批量下载 → 遗留歌曲；用户单曲 → 单曲下载）。
  *
- * 同步 = 先拉取，再下载所有 A（远端有、本地没有），把 D 从 baseIds 移除；
- * 失败/取消的 A 保持 A，下次重试。
+ * 同步 = 先拉取，再下载所有 A，把 D 从 baseIds 移除；失败/取消的 A 保持 A，下次重试。
  */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
@@ -81,6 +73,7 @@ import { playlistView, pullList, syncList, splitDownloads } from '../../services
 import { isOffline } from '../../core/infra/net/status.js'
 import { selPicked } from '../../ui/dlselect.js'
 import { toPlaylist, playNext, playNextText } from '../../services/player/acts.js'
+import { songIdOf } from '../../services/player/localmeta.js'
 import { fmtSize } from '../../core/infra/format.js'
 import { log } from '../../core/infra/log.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
@@ -100,11 +93,11 @@ const KIND_NAME = {
 
 const PAGE = PAGE_SONG // 平台一次渲染 ≤50 行（AGENTS 坑 5）
 
+/** 列表项的 id 归一（口径见 localmeta.songIdOf）；顺带复制一份，避免改动缓存里的对象 */
 function normSong(s) {
-  const nid = parseInt(s && s.id, 10)
   const out = {}
   for (let k in s) out[k] = s[k]
-  out.id = isNaN(nid) ? (s && s.id) : nid
+  out.id = songIdOf(s && s.id)
   return out
 }
 
@@ -182,11 +175,6 @@ export default {
       }
       return this.fullRows.length + ' 首 · ' + fmtSize(this.songBytes)
     },
-    /**
-     * 左栏：返回 + 播放全部 + 多选；多选态 = 关闭 +（遗留页）保留为单曲 + 删除。
-     * 遗留页的「保留为单曲」把 playlistOwned 改成 userOwned：文件原地保留，
-     * 但从此归入单曲下载，不再出现在遗留页（dlorigin.markUser）。
-     */
     /**
      * 左栏：返回 + 播放全部 + 多选；多选态按 CSV「多选（本地下载）」给
      * 关闭 / 下一首播放 / 收藏到歌单 / 删除。

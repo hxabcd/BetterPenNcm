@@ -50,7 +50,7 @@ import { go } from '../../core/infra/nav.js'
 import { boot } from '../../core/infra/boot.js'
 import { cachedProfile, loggedIn, fetchProfile, logout } from '../../services/ncm/login.js'
 import { loadUserPlaylists } from '../../services/ncm/playlist.js'
-import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
+import { ensureCover, coverKey, BIG_COVER } from '../../services/cover/cover.js'
 import config from '../../core/infra/config.js'
 import { log } from '../../core/infra/log.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
@@ -87,7 +87,7 @@ export default {
   mounted() {
     this._dead = false
     this.load()
-    // 登录完成 → 重读（注册/退役见 utils/ui/pagebus.js）
+    // 登录完成 → 重读（注册/退役见 ui/mixins/pagebus.js）
     this.onPageEvent('bpncm:login-done', 'load')
   },
   beforeDestroy() {
@@ -128,14 +128,14 @@ export default {
         log('account', '歌单统计失败 ' + ((e && e.message) || e))
       }
     },
-    /** 头像走封面缓存（id 加 ac 前缀避免与歌曲/歌手 id 撞车），圆形用半边长的 vh 半径（平台不认 50%） */
+    /** 头像走封面缓存（用 user 键避免与歌曲/歌手 id 撞车），圆形用半边长的 vh 半径（平台不认 50%） */
     syncAvatar() {
       const self = this
       const id = this.profile.userId
       const url = this.profile.avatarUrl
       this.avatar = ''
       if (!id || !url) return
-      ensureCover({ id: 'ac' + id, cover: url }, function (cid, p) {
+      ensureCover({ id: coverKey('user', id), cover: url }, function (cid, p) {
         if (p && !self._dead) self.avatar = p
       }, BIG_COVER)
     },

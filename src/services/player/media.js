@@ -11,12 +11,12 @@
  *       track_lyric (id)       → 歌词 JSON 文档（`{v, lrc, tlyric, yrc, pureMusic}`）
  *
  * 为什么索引和状态分两个库：索引（`local_index.db`）是可重建的派生数据，
- * 而元数据/歌词属于用户资产；分开后重置索引不会波及它们。见 utils/db.js 顶部。
+ * 而元数据/歌词属于用户资产；分开后重置索引不会波及它们。见 core/platform/db.js 顶部。
  *
  * 为什么要这一层：本次重构把「一首歌 = 一个目录」定成不变式，音频/封面同生共死。
  * 若各处自己拼 `<root>/<id>/xxx`，删歌时就必然漏清某一样，留下孤儿文件（旧布局
  * `music/<id>.mp3` + `lrc/<id>.json` + `covers/<id>_200.jpg` 三处分散，就是这个问题的来源）。
- * 所有路径都从 utils/paths.js 出，本模块只负责「读写什么」。
+ * 所有路径都从 core/infra/paths.js 出，本模块只负责「读写什么」。
  *
  * ⚠ 元数据与歌词**不再落 JSON 文件**：平台 `fs` 没有写接口，写文件只能 fork 一次 shell
  *   （真机 92~139ms）。下载一首歌要写 metadata 两次、歌词一次，全落在播放链路上。
@@ -34,7 +34,6 @@ import {
   fileExists,
   fileSize,
   readNames,
-  removePath,
   removeTree,
   statOf
 } from '../../core/platform/fsutil.js'
@@ -47,7 +46,8 @@ import { docGet, docPut, docDel, docAll } from '../../core/platform/db.js'
  */
 export const MIN_AUDIO_BYTES = 30000
 
-const AUDIO_EXT = ['mp3', 'flac']
+/** 音频扩展名（目录内固定名 `track.<ext>`）；mp3 在前 = 探测优先 */
+export const AUDIO_EXT = ['mp3', 'flac']
 
 /** 文档表名（只在这里出现） */
 const T_META = 'track_meta'
@@ -91,7 +91,7 @@ export function otherAudioPath(id, ext, kind) {
   return altTrackFile(id, ext, kind)
 }
 
-/* ---------------- 元数据（索引库 track_meta） ---------------- */
+/* ---------------- 元数据（状态库 track_meta） ---------------- */
 
 /**
  * 读一条曲目的元数据。
@@ -164,7 +164,7 @@ export async function hasCover(id, kind) {
   return (await fileSize(trackCover(id, kind))) > 0
 }
 
-/* ---------------- 歌词（索引库 track_lyric） ---------------- */
+/* ---------------- 歌词（状态库 track_lyric） ---------------- */
 
 /** 读歌词：{v, lrc, tlyric, yrc, pureMusic} 或 null */
 export async function readLyrics(id) {
@@ -214,11 +214,6 @@ export async function dropTrackDir(id, kind) {
   return ok
 }
 
-/** 删单个文件（残留区/缩略图用） */
-export async function dropFile(path) {
-  return removePath(path)
-}
-
 /* ---------------- 枚举与统计 ---------------- */
 
 /**
@@ -237,7 +232,7 @@ export async function listTracks(kind) {
   for (let i = 0; i < names.length; i++) {
     const name = names[i]
     if (!name || !/^\d+$/.test(name)) continue // 跳过 thumbs/ 与任何非数字目录
-    const dir = root + '/' + name
+    const dir = trackDir(name, kind)
     const st = await statOf(dir)
     if (!st) continue
     const hit = await hitAudio(name, kind)

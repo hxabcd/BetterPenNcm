@@ -1,0 +1,64 @@
+#!/bin/sh
+# 提交前检查：单个文件超过 5000 token（按 字节数 ÷ 4 估，约 20KB）就拒绝提交。
+#
+# 为什么：agent 每次要读的东西越少越准。文件一大，它就开始跳读、改东忘西；
+# 而"一个文件干三件事"正是膨胀的根因。被拒了就按功能拆成几个文件再提交，
+# 不要靠拆注释/压行数糊过去。
+#
+# 跳过不查（agent 不会去读的）：二进制与图片、三方源码/头文件/SDK、
+# 生成物、lockfile、构建产物。
+#
+# 启用方式：git config core.hooksPath scripts/githooks
+
+LIMIT_BYTES=20000 # 5000 token × 4
+
+# 生成物 / 三方 / 非文本：按路径跳过
+skip_path() {
+  case "$1" in
+  src/vendor/*) return 0 ;;
+  src/assets/icons.js) return 0 ;;
+  src/core/infra/buildInfo.js) return 0 ;;
+  src/core/infra/logconfig.generated.js) return 0 ;;
+  native/iot-miniapp-sdk/*) return 0 ;;
+  native/stubs-aarch64/*) return 0 ;;
+  native/vendor/*) return 0 ;;
+  scripts/lucide-svg/*) return 0 ;;
+  docs/*.png | docs/*.jpg | docs/*.webp) return 0 ;;
+  LICENSE | */LICENSE) return 0 ;;
+  package-lock.json | pnpm-lock.yaml | yarn.lock) return 0 ;;
+  esac
+  # 二进制后缀
+  case "$1" in
+  *.png | *.jpg | *.jpeg | *.webp | *.gif | *.ico | *.amr) return 0 ;;
+  *.so | *.so.* | *.a | *.bin | *.zip | *.gz | *.pyc) return 0 ;;
+  esac
+  return 1
+}
+
+report=$(mktemp) || exit 1
+trap 'rm -f "$report"' EXIT INT TERM
+
+git diff --cached --name-only --diff-filter=ACMR | while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  if skip_path "$f"; then continue; fi
+  size=$(git cat-file -s ":$f" 2>/dev/null) || continue
+  [ "$size" -gt "$LIMIT_BYTES" ] || continue
+  kb=$(((size + 1023) / 1024))
+  tok=$((size / 4))
+  printf '  %s —— %s KB，约 %s token\n' "$f" "$kb" "$tok" >>"$report"
+done
+
+if [ -s "$report" ]; then
+  {
+    echo '✖ 提交被拒绝：下面这些文件超过 5000 token（约 20KB）'
+    echo ''
+    cat "$report"
+    echo ''
+    echo '一个文件装了三件事，agent 就读不准。请按功能拆成几个文件'
+    echo '（页面拆面板、服务拆模块、文档拆主题），再重新提交。'
+    echo "阈值与跳过规则在 scripts/githooks/pre-commit。"
+  } >&2
+  exit 1
+fi
+
+exit 0

@@ -19,7 +19,7 @@
 
 `$falcon.jsapi` 是点号展平的 API 表，不是模块注册表；编译器把 `import x from '$jsapi/x'` 替换成 `$falcon.jsapi['x']`。**本项目不用它做存储**——旧实现曾走裸模块 `import('storage')`（构建时外部化，运行时由模块加载器提供）。
 
-- 平台 `storage` 的全部 key 落在同一个 `preferences.json`，**每次 `setStorage` 都重写整份**（512KB 写入+回读约 90~270ms）。所以大表不放这里，改落文件与索引库，落点见 [存储层.md](存储层.md)。
+- 平台 `storage` 的全部 key 落在同一个 `preferences.json`，**每次 `setStorage` 都重写整份**（512KB 写入+回读约 90~270ms）。所以大表不放这里，改落文件与索引库，落点见 [存储重构.md](存储重构.md) §2。
 - 裸模块**没有 `getStorageInfo`**（见 §14），`getStorageKeys` / `clearStorage` 未在项目中使用。
 - 当前持久化全部走文件：[`src/core/infra/store.js`](../src/core/infra/store.js)（顶层 JSON 键值，原名同签名替代 storage）、
   [`src/core/platform/db.js`](../src/core/platform/db.js)（SQLite 索引库）、[`src/services/player/media.js`](../src/services/player/media.js)（每曲一目录）。
@@ -113,7 +113,7 @@ df -k /userdisk | tail -1 | awk '{print $4}'
 - `bind` 支持三种形态：位置参数列表 `bind(1, 'x')`、数组 `bind(['x'])`、具名 `bind({':a': 'x'})`。
 - **中文/引号/反斜杠逐字节无损**（CLI 走命令行参数才会被代码页转换搞坏）。
 - 同样 134KB：原生 bind+step 写 10ms、读回 2ms；shell 分片写文本文件 2511ms。
-- 用法与表结构见 [`存储重构.md`](存储重构.md) §1，通道取舍见 [`存储层.md`](存储层.md)。
+- 用法与表结构见 [`存储重构.md`](存储重构.md) §1，通道取舍见同文 §4。
 
 ## 6. 子进程 `process.exec` 与系统 curl
 
@@ -175,7 +175,12 @@ g.startTextEdit(JSON.stringify(cfg))
 
 ## 10. 原生库
 
-当前不使用原生扩展库；构建不再打包 `.so`。
+当前**使用**一个原生扩展库，只为 X3S 补能力：
+
+- 源码 `native/`（C + zig 交叉编译到 aarch64/glibc 2.29），产物 `libs/arm64-cherry3566/libjsapi_bpnnet.so` 已入库，构建时随 `.amr` 打包并保留 `libs/<平台>/` 路径。
+- X3S 上由运行时（libfalcon 的 `dynamic_load_jsapi` → `custom_init_jsapis()`）加载，注册裸模块 `bpnnet`（fs / libcurl request·download / exec）与 `sqlite3`。JS 侧封装在 [`src/core/platform/bridge.js`](../src/core/platform/bridge.js)；`net/request.js`、`infra/log.js`、`platform/fsutil.js`、`platform/exec.js` 先试原生裸模块，import 失败才回退到 `bpnnet`。
+- **S7 / X5 不加载**：两机型是 armhf，动态加载器不会加载 aarch64 的 `.so`；`import('bpnnet')` 抛错 → `bridge()` 永久返回 null，全部走原生裸模块，行为与引入扩展前一致。
+- 详见 [`X3S适配.md`](X3S适配.md) 与 [`native/README.md`](../native/README.md)。
 
 ## 11. 音质与 FLAC
 

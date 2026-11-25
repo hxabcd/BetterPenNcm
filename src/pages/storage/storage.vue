@@ -42,15 +42,15 @@
 /**
  * 存储管理页（配套音质/缓存功能）
  *
- * 数据来自 utils/player/cache.js（文件系统为真相 + storage 元数据）：
+ * 数据来自 services/player/cache.js（文件系统为真相 + storage 元数据）：
  * 统计走 exec 通道（du/ls 一次调用），可用空间走 df（fs.statfs 语义可疑，见 cache.js 注释）。
  * 清空是破坏性操作 → 两次点按确认；清音乐缓存前先 stop() 停播（文件要没了）。
- * 页面会挂两遍 → _dead 守卫（account.vue 同款）。（原先还有个 live 指针，只写不读，删除。）
+ * 页面会挂两遍 → _dead 守卫（account.vue 同款）。
  */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import HintToast from '../../components/HintToast.vue'
-import { fmtSize } from '../../core/infra/format.js'
+import { fmtSize, limitLabel } from '../../core/infra/format.js'
 import { stats, freeBytes, clearSongs, clearPlayCache, clearCoverCache } from '../../services/player/cache.js'
 import { cancelDownload, forgetAll, invalidateLocalPaths } from '../../services/player/download.js'
 import { player } from '../../services/player/player.js'
@@ -60,13 +60,7 @@ import { TOK } from '../../ui/tokens.js'
 import { toastMixin } from '../../ui/mixins/toast.js'
 import { armMixin } from '../../ui/mixins/arm.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
-import config from '../../core/infra/config.js'
-
-/** 上限显示：1024 → 1G，512 → 512M，0 → 不限 */
-function fmtLimit(mb) {
-  if (!mb) return '不限'
-  return mb % 1024 === 0 ? mb / 1024 + 'G' : mb + 'M'
-}
+import { cacheLimitMb } from '../../services/player/cache.js'
 
 export default {
   name: 'storage',
@@ -91,8 +85,8 @@ export default {
     },
     cacheText() {
       if (this.cacheCount < 0) return '统计中...'
-      const lim = Number(config.get('cacheLimitMb')) || 0
-      return this.cacheCount + ' 首 · ' + fmtSize(this.cacheBytes) + (lim ? ' / 上限 ' + fmtLimit(lim) : ' · 不限')
+      const lim = cacheLimitMb() // 0 = 不限，由 cache.js 统一读
+      return this.cacheCount + ' 首 · ' + fmtSize(this.cacheBytes) + (lim ? ' / 上限 ' + limitLabel(lim) : ' · 不限')
     },
     coverText() {
       if (this.coverCount < 0) return '统计中...'

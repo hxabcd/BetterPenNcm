@@ -16,6 +16,21 @@
 import { weapiPost } from './weapi.js'
 import { normalizeSong } from './api.js'
 
+/**
+ * 歌单归属的**唯一判定点**：'liked' | 'created' | 'subscribed'；拿不到创建者 id → ''。
+ *
+ * 「我喜欢」= specialType==5 **且**创建者是自己 —— 收藏别人的「XX喜欢的音乐」也带
+ * specialType=5（见文件头实测结论）。creatorId / me 一律 Number 归一。
+ */
+export function roleOf(o) {
+  const t = o || {}
+  const creatorId = Number(t.creatorId) || 0
+  const me = Number(t.me) || 0
+  if (!creatorId) return ''
+  if (creatorId !== me) return 'subscribed'
+  return Number(t.specialType) === 5 ? 'liked' : 'created'
+}
+
 /** 取用户全部歌单并分类；返回 {liked, created[], subscribed[]}，item={id,name,count,cover,creator} */
 export async function fetchUserPlaylists(uid) {
   const r = await weapiPost(
@@ -40,8 +55,9 @@ export async function fetchUserPlaylists(uid) {
       // 歌单列表页「按更新时间排序」用（加）
       updateTime: p.updateTime || p.createTime || 0
     }
-    if (p.specialType === 5 && creator.userId === uid) liked.push(item)
-    else if (creator.userId === uid) created.push(item)
+    const role = roleOf({ creatorId: creator.userId, specialType: p.specialType, me: uid })
+    if (role === 'liked') liked.push(item)
+    else if (role === 'created') created.push(item)
     else subscribed.push(item)
   }
   return { liked: liked[0] || null, created: created, subscribed: subscribed }
@@ -112,10 +128,6 @@ export async function loadUserPlaylists(uid, force) {
     }
   )
   return inflight
-}
-
-export function cachedUserPlaylists() {
-  return userCache
 }
 
 /**
@@ -444,6 +456,8 @@ export async function createPlaylist(name) {
   }
 }
 
+const PLAYLIST_NAME_WIDTH = 40
+
 /**
  * 歌单名的长度校验/截断 —— 服务端按**显示宽度**卡 40（CJK 记 2、ASCII 记 1），
  * 不是按字符数也不是按字节数。PC 端实测（probe_plcreate2.py，创建后即时删除）：
@@ -452,8 +466,6 @@ export async function createPlaylist(name) {
  * 超过 → `{code:400,'标题字数异常，请修改'}`，客户端先截到合法宽度再发，别让用户白点一次。
  * 返回 {name, cut}（cut=true 表示被截过）。
  */
-export const PLAYLIST_NAME_WIDTH = 40
-
 export function fitPlaylistName(s) {
   const str = String(s || '')
   let w = 0
@@ -549,10 +561,13 @@ export function bumpCachedPlaylistCount(playlistId, d) {
   }
 }
 
-/** 按 id 批量取曲目（保持传入顺序）；单次 id 太多体积吃不消，按 300 一批 */
+/** 批量取曲目详情的单批上限（接口请求体积） */
+export const TRACKS_CHUNK = 300
+
+/** 按 id 批量取曲目（保持传入顺序）；单次 id 太多体积吃不消，按 TRACKS_CHUNK 一批 */
 export async function fetchTracksMore(ids) {
   const out = []
-  const CHUNK = 300
+  const CHUNK = TRACKS_CHUNK
   for (let off = 0; off < ids.length; off += CHUNK) {
     const chunk = ids.slice(off, off + CHUNK)
     const c = []

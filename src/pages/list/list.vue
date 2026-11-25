@@ -105,10 +105,11 @@ import {
   removeFromPlaylist,
   cachedPlaylistRole,
   fetchPlaylistInfo,
+  roleOf,
   setSubscribed,
 } from '../../services/ncm/playlist.js';
 import { KINDS, appendUnique } from '../../services/player/listkinds.js';
-import { SEARCH_TYPES as searchCats } from '../../services/ncm/api.js';
+import { searchMeta } from '../../services/ncm/api.js';
 import { listPageMixin } from '../../ui/mixins/listpage.js';
 import {
   loadMore as cursorLoadMore,
@@ -125,7 +126,7 @@ import { toPlaylist, playNext, playNextText } from '../../services/player/acts.j
 import config from '../../core/infra/config.js';
 import ContextSheet from "../../components/ContextSheet.vue";
 import SearchSidebar from "../../components/list/SearchSidebar.vue";
-import { selPicked, selAllIds } from '../../ui/dlselect.js';
+import { selPicked, selAllIds, selAllPicked } from '../../ui/dlselect.js';
 import { fmtSize } from '../../core/infra/format.js';
 import { evtJson } from '../../core/infra/events.js';
 import { log } from '../../core/infra/log.js';
@@ -181,15 +182,6 @@ const SORTS = {
     { key: "time", label: "时间" },
   ],
 };
-
-/* 搜索分类表（SEARCH_TYPES）归 SearchSidebar 组件与 api.js；页面只用 catOf 取 label/unit。 */
-/** 搜索分类 → 选项（拿 label / unit 用；表在 SearchSidebar 与 api.js 的 SEARCH_TYPES） */
-function catOf(type) {
-  for (let i = 0; i < searchCats.length; i++) {
-    if (searchCats[i].key === Number(type)) return searchCats[i];
-  }
-  return searchCats[0];
-}
 
 /** 搜索页顶栏标题：搜索：<关键词>（过长截断，避免撑破定高顶栏；完整值在 this.keyword） */
 function searchTitle(kw) {
@@ -273,7 +265,7 @@ export default {
     },
     /** 当前分类的选项（label / unit），供顶栏副行与切分类后的提示用 */
     searchCat() {
-      return catOf(this.searchType);
+      return searchMeta(this.searchType);
     },
     /** 分类侧栏的收起/展开提示是否显示：搜索页且非多选（多选时把整列让给列表） */
     showCatToggle() {
@@ -349,10 +341,10 @@ export default {
      * 是否已全选。范围是**整单**：全量已载入时按实际可取回的曲目数算（trackIds 里可能有
      * 取不回的下架曲目），未载入时按整单总数算 —— 无论哪种口径，加载更多都不会把
      * 「全不选」翻回「全选」（旧实现按已加载行数算，翻页一次就翻回去了）。
+     * 公式在 ui/dlselect.js 的 selAllPicked（与多选 mixin 同一份，这里只换计数口径）。
      */
     allPicked() {
-      const n = this.allLoaded ? this.viewAll.length : this.totalCount;
-      return n > 0 && this.selIds.length >= n;
+      return selAllPicked(this.selIds, this.allLoaded ? this.viewAll.length : this.totalCount);
     },
     /**
      * 当前列表是否「可编辑」（多选态给不给删除键）：
@@ -494,7 +486,7 @@ export default {
   },
   mounted() {
     this._dead = false;
-    // 跨页广播：歌单详情页改名/删除 → 本页跟着变（注册/退役见 utils/ui/pagebus.js）
+    // 跨页广播：歌单详情页改名/删除 → 本页跟着变（注册/退役见 ui/mixins/pagebus.js）
     this.onPageEvent("bpncm:playlist-changed", "onPlaylistChanged");
     /* 「页面重新可见」的订阅：被删掉的歌单，其曲目列表页要自己退掉。
        ⚠ 不能写成 methods.onShow —— 框架的 _performPageLifeCycle 只调 Page 实例自己的 onShow、
@@ -630,7 +622,7 @@ export default {
         if (self._dead || pid !== self.pid || token !== self._loadToken) return;
         const me = Number(config.get("userId")) || 0;
         if (info.creatorId) {
-          self.plRole = info.creatorId !== me ? "subscribed" : info.specialType === 5 ? "liked" : "created";
+          self.plRole = roleOf({ creatorId: info.creatorId, specialType: info.specialType, me: me });
         }
         self.applyRole();
         self.subscribed = info.subscribed; // applyRole 给的是推断值，详情接口回的是准数
@@ -651,7 +643,7 @@ export default {
     },
     /* ---- 跨页事件（pagebus 派发给页面栈上层存活实例）---- */
     onPlaylistChanged(evt) {
-      const d = evtJson(evt); // 框架会把负载套成 {type,timestamp,data}，见 utils/events.js
+      const d = evtJson(evt); // 框架会把负载套成 {type,timestamp,data}，见 core/infra/events.js
       if (!d || Number(d.id) !== this.pid) return;
       if (d.op === "rename") {
         // 详情页改了名：列表页顶栏跟着改（歌单列表页/首页由它们自己刷新）
@@ -675,7 +667,7 @@ export default {
         // 六-kind 取数路由表（services/player/listkinds.js）：kind → 首屏取数 + 文案
         const out = await KINDS[p.kind].load(self, p, {
           searchTitle,
-          catOf,
+          catOf: searchMeta,
           SEARCH_LIMIT,
         });
         if (loadToken !== self._loadToken) return;
@@ -1100,7 +1092,7 @@ export default {
       this.sortAsc = false;
       this.hint = "加载中...";
       this.sub = "搜索中...";
-      log("list", "切搜索分类 -> " + catOf(this.searchType).label);
+      log("list", "切搜索分类 -> " + searchMeta(this.searchType).label);
       await this.load({ kind: "search", keyword: this.keyword });
     },
     /** 收起 / 展开右侧分类侧栏（多选态没有提示按钮，直接忽略） */

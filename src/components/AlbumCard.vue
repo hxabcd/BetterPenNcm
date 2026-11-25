@@ -26,7 +26,7 @@
  * 封面取专辑内歌曲的封面（localmeta.localAlbumList 的 cover），
  * 行内自己走 cover.js 队列，离线命中磁盘缓存。
  */
-import { ensureCover } from '../services/cover/cover.js'
+import { ensureCover, coverKey } from '../services/cover/cover.js'
 import { ICON } from '../assets/icons.js'
 
 export default {
@@ -61,7 +61,7 @@ export default {
   },
   mounted() {
     const self = this
-    const cid = this.item.coverId || ('al' + this.item.id)
+    const cid = this.item.coverId || coverKey('album', this.item.id)
     if (!this.item.cover || !cid) return
     ensureCover({ id: cid, cover: this.item.cover }, function (id, path) {
       if (path) self.localCover = path

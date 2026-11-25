@@ -76,12 +76,6 @@ export function artistMetaSync(id) {
   return (mem && mem[String(id)]) || null
 }
 
-/** 异步取（内部保证已载入） */
-export async function artistMeta(id) {
-  await loadArtistMeta()
-  return artistMetaSync(id)
-}
-
 /** 写入/更新一位歌手的资料（cover 为空 = 负缓存）。返回记录。 */
 export async function rememberArtist(id, name, cover) {
   const k = String(id)

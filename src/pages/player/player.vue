@@ -101,26 +101,15 @@
 
 <script>
 /**
- * 播放页（2026-10-29 按 Figma 设计稿 PlayerPage 14:1570 重做；2026-10-30 调整交互）
+ * 播放页（设计稿 PlayerPage 14:1570；几何表与交互契约见 docs/播放页.md）。
  *
- * 布局（1020×240，三列一条横排；几何表见 docs/播放页.md）：
- *   左栏（全局 PageShell + NavRail，60px；设计稿左栏样式现已应用到全应用）
- *   ｜控制区 480px（ControlPanel.vue）｜子面板 480px（SubPanel 槽位）
- *   子面板 = 480×240、底 #272727、左侧 12px 圆角，内容在三种面板间切换：
- *     lyric（歌词） / comment（评论） / seek（进度控制，内含定时子页）
- *   默认**不打开**任何面板（设计稿的 EmptyExtraPanel 空面板）；
- *   控制区左列三个键各自开合，「已打开的面板再点同一个键 → 关闭」。
+ * 三列一条横排（1020×240）：左栏（全局 PageShell + NavRail，60px）｜控制区 480px
+ * （ControlPanel.vue）｜子面板 480px（480×240、底 #272727、左侧 12px 圆角），内容在
+ * lyric / comment / seek（内含定时子页）三种面板间切换，默认**不打开**任何面板；
+ * 控制区左列三个键各自开合，「已打开的面板再点同一个键 → 关闭」。
  *
- * 交互约束（2026-10-30）：
- *   - 标题/歌手/专辑三行文字不做跳转，详情页只从左栏「歌曲详情」键进入；
- *   - 进度条（TimeStatus/ProgressBar 那一行）纯展示，不挂点击；
- *   - 时钟键打开进度控制面板（TimeShiftPanel）；SetTimer/SetCustomTimer/Timer 三个面板
- *     是它内部的子页（seekView = seek | timer，timer 面板的返回回到 seek）。
- *
- * ⚠ 平台约定（详见 docs/平台约束与自检.md）：
- *   - 模板裸绑定只能来自 props/computed/data；method 版取到的是函数（会整块 UI 消失）；
- *   - watcher 不用值相等去重 → 所有带副作用的 watcher 入口自己判重（curId/coverKey 两处）；
- *   - 页面会挂两遍 → mounted 初始化幂等（loadLyric/loadCover/loadLike 自带 _xxxKey 判重）。
+ * 平台约定（详见 docs/平台约束与自检.md）：模板裸绑定只能来自 props/computed/data；
+ * watcher 不用值相等去重 → 带副作用的 watcher 入口自己判重；页面会挂两遍 → mounted 初始化幂等。
  */
 import PageShell from '../../components/PageShell.vue'
 import ControlPanel from '../../components/player/ControlPanel.vue'
@@ -143,11 +132,10 @@ import config from '../../core/infra/config.js'
 import { evtData } from '../../core/infra/events.js'
 import { toastMixin } from '../../ui/mixins/toast.js'
 import { pageFrameMixin } from '../../ui/mixins/frame.js'
+import { HOLD_SWALLOW_MS } from '../../ui/mixins/arm.js'
 import { bindPageVis } from '../../ui/vis.js'
 import { log } from '../../core/infra/log.js'
 import { isNarrow } from '../../services/player/layout.js'
-
-const LONG_SWALLOW_MS = 3000 // 长按后吞掉 click 的窗口（防御性，见 toggleLike 注释）
 
 export default {
   name: 'player',
@@ -396,13 +384,13 @@ export default {
     /**
      * 单击 → 收藏 / 取消（乐观更新，失败回滚）。
      * 长按走渲染器原生手势事件（pressing 态只发 pressend、不发 click），与单击天然互斥；
-     * 仍保留 LONG_SWALLOW_MS 保险：万一固件长按后仍发 click，不误触发收藏。
+     * 仍保留 HOLD_SWALLOW_MS 保险：万一固件长按后仍发 click，不误触发收藏。
      */
     async toggleLike() {
       const id = this.curId
       if (!id) return
       const dgap = Date.now() - (this._likeLongAt || 0)
-      if (this._likeLongAt && dgap >= 0 && dgap < LONG_SWALLOW_MS) {
+      if (this._likeLongAt && dgap >= 0 && dgap < HOLD_SWALLOW_MS) {
         log('player', '长按余波，吞掉 click')
         return
       }
@@ -423,7 +411,7 @@ export default {
       this.showToast(r.needLogin ? '未登录，无法收藏' : '操作失败，请重试')
     },
     /** 长按 → 歌单选择页（选一个歌单把当前曲目加进去）。
-     *  选择态 = `playlists` 的第二层实例：由 utils/nav.js 分配不在栈里的槽位 key，
+     *  选择态 = `playlists` 的第二层实例：由 core/infra/nav.js 分配不在栈里的槽位 key，
      *  不会复用栈里已有的浏览态实例，也不会弹掉本页。 */
     openPick() {
       const id = this.curId

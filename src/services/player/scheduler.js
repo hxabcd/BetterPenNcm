@@ -21,7 +21,7 @@
  * 避免循环依赖。
  */
 import { log } from '../../core/infra/log.js'
-import { purgeInDir } from './files.js'
+import { purgeTrack } from './files.js'
 import { playCacheDir } from './cache.js'
 import { addProgressHook, dropProgressHooks, fireProgress } from './progress.js'
 import { currentQuality } from './quality.js'
@@ -450,5 +450,5 @@ export function waitIdle(ms) {
 
 /** 清播放缓存目录里某 id 的残留（download 完成后的「不留两份」用）；返回 {files, bytes} */
 export function purgePlayCache(id) {
-  return purgeInDir(playCacheDir(), id)
+  return purgeTrack(id, 'cache')
 }

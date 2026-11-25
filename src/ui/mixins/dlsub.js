@@ -1,26 +1,12 @@
 /**
- * 下载活动订阅 mixin —— bindDl + 可见性门控的页面侧接线
+ * 下载活动订阅 mixin —— bindDl + 可见性门控的页面侧接线。
  *
- * 分层：本文件在 ui 轴，**不直接 import services**（R6：ui → services 禁止）。
- * 下载服务的事件流由页面注入 —— 页面本就要 import services 取数/动作，把
- * `dlApi = { onDl, offDl, dlState }`（download.js 已导出的门面对象）传进来即可：
+ * 分层：本文件在 ui 轴，**不直接 import services**（R6：ui → services 禁止），下载服务的事件流
+ * 由页面注入 `dlApi = { onDl, offDl, dlState }`（download.js 已导出的门面对象）。
  *
- *   import { dlApi } from '../../services/player/download.js'
- *   import { bindDl } from '../../ui/mixins/dlsub.js'
- *   this._dlOff = bindDl(this, dlApi, function (s) { self.syncDl(s) })
- *
- * 背景：`onDl(fn)` 是下载引擎的广播（进度节流 ~400ms、结构变化立即发）。页面被上层页盖住后
- * 订阅仍在跑，每个回调都会写 data 触发一次重渲染；而这些页面显示的无非是顶栏副题里的
- * 「下载中 k/N」——看不见的时候全是白花的帧预算。
- *
- * 语义（省渲染，不省数据）：
- *   - 订阅立刻建立，回调只在**页面可见**时转给页面；
- *   - 隐藏期间的事件直接丢（页面看不到），重新可见时用 `dlState()` 补一次最新快照，
- *     所以状态不会停在旧值；
- *   - 挂载时也由 bindDl 调一次（替代页面原来手写的 `this.syncDl(dlState())`）。
- *
- * bindDl 返回取消订阅函数（callable，直接塞进 beforeDestroy）。
- * 取不到页面对象时退化为「不门控」（等同裸订阅），功能不受影响。
+ * 语义（省渲染，不省数据）：订阅立刻建立，但回调只在**页面可见**时转给页面；隐藏期间的事件
+ * 直接丢，重新可见时用 `dlState()` 补一次最新快照，所以状态不会停在旧值。挂载时也由 bindDl
+ * 调一次。bindDl 返回取消订阅函数（直接塞进 beforeDestroy）；取不到页面对象时退化为不门控。
  */
 import { bindPageVis } from '../../core/infra/vis.js'
 

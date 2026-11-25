@@ -36,7 +36,6 @@ function eq(name, got, want) {
   else bad(name, 'got=' + a + ' want=' + b)
 }
 const truthy = (n, v) => (v ? ok(n) : bad(n, 'falsy: ' + JSON.stringify(v)))
-const slash = (p) => String(p).replace(/\\/g, '/')
 
 /* ---------------- 平台 shim ---------------- */
 const fsShim = {

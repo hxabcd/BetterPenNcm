@@ -46,7 +46,7 @@ class App extends $falcon.App {
   /**
    * 框架的 app 级**页面**生命周期：每个页面的 load / newOptions / show / hide / unload
    * 都会转发到这里（设备端 jsfm-nvue 的 _performPageLifeCycle 调 _performAppLifeCycle('onPageLifeCycle')）。
-   * 导航层用它记账页面实例的存活（槽位分配 / 回退判断），见 utils/nav.js。
+   * 导航层用它记账页面实例的存活（槽位分配 / 回退判断），见 core/infra/nav.js。
    */
   onPageLifeCycle(options) {
     try {

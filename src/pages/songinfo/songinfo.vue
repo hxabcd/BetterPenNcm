@@ -58,7 +58,7 @@
 /**
  * 歌曲详细信息页（点播放页顶部「歌名·歌手」进入）
  *
- * 数据来自 /api/v3/song/detail（见 utils/ncm/api.js 的 fetchSongInfo，PC 端已实测）。
+ * 数据来自 /api/v3/song/detail（见 services/ncm/api.js 的 fetchSongInfo，PC 端已实测）。
  * 歌手行统一铺 chip：**一个歌手一个可点区，点谁进谁**。
  * 专辑行是整行链接，跳专辑页。
  */
@@ -70,8 +70,8 @@ import { go, paramsFor } from '../../core/infra/nav.js'
 import { fetchSongInfo } from '../../services/ncm/api.js'
 import { localSongInfo } from '../../services/player/localmeta.js'
 import { isOffline } from '../../core/infra/net/status.js'
-import { ensureCover, BIG_COVER } from '../../services/cover/cover.js'
-import { fmtDur, fmtDate } from '../../core/infra/format.js'
+import { ensureCover, coverKey, BIG_COVER } from '../../services/cover/cover.js'
+import { aliasSuffix, fmtDur, fmtDate, isVipFee } from '../../core/infra/format.js'
 import { railBack, railBtn, ICON } from '../../ui/rail.js'
 import { player } from '../../services/player/player.js'
 import { downloadSongs } from '../../services/player/download.js'
@@ -111,13 +111,10 @@ export default {
   },
   computed: {
     aliasText() {
-      const a = this.info.song.aliases
-      if (!a || !a.length) return ''
-      return '(' + a.join('/') + ')'
+      return aliasSuffix(this.info.song.aliases)
     },
     isVip() {
-      const f = this.info.song.fee
-      return f === 1 || f === 4
+      return isVipFee(this.info.song.fee)
     },
     dur() {
       return fmtDur(this.info.song.durationMs)
@@ -212,7 +209,7 @@ export default {
         if (self._dead || seq !== self._loadSeq) return
         self.info = r
         self.sub = r.album.name || ''
-        ensureCover({ id: 'al' + r.album.id, cover: r.album.cover }, function (cid, path) {
+        ensureCover({ id: coverKey('album', r.album.id), cover: r.album.cover }, function (cid, path) {
           if (path && !self._dead && seq === self._loadSeq) self.cover = path
         }, BIG_COVER)
         log('songinfo', '就绪 ' + r.song.name + ' 歌手数=' + r.artists.length)
@@ -234,7 +231,7 @@ export default {
       if (loc) {
         self.info = loc
         self.sub = (loc.album.name || '歌曲信息') + '（本地）'
-        ensureCover({ id: 'al' + loc.album.id, cover: loc.album.cover }, function (cid, path) {
+        ensureCover({ id: coverKey('album', loc.album.id), cover: loc.album.cover }, function (cid, path) {
           if (path && !self._dead && seq === self._loadSeq) self.cover = path
         }, BIG_COVER)
         log('songinfo', '本地索引视图 ' + loc.song.name)

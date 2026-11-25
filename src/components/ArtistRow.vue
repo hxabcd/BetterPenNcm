@@ -23,7 +23,7 @@
  * 先立刻铺兜底图，真头像就绪后覆盖；真头像拿不到就保留兜底图。
  */
 import { resolveArtistPortrait, PORTRAIT_SIZE } from '../services/cover/artistavatar.js'
-import { ensureCover, cachedCover } from '../services/cover/cover.js'
+import { ensureCover, cachedCover, coverKey } from '../services/cover/cover.js'
 import { ICON } from '../assets/icons.js'
 
 export default {
@@ -67,8 +67,8 @@ export default {
   methods: {
     fallbackKey() {
       const albumId = Number(this.item.albumId) || 0
-      if (albumId) return 'al' + albumId
-      return 'arf' + (Number(this.item.id) || this.item.id)
+      if (albumId) return coverKey('album', albumId)
+      return coverKey('artistFallback', Number(this.item.id) || this.item.id)
     },
     loadCover() {
       const item = this.item || {}
@@ -78,7 +78,7 @@ export default {
       this._coverSig = sig
       this._portrait = false
       const fk = this.fallbackKey()
-      this.localCover = cachedCover('arp' + id, PORTRAIT_SIZE) || cachedCover(fk, PORTRAIT_SIZE) || ''
+      this.localCover = cachedCover(coverKey('artist', id), PORTRAIT_SIZE) || cachedCover(fk, PORTRAIT_SIZE) || ''
       this.loadFallback(fk)
       if (!id) return
       const self = this

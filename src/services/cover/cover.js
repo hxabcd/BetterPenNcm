@@ -2,7 +2,7 @@
  * 封面缓存 —— **两路落点，一条读取路径**（契约见 docs/存储重构.md §0.1 / §0.1.1）。
  *
  *   ① 已下载 / 已缓存曲目的封面 → `<downloads|cache>/<id>/cover.jpg`，**单尺寸 200px**
- *      跟随曲目文件同生共死（删目录即删封面），走 utils/media.js 的 coverPath。
+ *      跟随曲目文件同生共死（删目录即删封面），走 services/player/media.js 的 coverPath。
  *   ② 浏览时的列表缩略图（搜索、在线歌单、歌手头像、专辑卡……没有对应本地曲目的那些）
  *      → `cache/thumbs/<key>_<size>.jpg`，可整体清空、不属于任何曲目。
  *
@@ -55,9 +55,22 @@ function thumbKey(id, size) {
   return String(id) + '@' + (size || THUMB)
 }
 
-/** 歌曲 id 是纯数字；带前缀的键（al<albumId> / arp<artistId> / ac<userId> / pl<playlistId>）不是 */
+/** 歌曲 id 是纯数字；带前缀的键（见 coverKey）不是 */
 function isSongId(id) {
   return /^\d+$/.test(String(id))
+}
+
+/**
+ * 封面缓存的键：歌曲就是纯数字 id，非歌曲实体带前缀（见 isSongId 的注释）。
+ * 前缀是磁盘上的既有约定（cache/thumbs/<id>_<size>.jpg），改了等于让老缓存全部失效。
+ */
+export function coverKey(kind, id) {
+  if (kind === 'album') return 'al' + id
+  if (kind === 'artist') return 'arp' + id
+  if (kind === 'artistFallback') return 'arf' + id
+  if (kind === 'playlist') return 'pl' + id
+  if (kind === 'user') return 'ac' + id
+  return String(id)
 }
 
 const mem = {} // 缩略图：'id@size' -> file url
@@ -67,7 +80,7 @@ const trackJobs = {} // 曲目封面：'id' -> Promise（同一首的 cover.jpg 
 const queue = [] // [{key, id, url, size}]
 let workers = 0
 
-/** 封面缩略图目录（实现收敛到 utils/paths.js；这里保持历史导出名） */
+/** 封面缩略图目录（实现收敛到 core/infra/paths.js；这里保持历史导出名） */
 export function coversDir() {
   return thumbsDir()
 }
@@ -350,8 +363,8 @@ export function ensureCover(item, cb, size) {
  * 批量入队封面下载（去重 + 限流）
  * items: [{id, cover}]，无 cover 的自动跳过（如搜索结果）
  * onReady: (id, fileUrl) => void —— 每张就绪回调一次（失败时为空串）
- * size: 见 ensureCover。id 不必是歌曲 id —— 头像/专辑封面可传 'arp123' / 'al456'
- *       这类前缀 id（cover.js 只把它当缓存键，不关心语义）
+ * size: 见 ensureCover。id 不必是歌曲 id —— 头像/专辑封面传 coverKey() 生成的键
+ *       （cover.js 只把它当缓存键，不关心语义）
  */
 export function enqueueCovers(items, onReady, size) {
   if (!items || !items.length) return

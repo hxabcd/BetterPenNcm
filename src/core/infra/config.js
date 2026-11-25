@@ -2,7 +2,7 @@
  * 应用设置（SQLite kv 行 ncm_settings 的封装）
  * 用法：await cfg.load(); cfg.get('rate'); await cfg.set('rate', 1.25)
  *
- * 落点：`$dataDir/state.db` 的 `kv` 表（见 utils/store.js）。
+ * 落点：`$dataDir/state.db` 的 `kv` 表（见 core/infra/store.js）。
  * ⚠ **不写 config.json**：平台 `fs` 没有写接口，写文件只能 fork 一次 shell（真机 92~139ms），
  *   而配置在改主题/倍速/音质时会被连续改写。库里的 upsert 是微秒级。
  *
@@ -13,27 +13,32 @@ import { getStorage, setStorage, KEY_SETTINGS } from './store.js'
 
 const KEY = KEY_SETTINGS
 
-const DEFAULTS = {
+/**
+ * 默认值表 = 这些设置默认值的**唯一出处**。core 不能 import services，所以默认值住在 core、
+ * 服务层反向读（如 quality.js 的 DEFAULT_QUALITY = DEFAULTS.playQuality），页面同理。
+ */
+export const DEFAULTS = {
   // 是否自动演示（开发用）
   demo: false,
-  // 登录资料缓存（cookie 本体在 utils/net/cookies.js 里单独持久化）
+  // 登录资料缓存（cookie 本体在 core/infra/net/cookies.js 里单独持久化）
   nickname: '',
   avatarUrl: '',
   userId: 0,
   // ---- 播放器设置（播放选项页可改，加）----
   rate: 1, // 倍速档位
   loopMode: 'list_loop', // 列表循环 / 顺序播放 / 单曲循环 / 随机播放
-  // 音质档位（设置页可改，档位表见 utils/player/quality.js）：
+  // 音质档位（设置页可改，档位表见 services/player/quality.js）：
   //   playQuality     —— 在线播放用的档位，**也是「边听边存」缓存文件的档位**
-  //   downloadQuality —— 用户主动下载到 music/ 用的档位
+  //   downloadQuality —— 用户主动下载到 downloads/ 用的档位
   // 默认都是极高 = 320k mp3，失败降 128k；可选「无损 / Hi-Res」（账号无权益时服务端会降级）
   playQuality: 'exhigh',
   downloadQuality: 'exhigh',
   // 「缓存上限」（MB，默认 1G = 1024）：
   //   **只约束「边听边存」的播放缓存**（$dataDir/cache，按播放音质）—— 总量超过上限时，
   //   从**最久没被播放**的开始滚掉（LRU，见 cache.js 的 enforceCacheLimit）。
-  //   用户主动**下载**（$dataDir/music，按下载音质）不受它约束，只由用户手动删。
-  //   0 / 非法值 = 不限。
+  //   用户主动**下载**（$dataDir/downloads，按下载音质）不受它约束，只由用户手动删。
+  //   0 = 不限（合法值，读的时候别用 `|| 0` 之类的兜底把它和「没设置」混起来）；
+  //   没设置/非法值 = 本默认（页面读不判空时按这里走，不另写字面量）。
   cacheLimitMb: 1024,
   // 启动时自动拉取本地索引内的歌单（只更新远端快照，不下载/不删文件；默认禁用）。
   // 设置入口：设置 → 音质与存储 → 自动拉取。
@@ -64,9 +69,9 @@ const DEFAULTS = {
   // ⚠ 默认开（这是 才做的效果，关掉是给用户一个「不想要」的退路，不是默认行为）。
   // ⚠ 关掉**只影响首页那张卡**：播放页的渐变、进度条都不归它管。
   glowOn: true,
-  // ---- 外观（主题实现在 utils/theme.js，这里只存 preset key）----
+  // ---- 外观（主题实现在 ui/theme.js，这里只存 preset key）----
   bgColor: 'gray', // 深灰 / 纯黑 / 深蓝 / 暗紫
-  // 主题色（accent）预设 key：红(默认) / 橙 / 绿 / 蓝 / 紫 / 粉 —— 表见 utils/theme.js 的 ACCENTS，
+  // 主题色（accent）预设 key：红(默认) / 橙 / 绿 / 蓝 / 紫 / 粉 —— 表见 ui/theme.js 的 ACCENTS，
   // 着色图标 PNG 的 key 与其成对（scripts/gen_icons.py）
   accentColor: 'red'
 }

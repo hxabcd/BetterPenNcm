@@ -2,13 +2,13 @@
   <page-shell :rail="rail" @rail="onRail">
     <page-topbar title="下载队列" :sub="sub" />
     <scroller class="dlq-list">
-      <!-- 进行中：始终只有一条。取消入口 = 行右侧按钮（两次点按确认） -->
+      <!-- 进行中：始终只有一条。取消入口 = 行右侧按钮（单击即取消，不确认） -->
       <div class="dlq-row" v-if="tasks.active">
         <image class="dlq-ico" :src="ICON.download" />
         <text class="dlq-nm">{{ tasks.active.name || ('歌曲 ' + tasks.active.id) }}</text>
         <text class="dlq-st">{{ activeText(tasks.active) }}</text>
-        <div class="dlq-x" :style="xStyle(tasks.active.id)" @click="onCancel(tasks.active)">
-          <image class="dlq-x-ico" :src="xIcon(tasks.active.id)" />
+        <div class="dlq-x" @click="onCancel(tasks.active)">
+          <image class="dlq-x-ico" :src="ICON.stop" />
         </div>
       </div>
       <!-- 排队中（按 WAIT_PAGE 分片：一次多选几百首下载时队列会很长） -->
@@ -16,21 +16,21 @@
         <image class="dlq-ico" :src="ICON.seek" />
         <text class="dlq-nm">{{ t.name || ('歌曲 ' + t.id) }}</text>
         <text class="dlq-st">排队中</text>
-        <div class="dlq-x" :style="xStyle(t.id)" @click="onCancel(t)">
-          <image class="dlq-x-ico" :src="xIcon(t.id)" />
+        <div class="dlq-x" @click="onCancel(t)">
+          <image class="dlq-x-ico" :src="ICON.stop" />
         </div>
       </div>
       <div class="dlq-more" v-if="waitingMore" @click="loadMoreWaiting">
         <text class="dlq-more-t" :style="{ color: accent.light }">{{ moreLabel(waitingMore, '个') }}</text>
       </div>
-      <!-- 已完成（成功/失败/取消）：已经结束，没有取消按钮；仍保留一格同宽的空位，
-           三个分组的「状态」列才对得齐（`.dlq-x` 的底色只由内联 style 给，空格子是透明的）。
+      <!-- 已完成（成功/失败/取消）：已经结束，没有取消按钮；仍保留一格同宽的空位
+           （`.dlq-xgap`），三个分组的「状态」列才对得齐。
            **展示一次后出列** —— 离开本页时 ackFinished() 清掉 -->
       <div class="dlq-row" v-for="t in finished" :key="'f' + t.id + '-' + t.at">
         <image class="dlq-ico" :src="stateIcon(t.state)" />
         <text class="dlq-nm">{{ t.name || ('歌曲 ' + t.id) }}</text>
         <text class="dlq-st" :style="stateStyle(t.state)">{{ stateText(t) }}</text>
-        <div class="dlq-x"></div>
+        <div class="dlq-xgap"></div>
       </div>
       <div class="dlq-more" v-if="finishedMore" @click="loadMoreFinished">
         <text class="dlq-more-t" :style="{ color: accent.light }">{{ moreLabel(finishedMore, '条') }}</text>
@@ -48,11 +48,12 @@
  * 三段：进行中（1 条，含百分比/正在停止）/ 排队中 / 已完成。
  *   - 数据来自 download.js 的 `dlTasks()`（counted 项 = 用户下载通道的任务；
  *     播放的后台缓存不算任务，不在这里显示）
- *   - **两个取消入口**（本页是唯一的取消入口，两处都走「两次点按确认」）：
+ *   - **两个取消入口**（本页是唯一的取消入口，确认强度不同）：
  *       · 左栏「取消全部」键 → `cancelDownload()`：整批作废（排队中的按已取消结算，
- *         正在下的在分片边界停下）；
- *       · 每行右侧的取消按钮 → `cancelTask(id)`：只中断这一首。
- *     ⚠ 行本身**不再**是取消目标（旧实现点整行 = 中断）：整行可点等于把破坏性动作摊在
+ *         正在下的在分片边界停下）。一次点掉一整批，所以走两次点按确认；
+ *       · 每行右侧的取消按钮 → `cancelTask(id)`：只中断这一首，**单击即生效**（不确认）
+ *         —— 目标是单曲、影响面小，代价只是重新点一次下载（`.part` 会续传）。
+ *     ⚠ 行本身**不再**是取消目标（旧实现点整行 = 中断）：整行可点等于把取消动作摊在
  *     一整条 20vh×全宽的命中区上，误触代价是断掉排队中的一批下载；按钮是明确的 14vh 目标。
  *     左栏键在没有可取消的任务时置灰（NavRail 的 disabled），不做无目标提示。
  *   - 取消的语义：`.part` 与元数据保留（重新下载会续传），已完成的任务不受影响。
@@ -89,15 +90,13 @@ export default {
       ICON: ICON,
       tasks: EMPTY,
       waitShown: WAIT_PAGE, // 排队列表的渲染分片（一次多选几百首下载时 waiting 可能几百条）
-      finShown: FIN_PAGE, // 已完成列表的渲染分片（内存上限 50 条，但一次全铺 + 排队页会超预算）
-      armedName: '' // 待确认行提示里显示的歌名（armed 状态本体在 armMixin，id 为 'stop:<taskId>' / 'stopall'）
+      finShown: FIN_PAGE // 已完成列表的渲染分片（内存上限 50 条，但一次全铺 + 排队页会超预算）
     }
   },
   computed: {
     sub() {
-      // 待确认态优先：两次点按的提示只能靠这条常显副题撑住（toast 两秒就没了，见 ui/mixins/toast.js）
+      // 「取消全部」的待确认提示只能靠这条常显副题撑住（toast 两秒就没了，见 ui/mixins/toast.js）
       if (this.isArmed('stopall')) return this.armRailText('取消', this.cancelable)
-      if (this.armed) return '双击取消：' + (this.armedName || '')
       const a = this.tasks.active ? 1 : 0
       const w = this.tasks.waiting.length
       const f = this.tasks.finished.length
@@ -134,7 +133,7 @@ export default {
     /**
      * 左栏「取消全部」键的图标：未按下时压在深色键底（TOK.btnBg）上 → 白版；
      * 按下后键底变实心主题色 → 亮色预设必须换深色版（fgIcon，否则白图标看不见）。
-     * 同一条规则也用于行内按钮（见 xIcon）。
+     * 行内取消按钮没有待确认态（单击即取消），因此固定用白版 ICON.stop + 次级面底。
      */
     railIcon() {
       return this.isArmed('stopall') ? this.fgIcon('stop') : ICON.stop
@@ -212,40 +211,25 @@ export default {
       if (st === 'failed') return { color: this.accent.light } // 主题色浅色（原 @accent-2）
       return { color: TOK.text3 }
     },
-    /** 行内取消按钮的底色：待确认 = 实心主题色（同左栏 danger），否则次级面 */
-    xStyle(id) {
-      return this.isArmed('stop:' + id) ? { backgroundColor: this.accent.c } : { backgroundColor: TOK.panel2 }
-    },
-    /** 行内取消按钮的图标：规则同 railIcon（实心底上要深色版） */
-    xIcon(id) {
-      return this.isArmed('stop:' + id) ? this.fgIcon('stop') : ICON.stop
-    },
     /**
-     * 点行右侧的取消按钮：两次点按确认（同全应用的破坏性动作 —— 本平台没有对话框设施）。
-     * 第一次点按 = 按钮变实心主题色 + 顶栏副题「双击取消：歌名」，3 秒不复位。
+     * 行右侧的取消按钮：**单击即取消**，不做二次确认（目标只有这一首；
+     * 误触的代价是重新点一次下载，`.part` 与元数据都还在，续传即可）。
+     * 「取消全部」才需要确认 —— 那是一次点掉一整批。
      */
     onCancel(t) {
       const id = String(t.id)
-      if (this.isArmed('stop:' + id)) {
-        this.disarm()
-        this.armedName = ''
-        const ok = cancelTask(id)
-        this.showToast(ok ? '已中断：' + (t.name || id) : '任务已结束')
-        log('dlqueue', '中断任务 ' + id + ' ok=' + ok)
-        this.refresh()
-        return
-      }
-      this.armedName = t.name || id
-      this.arm('stop:' + id)
+      const ok = cancelTask(id)
+      this.showToast(ok ? '已取消：' + (t.name || id) : '任务已结束')
+      log('dlqueue', '中断任务 ' + id + ' ok=' + ok)
+      this.refresh()
     },
-    /** 左栏「取消全部」：整批作废（同样两次点按确认；范围 = 进行中 + 排队中） */
+    /** 左栏「取消全部」：整批作废（两次点按确认；范围 = 进行中 + 排队中） */
     onRailKey(key) {
       if (key !== 'stopall') return
       const n = this.cancelable
       if (!n) return
       if (this.isArmed('stopall')) {
         this.disarm()
-        this.armedName = ''
         cancelDownload()
         this.showToast('已取消 ' + n + ' 个任务')
         log('dlqueue', '取消全部任务 ' + n + ' 个')
@@ -310,13 +294,12 @@ export default {
   text-align: right;
 }
 /* 行内取消按钮：14vh ≈ 34px（与本地下载页状态卡的拉取/同步按钮同高，小屏够点）。
-   ⚠ 底色**只能**由模板内联 style 给（未确认 = TOK.panel2，已确认 = 实心主题色）：
-   已完成分组里那个同宽的空格子用的是同一个类名、没有内联 style，就得是透明的 ——
-   千万别在这里写 background-color，否则已完成行会多出一个空方块。 */
+   单击即取消，所以**固定**次级面底 + 白 ×，没有待确认态。 */
 .dlq-x {
   width: 14vh;
   height: 14vh;
   flex: none;
+  background-color: @panel-2;
   border-radius: @radius;
   margin-left: 2.5vh;
   align-items: center;
@@ -325,5 +308,13 @@ export default {
 .dlq-x-ico {
   width: 8vh;
   height: 8vh;
+}
+/* 已完成分组的同宽占位（没有取消按钮，但状态列要对齐）：宽度/左边距与 .dlq-x 成对维护，
+   且**不带底色**（带底色就成了一个空方块） */
+.dlq-xgap {
+  width: 14vh;
+  height: 14vh;
+  flex: none;
+  margin-left: 2.5vh;
 }
 </style>

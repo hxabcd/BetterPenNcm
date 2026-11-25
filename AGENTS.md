@@ -131,7 +131,7 @@ This file provides guidance to AI Agent when working with code in this repositor
 | dltracks | 本地下载-曲目列表：kind=all/single/orphan/playlist；歌单内视图带拉取/同步与 A/D |
 | dlartists | 本地下载-歌手：头像 + 名称 + 数量，左栏排序（标题/数量） |
 | dlalbums | 本地下载-专辑：封面网格，左栏排序（标题/年份/数量）与列数（2/3/4） |
-| dlqueue | 下载队列：进行中 / 排队中 / 已完成；取消有两个入口（左栏「取消全部」+ 每行右侧取消按钮，均两次点按确认） |
+| dlqueue | 下载队列：进行中 / 排队中 / 已完成；取消有两个入口（左栏「取消全部」两次点按确认；每行右侧取消按钮单击即生效） |
 | storage | 存储管理：已下载 / 自动缓存 / 封面 / 可用空间 + 清空 |
 | account / login | 个人中心 / 登录（二维码 / 验证码 / 密码） |
 | probe | 临时能力探针（仅 `build_probe.sh` 构建，不随正式版发布） |

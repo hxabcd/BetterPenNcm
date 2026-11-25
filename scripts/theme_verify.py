@@ -66,11 +66,12 @@ CHECKS = [
     ('src/pages/account/account.vue', ['accentMixin', '{ backgroundColor: accent.c }', 'this.accent.c } : { backgroundColor']),
     ('src/pages/album/album.vue', ['accentMixin', '{ color: accent.light }']),
     ('src/pages/artist/artist.vue', ['accentMixin', '{ color: accent.light }']),
-    # dlqueue：取消的两个入口（左栏「取消全部」+ 行内按钮）都走「两次点按确认」，
-    # 待确认态用实心主题色 —— 判据钉住服务层函数与 armed 接线，防止有人把确认删回单击。
-    ('src/pages/dlqueue/dlqueue.vue', ['accentMixin', 'this.accent.light', 'this.accent.c',
+    # dlqueue：取消的两个入口 —— 行内按钮单击即取消（`const ok = cancelTask(id)`，不许退回
+    # 两次点按），左栏「取消全部」才走两次点按确认（armed + 实心主题色键）。判据钉住服务层
+    # 函数与两种接线，防止确认强度被改乱。
+    ('src/pages/dlqueue/dlqueue.vue', ['accentMixin', 'this.accent.light',
                                        'cancelTask', 'cancelDownload', 'fgIcon',
-                                       "this.isArmed('stop:'", "this.isArmed('stopall')"]),
+                                       'const ok = cancelTask(id)', "this.isArmed('stopall')"]),
     ('src/pages/downloads/downloads.vue', ['accentMixin', 'cico(', 'aIcon', 'dlpl', 'dlar', 'dlal']),
     ('src/pages/dltracks/dltracks.vue', ['accentMixin', 'ICON.pull', 'ICON.sync', 'lastPullText',
                                          'multiSelectMixin', 'multiList()', 'playlistView', 'syncList']),

@@ -195,7 +195,8 @@ ACCENTS = (
 #   check      —— 多选勾选圈：SongRow .srow-mark、queue .qu-mark
 #   download   —— 左栏 danger：album/artist/list 的「下载」键 armed
 #   trash      —— 左栏 danger：downloads/list 的「删除」键、queue 的「移除」键 armed
-DARK_ICONS = ('check', 'download', 'play', 'pause', 'trash')
+#   stop       —— 下载队列：左栏「取消全部」键 armed + 行内「取消」按钮 armed
+DARK_ICONS = ('check', 'download', 'play', 'pause', 'stop', 'trash')
 
 # 深色前景（与 src/ui/theme.js 的 FG_DARK 保持一致）
 DARK_FG = '#14151a'
@@ -321,7 +322,8 @@ def emit_js():
     L.append(' * 为什么：Vocaloid 七色里 6 个是亮色（黄/绿/青/蓝/紫/粉），白图标压上去对比度只有 ~1.5:1')
     L.append(' * （几乎看不见），而平台不能给 <image> 染色 —— 只能同一形状再来一份深色的。')
     L.append(' * 用途：play/pause 主控键底（.idx-play / .ply-btnmain）；check 多选勾选圈')
-    L.append(' * （SongRow / queue）；download / trash 左栏 danger 键 armed。')
+    L.append(' * （SongRow / queue）；download / trash 左栏 danger 键 armed；')
+    L.append(' * stop 下载队列的「取消全部」与行内「取消」按钮 armed。')
     L.append(' */')
     L.append('export const FG_ICON = {')
     dkeys = [k for k in DARK_ICONS if k in keyset]

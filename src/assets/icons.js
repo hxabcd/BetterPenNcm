@@ -131,6 +131,7 @@ import shuffle from './icon-shuffle.png?base64'
 import sort from './icon-sort.png?base64'
 import star from './icon-star.png?base64'
 import stop from './icon-stop.png?base64'
+import stopDark from './icon-stop-dark.png?base64'
 import sync from './icon-sync.png?base64'
 import tasks from './icon-tasks.png?base64'
 import thumbsup from './icon-thumbsup.png?base64'
@@ -246,13 +247,15 @@ export default ICON
  * 为什么：Vocaloid 七色里 6 个是亮色（黄/绿/青/蓝/紫/粉），白图标压上去对比度只有 ~1.5:1
  * （几乎看不见），而平台不能给 <image> 染色 —— 只能同一形状再来一份深色的。
  * 用途：play/pause 主控键底（.idx-play / .ply-btnmain）；check 多选勾选圈
- * （SongRow / queue）；download / trash 左栏 danger 键 armed。
+ * （SongRow / queue）；download / trash 左栏 danger 键 armed；
+ * stop 下载队列的「取消全部」与行内「取消」按钮 armed。
  */
 export const FG_ICON = {
   check: checkDark,
   download: downloadDark,
   play: playDark,
   pause: pauseDark,
+  stop: stopDark,
   trash: trashDark
 }
 

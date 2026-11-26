@@ -114,8 +114,9 @@ import { listPageMixin } from '../../ui/mixins/listpage.js';
 import {
   loadMore as cursorLoadMore,
   sorted as cursorSorted,
-  loadAllSongs as cursorLoadAll,
   ensureAllSongs as cursorEnsureAll,
+  queuePlayAll as cursorQueuePlayAll,
+  queueFromRow as cursorQueueFromRow,
   applyRemoved as cursorApplyRemoved,
   applyHistoryRemoved as cursorApplyHistRemoved,
 } from '../../services/player/listcursor.js';
@@ -217,7 +218,7 @@ export default {
       ICON: ICON, // 模板里取图标（分类侧栏的展开/收起图标）
       hint: "加载中...",
       trackIds: [], // 歌单全量 id（liked/playlist；history 时 = 历史全量 id）
-      fullSongs: [], // kind=history：本地全量历史条目（loadAllSongs / 删除时用）
+      fullSongs: [], // kind=history：本地全量历史条目（全量装配 / 删除时用）
       addTimes: {}, // 曲目id -> 收藏时间戳（歌单全量，供「按收藏时间排序」）
       total: 0, // 歌手曲目总数（artistsongs 的另一条分页线）
       order: "hot", // 歌手曲目服务端排序：hot（接口默认，按热度）| time（按时间）
@@ -255,7 +256,7 @@ export default {
       indexed: false, // 是否已加入本地索引（只读列表「更多」面板的索引项）
       estText: "", // 空间预检估算的体积文案（仅 isArmed('dl') 的提示里显示）
       dl: null, // 下载活动快照（bindDl 订阅，签名判重后赋值；顶栏副题显示进度）
-      loadingAll: false, // 「播放全部」正在拉全量曲目（左栏播放键高亮 + 防重入）
+      loadingAll: false, // 「播放全部」正在取起播首段（左栏播放键高亮 + 防重入；剩余曲目后台补）
     };
   },
   computed: {
@@ -473,7 +474,7 @@ export default {
           out.push(railBtn("sub", ICON.star, this.subscribed));
           return out;
         }
-        out.push(railBtn("playall", ICON.play, this.loadingAll)); // 载入全量曲目期间高亮
+        out.push(railBtn("playall", ICON.play, this.loadingAll)); // 取起播首段期间高亮
         out.push(railBtn("multi", ICON.multi, false, "", false, !this.viewSongs.length)); // 空列表置灰；删除能力见 canDelete
         out.push(railBtn("sort", ICON.sort, this.panel === "sort"));
         return out;
@@ -719,41 +720,28 @@ export default {
     },
     async pick(i) {
       /* 点行起播的队列 = **整份列表**（与「播放全部」同口径）：
-         分页只限制渲染量，不该让连播/上一首/队列页只在前 50 首里转。
-         未全量时先拉全量（进度提示由 loadAllSongs 给），再按 id 找回点中的那首
-         ——不能直接拿渲染下标当起播位置：全量重新取回后下标可能与旧视图不同。 */
+         分页只限制渲染量，不该让连播/上一首/队列页只在已加载的那几十首里转。
+         但不为此等全量：首段（歌手 100 首 / 歌单 300 首）到手就起播，其余后台补齐
+         （见 services/player/playqueue.js）。 */
       const song = this.viewSongs[i];
       if (!song) return;
-      if (this.allLoaded) {
-        player.playList(this.viewAll, i);
-        go("player", {});
-        return;
-      }
-      if (this.loadingAll || this._loadingPick) return; // 已在拉全量：忽略连点，别并发两份队列
+      if (this.loadingAll || this._loadingPick) return; // 已在起播：忽略连点，别并发两份队列
       this._loadingPick = true;
       const loadToken = this._loadToken;
       try {
-        const ok = await this.ensureAllSongs();
-        if (!ok || this._dead || loadToken !== this._loadToken) return;
-        const list = this.viewAll; // 全量 + 当前排序
-        let at = -1;
-        for (let j = 0; j < list.length; j++) {
-          if (list[j].id === song.id) {
-            at = j;
-            break;
-          }
+        const q = await cursorQueueFromRow(this, i);
+        if (this._dead || loadToken !== this._loadToken) return;
+        if (!q.songs.length) {
+          this.showToast("没有可播放的曲目");
+          return;
         }
-        if (at < 0) {
-          // 点中的行一定来自 trackIds；找不到说明取回时被接口丢了，兜底按旧下标起播，别点了没反应
-          at = Math.min(i, list.length - 1);
-          log("list", "点行起播：全量里找不到 id=" + song.id + "，退回下标 " + at);
-        }
-        log("list", "点行起播前拉全量 " + list.length + " 首，起播 #" + (at + 1));
-        player.playList(list, at);
-        this.hideToast(); // 收起「正在载入全部曲目...」进度
+        log("list", "点行起播 #" + (q.at + 1) + "，队列首段 " + q.songs.length + " 首");
+        player.playList(q.songs, q.at);
+        if (q.fill) q.fill(); // 后台补齐：不 await，不挡页面
+        this.hideToast();
         if (!this.multi) go("player", {});
       } catch (e) {
-        this.showToast("载入全部曲目失败：" + ((e && e.message) || e));
+        this.showToast("载入曲目失败：" + ((e && e.message) || e));
         log("list", "点行起播载入失败 " + ((e && e.message) || e));
       } finally {
         this._loadingPick = false;
@@ -768,10 +756,6 @@ export default {
     sorted(arr) {
       return cursorSorted(this, arr);
     },
-    /** 取全量（默认序）但不写页面状态——「播放全部」/「点行起播」用；实现在 listcursor.js */
-    async loadAllSongs(token) {
-      return cursorLoadAll(this, token);
-    },
     /** 确保**全量在页面状态里**（本地排序、整单全选的前置条件）；实现在 listcursor.js */
     async ensureAllSongs() {
       return cursorEnsureAll(this);
@@ -781,34 +765,38 @@ export default {
      * 随机模式从随机一首起播（player.playList 在随机模式下以传入的这首为锚点重洗临时队列，
      * 见 player.js 的 buildShuffle）。起播位置按**当前视图顺序**（本地排序生效；artistsongs
      * 是服务端排序）。与点行的 pick 一致，起播后进播放页。
+     *
+     * 不等全量：歌手最多取 100 首、歌单先取 300 首就起播，剩余由后台逐批追加到队尾
+     * （listcursor.queuePlayAll + playqueue.js），大歌单不再卡在「正在载入全部曲目」。
      */
     async playAll() {
-      if (this.loadingAll) return;
+      if (this.loadingAll || this._loadingPick) return;
       if (!this.songs.length) {
         this.showToast("没有可播放的曲目");
         return;
       }
       this.loadingAll = true;
+      this.showToast("正在载入曲目...", 60000);
       const loadToken = this._loadToken;
       try {
-        // 已全量时直接用完整视图（排序已生效）；否则另行取全量（不写页面状态）
-        const all = this.allLoaded ? this.viewAll.slice() : await this.loadAllSongs(loadToken);
+        const q = await cursorQueuePlayAll(this);
         if (this._dead || loadToken !== this._loadToken) return;
-        if (!all.length) {
+        const list = q.songs;
+        if (!list.length) {
           this.showToast("没有可播放的曲目");
           return;
         }
-        const list = this.sorted(all);
         const st = player.state();
         const shuf = st.loopMode === "shuffle";
-        const at = shuf ? Math.floor(Math.random() * list.length) : 0;
-        log("list", "播放全部 " + list.length + " 首（" + (shuf ? "随机起播 #" + (at + 1) : "第一首起播") + "）");
+        const at = shuf ? Math.floor(Math.random() * list.length) : q.at;
+        log("list", "播放全部 " + list.length + " 首（" + (shuf ? "随机起播 #" + (at + 1) : "第一首起播") + "）" + (q.fill ? "，其余后台补齐" : ""));
         player.playList(list, at);
+        if (q.fill) q.fill(); // 后台补齐：不 await，不挡页面
         this.hideToast(); // 进度提示收起（页面被推到播放页后它也留在栈里）——hideToast 来自 toastMixin
         // 载入期间用户可能已进了多选态（左栏管理键仍点得到）—— 那种情况不强推播放页
         if (!this.multi) go("player", {});
       } catch (e) {
-        this.showToast("载入全部曲目失败：" + ((e && e.message) || e));
+        this.showToast("载入曲目失败：" + ((e && e.message) || e));
         log("list", "播放全部载入失败 " + ((e && e.message) || e));
       } finally {
         this.loadingAll = false;

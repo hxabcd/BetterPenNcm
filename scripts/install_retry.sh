@@ -36,6 +36,12 @@ if [ ! -f "$DEVCTL" ]; then
   exit 1
 fi
 
+# devctl 是交给 Windows python 跑的：MSYS 的 /d/... 路径必须先转成 D:\...
+# （否则 python 按当前盘解释成 D:\d\...，check 永远返回失败 —— 看起来像「设备一直离线」）
+wdevctl() {
+  python "$(cygpath -w "$DEVCTL")" --project "$(cygpath -w "$PROJ")" "$@"
+}
+
 say() {
   printf '%s %s\n' "$(date '+%H:%M:%S')" "$*" | tee -a "$LOG"
 }
@@ -50,14 +56,14 @@ while :; do
     exit 2
   fi
   say "── 第 $N 次尝试 ──"
-  if ! python "$DEVCTL" --project "$PROJ" check >/dev/null 2>&1; then
+  if ! wdevctl check >/dev/null 2>&1; then
     say "设备离线，跳过本次安装"
     sleep "$INTERVAL"
     continue
   fi
   say "设备在线，开始安装"
-  if python "$DEVCTL" --project "$PROJ" install "$AMR" 2>&1 | tee -a "$LOG"; then
-    if python "$DEVCTL" --project "$PROJ" check >/dev/null 2>&1; then
+  if wdevctl install "$AMR" 2>&1 | tee -a "$LOG"; then
+    if wdevctl check >/dev/null 2>&1; then
       say "✅ 安装完成（$(basename "$AMR")）"
       exit 0
     fi

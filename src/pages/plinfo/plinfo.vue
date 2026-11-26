@@ -67,12 +67,12 @@ import { railBack, railBtn, ICON } from '../../ui/rail.js'
 import { go, paramsFor } from '../../core/infra/nav.js'
 import {
   fetchPlaylistInfo,
-  fetchPlaylistAllSongs,
   setSubscribed,
   renamePlaylist,
   deletePlaylist,
   roleOf
 } from '../../services/ncm/playlist.js'
+import { playlistQueue, PLAYLIST_QUEUE_HEAD } from '../../services/player/playqueue.js'
 import { addList, removeList, removeListLocal, isIndexed, downloadAll } from '../../services/player/locallists.js'
 import { player } from '../../services/player/player.js'
 import { bindDl } from '../../ui/mixins/dlsub.js'
@@ -110,6 +110,7 @@ export default {
       creatorId: 0,
       creator: '',
       trackCount: 0,
+      trackIds: [], // 详情接口带回来的全量 id（「播放全部」起播首段用，不必再请求一次）
       hint: '',
       indexed: false,
       panel: '',
@@ -259,6 +260,7 @@ export default {
         self.creatorId = info.creatorId
         self.creator = info.creator
         self.trackCount = info.trackCount
+        self.trackIds = info.trackIds || []
         self.hint = ''
         ensureCover({ id: coverKey('playlist', self.pid), cover: info.cover }, function (cid, path) {
           if (path && !self._dead) self.cover = path
@@ -396,30 +398,41 @@ export default {
       log('plinfo', '本地删除 ' + this.pid + ' 删除=' + n + ' 文件=' + r.files + ' 字节=' + r.bytes)
     },
     /* ---- 播放全部 ---- */
+    /**
+     * 起播首段 300 首（一次 song/detail 请求），剩余曲目由 playqueue.js 在后台逐批
+     * 追加到队尾 —— 不再等整张歌单拉完（几千首的索引歌单要几十秒）。
+     */
     async playAll() {
       if (this.busy) return
       this.busy = 'playall'
       this.showToast('正在载入曲目...', 60000)
-      const self = this
-      let songs = []
       try {
-        songs = await fetchPlaylistAllSongs(this.pid, function (done, total) {
-          self.showToast('载入中 ' + done + '/' + total, 60000)
-        })
+        let ids = this.trackIds
+        if (!ids || !ids.length) {
+          // 详情没取到（加载失败/极端回包）：补一次，n:0 只要 trackIds
+          const info = await fetchPlaylistInfo(this.pid)
+          ids = info.trackIds || []
+          if (!this._dead) this.trackIds = ids
+        }
+        const q = await playlistQueue(ids, PLAYLIST_QUEUE_HEAD)
+        this.busy = ''
+        this.hideToast()
+        if (this._dead) return
+        if (!q.songs.length) {
+          this.showToast('没有可播放的曲目')
+          return
+        }
+        player.playList(q.songs, 0)
+        if (q.fill) q.fill() // 后台补齐：不 await，不挡页面
+        log('plinfo', '播放全部 ' + q.songs.length + ' 首' + (q.fill ? '（其余后台补齐）' : ''))
+        go('player', {})
       } catch (e) {
-        songs = []
+        this.busy = ''
+        this.hideToast()
+        if (this._dead) return
+        this.showToast('载入曲目失败：' + ((e && e.message) || e))
         log('plinfo', '播放全部载入失败 ' + ((e && e.message) || e))
       }
-      this.busy = ''
-      this.hideToast()
-      if (this._dead) return
-      if (!songs.length) {
-        this.showToast('没有可播放的曲目')
-        return
-      }
-      player.playList(songs, 0)
-      log('plinfo', '播放全部 ' + songs.length + ' 首')
-      go('player', {})
     },
     /* ---- 重命名（系统输入法，index 搜索同款：先探测可用性，取消返回 null）---- */
     async doRename() {

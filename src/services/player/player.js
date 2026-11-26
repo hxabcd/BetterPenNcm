@@ -47,6 +47,8 @@ let queueSrc = '' // 队列来源标记（playList 第三参）：'downloads' = 
 //   随会话快照持久化（session.js 的 src 字段），重启后恢复态仍认得
 let shuf = null // 随机模式的临时队列（queue 的乱序副本，同一批歌曲对象）；非随机模式为 null
 let index = -1 // 当前曲在**生效队列**里的下标（随机模式指 shuf，其它模式指 queue）
+let qgen = 0 // 队列代次：换队列就自增（playList / 清空队列 / 恢复快照）。
+//   后台补齐（playqueue.js）起播时记下代次，对不上 = 用户已换队列，这批歌直接丢
 let cur = {}
 let isPlaying = false
 let paused = false
@@ -970,6 +972,7 @@ function prev() {
 function playList(songs, i, src) {
   queue = songs || []
   queueSrc = src || ''
+  qgen++
   shuf = null // 换队列 = 旧临时队列作废（随机模式下下面重建）
   const at = i || 0
   if (loopMode === 'shuffle') {
@@ -996,6 +999,7 @@ function clearPlayback(hintText) {
   gen++
   uuid = ''
   stopTimer()
+  qgen++
   queue = []
   queueSrc = ''
   shuf = null
@@ -1218,6 +1222,58 @@ function insertNext(songs) {
   return { ok: true, added: fresh.length, dup: dup, played: false }
 }
 
+/* ---- 后台补齐：向队尾追加 ---- */
+
+/** 当前队列代次（后台补齐起播时记下，见 appendToQueue） */
+function queueToken() {
+  return qgen
+}
+
+/**
+ * 把若干首**追加到队尾**（大歌单「先起播、后补齐」用，流程见 playqueue.js）。
+ *
+ * 与 insertNext 的区别：不动在播曲、不改 index、跟队列已有曲目按 id 去重；
+ * 随机模式下临时队列也追加在尾部，当前这一轮的播放路径不变，新歌排在这一轮之后。
+ *
+ * `opts.gen` 是起播时 `player.queueToken()` 的值：对不上说明用户已经换了队列，
+ * 这批歌不属于当前播放内容 → 丢弃（`stale: true`），否则会把上一份列表的歌塞进新队列。
+ * 队列已空（用户清空过）同样丢弃，不擅自起播。
+ * 返回 {ok, added, dup, stale, total}
+ */
+function appendToQueue(songs, opts) {
+  const add = songs || []
+  const gen = opts && typeof opts.gen === 'number' ? opts.gen : null
+  if (gen !== null && gen !== qgen) {
+    return { ok: false, added: 0, dup: 0, stale: true, total: queue.length }
+  }
+  if (!add.length) return { ok: true, added: 0, dup: 0, stale: false, total: queue.length }
+  if (!queue.length) return { ok: false, added: 0, dup: 0, stale: true, total: 0 }
+  const has = {}
+  for (let i = 0; i < queue.length; i++) {
+    if (queue[i] && queue[i].id != null) has[String(queue[i].id)] = 1
+  }
+  const fresh = []
+  let dup = 0
+  for (let i = 0; i < add.length; i++) {
+    const s = add[i]
+    if (!s || s.id == null) continue
+    const k = String(s.id)
+    if (has[k]) {
+      dup++
+      continue
+    }
+    has[k] = 1
+    fresh.push(s)
+  }
+  if (!fresh.length) return { ok: true, added: 0, dup: dup, stale: false, total: queue.length }
+  queue = queue.concat(fresh)
+  if (shuf) shuf = shuf.concat(fresh)
+  log('player', '队列追加 ' + fresh.length + ' 首（重复 ' + dup + '）队列 ' + queue.length)
+  emit()
+  persist()
+  return { ok: true, added: fresh.length, dup: dup, stale: false, total: queue.length }
+}
+
 /* ---- 倍速 ---- */
 
 /** 改倍速：按当前位置用当前源（本地文件或直链）重开（playFile 第三参数，在线倍速实测可用），持久化 */
@@ -1305,6 +1361,7 @@ export async function loadLastState() {
   }
   queue = s.queue
   queueSrc = s.src || '' // 队列来源标记（老快照没有该字段 → ''）
+  qgen++
   shuf = null
   // 随机模式：按快照存的 id 序列重建临时队列（顺序与退出前一致，接着放没放完的那些）；
   // 老快照没有该字段、或大歌单窗口裁得只剩一两首时，退化为「以当前曲为锚点重洗」
@@ -1378,6 +1435,8 @@ export const player = {
   cycleLoopMode: cycleLoopMode,
   removeFromQueue: removeFromQueue,
   insertNext: insertNext,
+  queueToken: queueToken,
+  appendToQueue: appendToQueue,
   state: state,
   on: on,
   off: off,

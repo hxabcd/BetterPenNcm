@@ -7,7 +7,8 @@
  *   3. kind 有自己的 loadMore handler → 交给 listkinds 取数（offset / trackIds 两路）。
  *
  * ensureAllSongs / loadAllSongs 是「全量装配」：本地排序与整单全选要求完整列表在
- * 页面状态里；「播放全部」/「点行起播」只把全量交给播放器、不写页面状态（loadAllSongs）。
+ * 页面状态里。「播放全部」/「点行起播」不走它 —— 那两处只要**能起播的首段**
+ * （list.vue 的 queuePlayAll / queueFromRow），剩下的由 playqueue.js 后台补。
  *
  * 并发与生命周期守卫在这里统一做：
  *   - loadingMore / _loadingFull 双闸（全量加载与追页不能并发写 songs/shown）；
@@ -17,6 +18,7 @@
 import { KINDS, PAGE, appendUnique } from './listkinds.js'
 import { fetchArtistSongs } from '../ncm/api.js'
 import { fetchTracksMore, TRACKS_CHUNK } from '../ncm/playlist.js'
+import { ARTIST_QUEUE_MAX, PLAYLIST_QUEUE_HEAD, playlistQueue } from './playqueue.js'
 import { markUnliked } from '../ncm/like.js'
 import { log } from '../../core/infra/log.js'
 import { cmpText } from '../../core/infra/format.js'
@@ -43,8 +45,8 @@ export function sorted(vm, arr) {
 
 /**
  * 取回整份列表的**全量曲目**（默认序）并返回，**不写页面状态** ——
- * 「播放全部」/「点行起播」只把它交给播放器，页面仍只渲染前 shown 行（坑 5：一次渲染 ≤50 行）。
- * 需要把全量装进页面（本地排序 / 整单全选）走 ensureAllSongs(vm)。
+ * 本地排序与整单全选的前置条件（走 ensureAllSongs）。
+ * 只为了起播不需要它：起播只要首段，见 queuePlayAll / queueFromRow。
  */
 export async function loadAllSongs(vm, token) {
   const want = token != null ? token : vm._loadToken
@@ -146,6 +148,108 @@ export async function loadMore(vm) {
   } finally {
     vm.loadingMore = false
   }
+}
+
+/**
+ * 歌手曲目队列：最多 ARTIST_QUEUE_MAX 首。点中第 100 首以后的行时从**那一首**起取，
+ * 不为「听第 150 首」把前 149 首也拉回来（歌手动辄 500+ 首）。
+ * 已加载的前缀直接用，不够再按同一 offset/order 补一次请求。
+ */
+async function artistQueue(vm, i) {
+  const total = Number(vm.total) || vm.songs.length
+  const from = i < ARTIST_QUEUE_MAX ? 0 : i
+  const want = Math.max(0, Math.min(ARTIST_QUEUE_MAX, total - from))
+  let songs = want ? vm.songs.slice(from, from + want) : []
+  // 已加载的前缀不够（首屏只有 50 行）就按同一 offset/order 往后补；
+  // 服务端单页可能给不满 want，所以是循环而不是一次请求
+  let off = from + songs.length
+  let guard = 0
+  while (songs.length < want && off < from + want && guard++ < 4) {
+    const r = await fetchArtistSongs(vm.artistId, vm.order, off, want - songs.length)
+    const got = r.songs || []
+    if (!got.length) break
+    const before = songs.length
+    songs = appendUnique(songs, got)
+    off += got.length
+    if (songs.length === before) break // 全是被去重过的重复：再取也是白搭
+  }
+  return { songs: songs.slice(0, want), at: Math.max(0, i - from), fill: null }
+}
+
+/**
+ * liked/playlist 未全量时的队列：首段 PLAYLIST_QUEUE_HEAD 首立即起播，其余后台补。
+ * pickId = 点中的那首：落在首段里就定位到它；落在更后面（多次「加载更多」后点行）
+ * 就从它那首起取首段，免得为了点第 400 首把前 399 首先拉下来。
+ */
+async function playlistHeadQueue(vm, pickId) {
+  const ids = vm.trackIds || []
+  const attach = function (list) {
+    return vm.attachTimes(list)
+  }
+  let base = 0
+  if (pickId != null) {
+    const k = ids.indexOf(pickId)
+    if (k >= PLAYLIST_QUEUE_HEAD) base = k
+  }
+  const q = await playlistQueue(ids.slice(base), PLAYLIST_QUEUE_HEAD, attach)
+  let at = 0
+  if (pickId != null) {
+    at = -1
+    for (let j = 0; j < q.songs.length; j++) {
+      if (q.songs[j].id === pickId) {
+        at = j
+        break
+      }
+    }
+    if (at < 0) {
+      /* 首段里没有它（下架曲目取不回对象）：本地已渲染的这份有就放队首起播，
+         别让「点了行没反应」；队列顺序从这首往后，缺的那首本来也播不了 */
+      for (let j = 0; j < vm.songs.length; j++) {
+        if (vm.songs[j] && vm.songs[j].id === pickId) {
+          q.songs = [vm.songs[j]].concat(q.songs)
+          at = 0
+          break
+        }
+      }
+    }
+  }
+  return { songs: q.songs, at: at < 0 ? 0 : at, fill: q.fill }
+}
+
+/**
+ * 「播放全部」的队列：{ songs, at, fill }。
+ *   - 已全量（历史/搜索/推荐/排过序/小歌单）：整份视图，跟以前一样
+ *   - artistsongs：前 ARTIST_QUEUE_MAX 首
+ *   - liked/playlist：前 PLAYLIST_QUEUE_HEAD 首，`fill` 在 playList 之后调用（不 await）
+ */
+export async function queuePlayAll(vm) {
+  if (vm.allLoaded) return { songs: vm.viewAll, at: 0, fill: null }
+  if (vm.kind === 'artistsongs') return artistQueue(vm, 0)
+  if (vm.kind === 'liked' || vm.kind === 'playlist') return playlistHeadQueue(vm, null)
+  const all = await loadAllSongs(vm)
+  return { songs: sorted(vm, all), at: 0, fill: null }
+}
+
+/** 「点行起播」的队列，口径与 queuePlayAll 相同（下标 i 是当前视图里的行号） */
+export async function queueFromRow(vm, i) {
+  if (vm.allLoaded) return { songs: vm.viewAll, at: i, fill: null }
+  if (vm.kind === 'artistsongs') return artistQueue(vm, i)
+  if (vm.kind === 'liked' || vm.kind === 'playlist') {
+    const song = vm.viewSongs[i] || {}
+    return playlistHeadQueue(vm, song.id)
+  }
+  // 其它 kind 天然全量（走不到这里）：兜底仍拉全量，再按 id 找回点中的那首
+  const all = await loadAllSongs(vm)
+  const list = sorted(vm, all)
+  const song = vm.viewSongs[i] || {}
+  let at = 0
+  for (let j = 0; j < list.length; j++) {
+    if (list[j].id === song.id) {
+      at = j
+      break
+    }
+  }
+  return { songs: list, at: at, fill: null }
 }
 
 /**

@@ -1,21 +1,14 @@
-/**
- * 网易云扫码登录（weapi 加密版）
- *
- * 为什么必须加密：旧版明文 /api/ 扫码接口已被服务端封禁——真机实测中，
- * 手机扫码确认后轮询回来的是 code=8821「请切换其他登录方式或升级新版本再试」。
- * 换成 /weapi/ 加密后即可正常登录（加密实现见 services/ncm/crypto.js，已与用户
- * MusicVault 项目的纯 Python 实现逐字节对拍通过）。
- *
- * 流程：
- *   1) POST /weapi/login/qrcode/unikey        {type:1}          -> {unikey}
- *   2) 二维码内容 = https://music.163.com/login?codekey=<unikey>
- *   3) POST /weapi/login/qrcode/client/login  {key, type:1}     -> 轮询
- *        code 801 等待扫码 / 802 已扫码待确认 / 803 授权成功 / 800 二维码过期
- *   4) 803 时登录态在**响应体 cookie 字段**里（旧明文接口是走 Set-Cookie 响应头）
- *   5) POST /weapi/w/nuser/account/get        {}                -> {profile:{nickname,...}}
- *
- * 登录态由 core/infra/net/cookies.js 统一持久化，其他业务请求自动带 Cookie 头。
- */
+
+
+// 网易云扫码登录（weapi 加密版）。旧版明文 /api/ 扫码接口已被服务端封禁：真机实测手机扫码
+// 确认后轮询回来的是 code=8821。流程：
+//   1) POST /weapi/login/qrcode/unikey        {type:1}      -> {unikey}
+//   2) 二维码内容 = https://music.163.com/login?codekey=<unikey>
+//   3) POST /weapi/login/qrcode/client/login  {key, type:1} -> 轮询
+//      code 801 等待扫码 / 802 已扫码待确认 / 803 授权成功 / 800 二维码过期
+//   4) 803 时登录态在**响应体 cookie 字段**里（旧明文接口是走 Set-Cookie 响应头）
+//   5) POST /weapi/w/nuser/account/get        {}            -> {profile:{nickname,...}}
+// 登录态由 core/infra/net/cookies.js 统一持久化，其他业务请求自动带 Cookie 头。
 import { weapiPost } from './weapi.js'
 import { md5Hex } from './crypto.js'
 import * as wecurl from './wecurl.js'
@@ -36,29 +29,24 @@ import { wecurlJarFile } from '../../core/infra/paths.js'
 
 const BASE = 'https://music.163.com'
 
+// 8821 = 安全环境风控：「请切换其他登录方式或升级新版本再试」
 export const CODE = {
   EXPIRED: 800,
   WAITING: 801,
   SCANNED: 802,
   OK: 803,
-  RISKY: 8821 // 安全环境风控：「请切换其他登录方式或升级新版本再试」
+  RISKY: 8821 
 }
 
-/**
- * 登录链路统一出网口：**优先系统 curl**（有 cookie 引擎，能把服务端下发的
- * NMTID 等会话 cookie 回收并回传 —— 没有它就会被判 8821，详见 wecurl.js 顶部），
- * curl 不可用时回退内建 http（此时仍可能 8821，但至少功能不瘫）。
- */
+// 登录链路统一出网口：优先系统 curl（有 cookie 引擎，能把服务端下发的 NMTID 等会话 cookie
+// 回收并回传，没有它就会被判 8821，详见 wecurl.js 顶部）；curl 不可用时回退内建 http。
 async function loginPost(path, payload, opts) {
   const r = await wecurl.post(path, payload, opts)
   if (r) return r
   return weapiPost(path, payload, opts)
 }
 
-/**
- * 会话引导：登录前先让服务端下发匿名 cookie（NMTID 等）。
- * 只做一次；失败不致命（日志会写明）。
- */
+// 会话引导：登录前先让服务端下发匿名 cookie（NMTID 等）。只做一次；失败不致命（日志会写明）
 let primed = false
 export async function primeSession() {
   if (primed) return
@@ -67,13 +55,8 @@ export async function primeSession() {
   log('login', '会话引导: ' + (n > 0 ? '拿到 ' + n + ' 项匿名 cookie' : '未拿到匿名 cookie（通道不可用？8821 风险高）'))
 }
 
-/**
- * 把当前会话写进 SQLite（`kv` 表的 ncm_cookies 行）。
- *
- * 为什么需要：登录成功后必须立刻落盘，否则重启就丢了，每次启动都得重新扫码 ——
- * 而反复扫码正是触发 8821 风控的温床。落库本身由 cookies.js 的 save() 负责，
- * 这里只是给登录链路一个语义明确的收尾点（并记一条日志）。
- */
+// 把当前会话写进 SQLite（kv 表的 ncm_cookies 行）。登录成功后必须立刻落盘，否则重启就丢、
+// 每次启动都得重新扫码 —— 而反复扫码正是触发 8821 风控的温床。
 export async function persistSession() {
   const s = cookieHeader()
   if (!s) return 0
@@ -82,14 +65,12 @@ export async function persistSession() {
   return 1
 }
 
-/** 二维码里要编码的内容 */
 export function qrContent(unikey) {
   return BASE + '/login?codekey=' + unikey
 }
 
-/** 第 1 步：申请一个二维码 key */
 export async function createQr() {
-  await primeSession() // 先拿匿名会话 cookie，否则十有八九是 8821
+  await primeSession() 
   const r = await loginPost('/api/login/qrcode/unikey', { type: 1 }, { tag: 'unikey' })
   const j = r.json || {}
   const unikey = (j.data && j.data.unikey) || j.unikey || ''
@@ -97,10 +78,7 @@ export async function createQr() {
   return { unikey: unikey, url: qrContent(unikey) }
 }
 
-/**
- * 第 3 步：轮询扫码状态
- * 返回 {code, message, nickname, avatarUrl, cookieCount}
- */
+// 第 3 步：轮询扫码状态。返回 {code, message, nickname, avatarUrl, userId, cookieCount}
 export async function pollQr(unikey, opts) {
   const r = await loginPost('/api/login/qrcode/client/login', { key: unikey, type: 1 }, {
     tag: 'poll',
@@ -115,6 +93,7 @@ export async function pollQr(unikey, opts) {
   }
 
   if (code === CODE.OK) {
+
     // 三处来源同 applyLoginResponse：响应体 cookie / 响应头 Set-Cookie / curl jar 回收
     const n1 = j.cookie ? absorbCookieString(j.cookie) : 0
     const n2 = absorbHeaders(r.headers)
@@ -124,9 +103,11 @@ export async function pollQr(unikey, opts) {
         ' headerKeys=' + brief(Object.keys(r.headers || {}), 160))
     }
     await save()
-    // 落一份到 cookie.txt：本应用 storage 写不进去，不落盘的话重启就得重新扫码，
-    // 而反复扫码正是 8821 风控的温床（boot 启动时 importFromFile 会读回来）
+
+    
+    // 落一份到 cookie.txt：不落盘的话重启就得重新扫码，而反复扫码正是 8821 风控的温床
     await persistSession()
+
     // 换账号了：歌单缓存必须作废，否则首页/歌单页会显示上一个账号的歌单
     invalidateUserPlaylists()
     const p = await fetchProfile()
@@ -143,10 +124,9 @@ export async function pollQr(unikey, opts) {
   return { code: code, message: j.message || '', nickname: j.nickname || '', avatarUrl: j.avatarUrl || '' }
 }
 
-/** 第 5 步：取账号资料并持久化 */
 export async function fetchProfile() {
   try {
-    // 也走登录通道：带的是同一份 cookie jar，避免会话在两个通道间不一致
+
     const r = await loginPost('/api/w/nuser/account/get', {}, { tag: 'account' })
     const j = r.json || {}
     const data = j.data || {}
@@ -167,27 +147,13 @@ export async function fetchProfile() {
   }
 }
 
-/** 是否已登录（有 MUSIC_U 即视为已登录） */
 export function loggedIn() {
   return has('MUSIC_U')
 }
 
-/* ------------------------------------------------------------------ *
- * 短信验证码登录（可发布的自助登录方式）
- *
- * 为什么：扫码「确认授权」被环境风控拦死（8821，换号也一样，见 wecurl.js），
- * 而短信登录是 2026 年社区公认仍可行的自助登录（NeteaseCloudMusicApi 文档
- * 明确建议：密码登录有网易云盾，优先短信验证码登录）。接口与现有加密
- * 完全同路（/weapi/），成功后 cookie 同样在响应体里，落盘逻辑一并复用。
- * ------------------------------------------------------------------ */
-
-/**
- * 发送短信验证码。返回 {code, message}，200 = 已发送
- *
- * ⚠ 手机号字段名有分歧：MusicVault 的实现用 **cellphone**，社区文档写 phone。
- * 真机实测：只发 `phone` 会回 code=400「参数错误」。
- * 所以先按 cellphone 发，失败再退 phone —— 服务端改回去也不会整条链路瘫。
- */
+// 发送短信验证码。返回 {code, message}，200 = 已发送
+// ⚠ 手机号字段名有分歧：MusicVault 用 cellphone，社区文档写 phone。真机实测只发 phone 会回
+// code=400「参数错误」，所以先按 cellphone 发、失败再退 phone。
 export async function sendCaptcha(phone) {
   await primeSession()
   let r = await loginPost('/api/sms/captcha/sent', { cellphone: phone, ctcode: 86 }, { tag: 'captcha' })
@@ -203,10 +169,7 @@ export async function sendCaptcha(phone) {
   return { code: j.code || 0, message: j.message || j.msg || '' }
 }
 
-/**
- * 登录响应收尾（验证码 / 密码两条路共用）：
- * 吸 cookie → 落 storage → 落 cookie.txt → 作废歌单缓存 → 取资料
- */
+// 登录响应收尾（验证码 / 密码两条路共用）：吸 cookie → 落 storage → 落 cookie.txt → 作废歌单缓存 → 取资料
 async function applyLoginResponse(r, tag) {
   const j = r.json || {}
   const code = j.code || r.status
@@ -214,6 +177,11 @@ async function applyLoginResponse(r, tag) {
     log('login', tag + '失败 code=' + code + ' ' + (j.message || j.msg || ''))
     return { code: code, message: j.message || j.msg || '', nickname: '', userId: 0, cookieCount: 0 }
   }
+
+  
+
+  
+
   // 登录态三处来源都要算：
   //   n1 响应体 cookie 字段（扫码 803 走这条）
   //   n2 响应头 Set-Cookie（内建 http 通道才有）
@@ -235,7 +203,6 @@ async function applyLoginResponse(r, tag) {
   }
 }
 
-/** 验证码登录。返回 {code, message, nickname, userId, cookieCount} */
 export async function loginByCaptcha(phone, captcha) {
   const r = await loginPost(
     '/api/login/cellphone',
@@ -245,12 +212,9 @@ export async function loginByCaptcha(phone, captcha) {
   return applyLoginResponse(r, '短信登录')
 }
 
-/**
- * 密码登录。返回 {code, message, nickname, userId, cookieCount}
- *
- * ⚠ password 字段要 **md5 后的值**（社区通行做法，与 NeteaseCloudMusicApi 一致）。
- * ⚠ 兜底通道：网易对密码登录有云盾验证，成功率低于短信验证码 —— 界面上要写清楚。
- */
+// 密码登录。返回 {code, message, nickname, userId, cookieCount}
+// ⚠ password 字段要 md5 后的值（与 NeteaseCloudMusicApi 一致）。
+// ⚠ 网易对密码登录有云盾验证，成功率低于短信验证码 —— 界面上要写清楚。
 export async function loginByPassword(phone, password) {
   const r = await loginPost(
     '/api/login/cellphone',
@@ -260,7 +224,6 @@ export async function loginByPassword(phone, password) {
   return applyLoginResponse(r, '密码登录')
 }
 
-/** 从本地设置里取上次登录的昵称 */
 export function cachedProfile() {
   return {
     nickname: config.get('nickname') || '',
@@ -269,29 +232,28 @@ export function cachedProfile() {
   }
 }
 
-/**
- * 退出登录：清 cookie + 清资料 + 清 cookie jar + 通知界面
- *
- * 登录态在 SQLite 的 `kv` 表的 ncm_cookies 行，`clearCookies()` 已经把它写成空；
- * 这里再删掉 curl 的 jar 文件，免得下一次扫码带上上一次的匿名会话。
- * boot 每次启动都会 load() 读那一行，所以清空即真的退出。
- */
+// 退出登录：清 cookie + 清资料 + 清 curl 的 cookie jar + 通知界面。
+// 登录态就是 SQLite kv 表的 ncm_cookies 行（clearCookies 把它写成空），boot 每次启动 load()
+// 读那一行，所以清空即真的退出。
 export async function logout() {
   await clearCookies()
   await config.set('nickname', '')
   await config.set('avatarUrl', '')
   await config.set('userId', 0)
   invalidateUserPlaylists()
-  invalidateDaily() // 每日推荐是账号相关的，换账号后不能接着用上一个账号那份
+  // 每日推荐是账号相关的，换账号后不能接着用上一个账号那份
+  invalidateDaily() 
   try {
+
     // 顺手清掉 curl 的 cookie jar：留着会让下一次扫码带上上一次的匿名会话
     await rmQuiet(wecurlJarFile())
   } catch (e) {
-    // 文件不存在或 fs 不可用都无所谓，会话本身已经清掉了
+
   }
   try {
     /* global $falcon */
-    $falcon.trigger('bpncm:login-done') // 首页/设置页/个人中心据此刷新
+    // 首页/设置页/个人中心据此刷新
+    $falcon.trigger('bpncm:login-done') 
   } catch (e) {}
   log('login', '已退出登录（登录态已从本地库清除）')
 }

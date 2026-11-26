@@ -24,17 +24,8 @@
 </template>
 
 <script>
-/**
- * 本地下载-歌手：歌曲本地索引里的所有歌手。
- *
- * 行 = 头像 + 名称 + 歌曲数量，行高 32vh（需求：比歌曲列表更高）。
- * 头像来源统一在 ArtistRow 里解析：真头像（arp<id>@60，在线可取轻量接口）优先，
- * 代表专辑封面（al<albumId>@60，下载时已预热）兜底；与歌手详情本地视图同一张图。
- * 点行进歌手页并带上 local=1，让 artist 页强制走本地索引视图
- * （只显示已下载曲目，而不是在线全量）。
- *
- * 左栏排序键展开 ContextSheet：标题（升序）/ 数量（降序），同键再点切方向。
- */
+/* 头像来源统一在 ArtistRow 解析：真头像（arp<id>@60）优先，代表专辑封面（al<albumId>@60，
+   下载时已预热）兜底。点行进歌手页带 local=1 → artist 页强制本地索引视图（只显示已下载曲目）。 */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import ArtistRow from '../../components/ArtistRow.vue'
@@ -56,7 +47,8 @@ const SORTS = [
   { key: 'count', label: '数量' }
 ]
 
-const PAGE = PAGE_ROW // 一次渲染 ≤50 行（平台坑 5）；ArtistRow 较高，取 40
+// 一次渲染 ≤50 行（平台上限）；ArtistRow 行高 32vh，取 40
+const PAGE = PAGE_ROW 
 
 export default {
   name: 'dlartists',
@@ -130,7 +122,7 @@ export default {
     this._onShow = null
   },
   methods: {
-    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    /** 列表页骨架声明（ui/mixins/listpage.js）：切片数组字段名与行高 */
     listPageConfig() {
       return { slice: 'visible', rowPx: ROW_PX_TALL }
     },
@@ -139,7 +131,7 @@ export default {
         const list = await localArtistList()
         if (this._dead) return
         this.artists = list
-        /* 不重置 shown：从歌手详情返回时保留已展开的分页（排序切换另行重置）。 */
+        /* 不重置 shown：从歌手详情返回时保留已展开的分页（排序切换另行重置） */
         this.loading = false
         log('dlartists', '歌手 ' + list.length + ' 位')
       } catch (e) {
@@ -201,7 +193,8 @@ export default {
 }
 .dla-more-t {
   font-size: @fs-dim;
-  color: @accent-2; /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
+  /* 书面值是默认（红）主题；运行时由模板内联 style 给当前主题色 */
+  color: @accent-2; 
 }
 .dla-bottom {
   height: 4vh;

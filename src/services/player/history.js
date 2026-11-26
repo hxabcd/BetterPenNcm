@@ -1,31 +1,27 @@
 /**
- * 播放历史（纯本地记录）—— 模块级单例 + SQLite 持久化
+ * 播放历史（模块级单例）
  *
- * 设计要点：
- *   - **去重**：同一首歌重复播放 → 保留最近一次（移除旧条目、unshift 到最前并刷新 at）
- *   - **记录点**在 player.js playAt() 的三个「真正出声」分支（缓存命中 / 流播成功 /
- *     下载完成）；暂停续播、seek、改倍速不算新播放，不经过那里
- *   - **enrich**：搜索结果的详情接口（getSongDetail）回来后补上缺失字段（封面等），
- *     不动 at、不新增条目 —— 记录点在出声瞬间必须同步快照，详情是异步的
- *   - 落盘是**串行 + 合并写**：record 在 playAt 调用栈里同步执行，连点快切时
- *     不能每次都整份 JSON.stringify + setStorage（一次在飞 + 一次补写）
- *   - 写入失败静默降级（内存仍有效，与 store.js 同策略）。MAX=200：历史是一整份 JSON
- *     存一行，条目多了序列化本身就慢（与写盘通道无关），所以仍设上限
- *   - 变更广播 $falcon.trigger('bpncm:playhist')：首页卡片据此刷新。
- *     历史列表页**刻意不订阅**（重建 50 行会重下封面、滚动位置可能被打回顶部），
- *     见 list.vue 的说明
+ * - 去重：同 id 只留最近一次 —— 旧条目移除，新快照 unshift 到最前并刷新 at
+ * - 记录点在 player.playAt 的三个「真正出声」分支（缓存命中 / 流播成功 / 下载完成）；
+ *   暂停续播、seek、改倍速不算新播放，不经过那里
+ * - enrich 是详情接口回来后补缺失字段，不动 at、不新增条目（记录点必须同步快照，详情是异步的）
+ * - 变更广播 bpncm:playhist 让首页卡片刷新；历史列表页刻意不订阅（重建 50 行会重下封面、滚动位置可能被打回顶部）
  */
+
+
 import { getStorage, setStorage, KEY_PLAY_HIST } from '../../core/infra/store.js'
 import { log } from '../../core/infra/log.js'
 
 const KEY = KEY_PLAY_HIST
+// 历史整份 JSON 存一行，条目多了序列化本身就慢，所以设上限
 const MAX = 200
 
-let items = [] // 新 → 旧
+// 新 → 旧
+let items = [] 
 let loaded = false
 let loadPromise = null
 
-/* ---- 落盘：串行 + 合并写（writing 期间新的 persist 只置 dirty，写完补一次）---- */
+// 落盘串行 + 合并写：writing 期间新的 persist 只置 dirty，写完补一次
 let writing = false
 let dirty = false
 
@@ -64,7 +60,7 @@ function notify() {
   } catch (e) {}
 }
 
-/** 提取要存的字段（歌曲对象 → 历史条目）。at = 记录时间，列表默认排序就是它 */
+// 提取要存的字段；at = 记录时间，列表默认排序就是它
 function slim(s) {
   const aliases = []
   if (s.aliases && s.aliases.length) {
@@ -84,7 +80,7 @@ function slim(s) {
   }
 }
 
-/** 把 src 里有、it 里为空的字段补进 it（record 时用旧条目补、enrich 时用详情数据补）。返回是否补过 */
+// 把 src 里有、it 里为空的字段补进 it（record 时用旧条目补、enrich 时用详情数据补），返回是否补过
 function fillFrom(it, src) {
   if (!src) return false
   let changed = false
@@ -115,12 +111,12 @@ function fillFrom(it, src) {
   return changed
 }
 
-/** 是否已加载（首页卡片用它区分「未加载 '—'」与「空 '暂无记录'」） */
+// 是否已加载：首页卡片用它区分「未加载 '—'」与「空 '暂无记录'」
 export function isLoaded() {
   return loaded
 }
 
-/** 懒加载（幂等，只读一次）；boot 里 await 它，页面侧可随时读 */
+// 懒加载（幂等，只读一次）；boot 里 await 它，页面侧可随时读
 export function load() {
   if (!loadPromise) {
     loadPromise = (async function () {
@@ -142,17 +138,15 @@ export function load() {
       }
       loaded = true
       log('hist', '载入 n=' + items.length)
-      notify() // 首页可能已挂载（它首读时还是未加载态）
+      notify() 
       return items
     })()
   }
   return loadPromise
 }
 
-/**
- * 记录一次播放：同 id 去重（旧条目移到最前并刷新 at）。
- * **绝不抛出** —— 它在 player.playAt 的调用栈里同步执行；落盘异步、失败静默。
- */
+// 记录一次播放：同 id 去重（旧条目移到最前并刷新 at）
+// 绝不抛出 —— 它在 player.playAt 的调用栈里同步执行；落盘异步、失败静默
 export function record(song) {
   try {
     if (!song || !song.id) return
@@ -160,13 +154,13 @@ export function record(song) {
     const out = []
     for (let i = 0; i < items.length; i++) {
       if (items[i].id === song.id) {
-        if (!old) old = items[i] // 去重：同 id 只留最近一次（旧条目留给新快照补缺）
+        if (!old) old = items[i] 
         continue
       }
       out.push(items[i])
     }
     const it = slim(song)
-    if (old) fillFrom(it, old) // 新快照缺的字段（如搜索结果没拿到封面）用旧的补
+    if (old) fillFrom(it, old) 
     out.unshift(it)
     if (out.length > MAX) out.length = MAX
     items = out
@@ -178,7 +172,7 @@ export function record(song) {
   }
 }
 
-/** 详情接口回来后补条目缺失字段（封面/时长/别名…）；只在该 id 已在历史里时生效 */
+// 详情接口回来后补条目缺失字段（封面/时长/别名…）；只在该 id 已在历史里时生效
 export function enrich(song) {
   try {
     if (!song || !song.id || !items.length) return
@@ -198,18 +192,14 @@ export function enrich(song) {
   } catch (e) {}
 }
 
-/** 历史列表（新 → 旧）的**浅拷贝** —— 页面不要就地改条目（那是单例里的同一份对象） */
+// 历史列表（新 → 旧）的浅拷贝 —— 页面不要就地改条目（那是单例里的同一份对象）
 export function list() {
   return items.slice()
 }
 
-/**
- * 今天听过多少首（首页「播放历史」卡副行用，改成这个）。
- *
- * 口径 = **本地日期**的 00:00 起算，只数 `at` 落在今天的条目；条目天然按 at 倒序（record 只 unshift、
- * enrich 不动 at、remove 保序），所以扫到第一条更早的就能提前收工。
- * ⚠ 上限受 MAX(=200) 约束：一天内播超过 200 首会封顶，计数不会更大（真要精确得另存日计数）。
- */
+// 今天听过多少首（按本地日期 00:00 起算）
+// 条目按 at 倒序（record 只 unshift、enrich 不动 at、remove 保序），扫到第一条更早的即可收工
+// ⚠ 上限受 MAX(=200) 约束：一天播超过 200 首会封顶，计数不会更大
 export function countToday(now) {
   try {
     const d = new Date(now === undefined || now === null ? Date.now() : now)
@@ -226,7 +216,7 @@ export function countToday(now) {
   }
 }
 
-/** 清空（发布事件让首页卡片归零 —— 它正压在本页下面） */
+// 清空（发布事件让首页卡片归零 —— 它正压在本页下面）
 export function clear() {
   try {
     items = []
@@ -236,11 +226,8 @@ export function clear() {
   } catch (e) {}
 }
 
-/**
- * 移除若干条（曲目列表页多选「删除」在 kind=history 时用）。
- * **全选 + 删除 = 清空队列**。
- * 返回移除条数；无变更不写盘。
- */
+// 移除若干条（曲目列表页多选删除在 kind=history 时用；全选 + 删除 = 清空队列）
+// 返回移除条数；无变更不写盘
 export function remove(ids) {
   try {
     if (!ids || !ids.length) return 0

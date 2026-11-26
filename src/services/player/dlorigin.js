@@ -1,15 +1,14 @@
 /**
- * 下载归属标记 —— 区分「用户自己的单曲」与「为本地索引歌单批量下载的文件」。
+ * 下载归属标记 —— 区分「用户自己的单曲」与「为本地索引歌单批量下载的文件」
  *
- *   user（1）     —— 用户主动下载（播放器下载键、专辑/歌手/搜索、列表多选）；
- *                    **没有标记的文件按 user 处理**，且 user 一旦写入就是终态。
- *   playlist（2） —— 只在「下载全部」、同步、自动同步时写入；失去所有已索引歌单引用后
- *                    才归入「遗留歌曲」（由 locallists.js 的 classifyWithRefs 动态派生）。
+ *   user（1）     —— 用户主动下载（播放器下载键、专辑/歌手/搜索、列表多选）；没有标记的文件按 user 处理，且 user 一旦写入就是终态
+ *   playlist（2） —— 只在「下载全部」、同步、自动同步时写入；失去所有已索引歌单引用后才归入「遗留歌曲」
  *
- * 存储：索引库 `local_index.db` 的 `track.dl_origin` 列（0=无 1=user 2=playlist），与曲目索引
- * 共用 track 行但**只写这一列**：没进过索引的老文件也会有一行（name 为空、只有 dl_origin，
- * localmeta 的「已索引」判据是 name 非空）；清标记只把列置 0，不删行。
+ * 存储：索引库 local_index.db 的 track.dl_origin 列（0=无 1=user 2=playlist）。与曲目索引共用 track 行但只写这一列：
+ * 没进过索引的老文件也会有一行（name 为空、只有 dl_origin；localmeta 的「已索引」判据是 name 非空）；清标记只把列置 0，不删行。
  */
+
+
 import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, num } from '../../core/platform/db.js'
 import { log } from '../../core/infra/log.js'
 
@@ -17,10 +16,11 @@ const T_TRACK = 'track'
 export const ORIGIN_USER = 1
 export const ORIGIN_PLAYLIST = 2
 
-let mem = null // { "<songId>": 1|2 }（非零才有条目）
+// { "<songId>": 1|2 }（非零才有条目）
+let mem = null 
 let loading = null
 
-/** DB 内存态 → 归属表（只收非零的行） */
+// DB 内存态 → 归属表（只收非零的行）
 function buildMem() {
   const d = dbData()
   const out = {}
@@ -48,10 +48,7 @@ async function load() {
   return loading
 }
 
-/**
- * 落一批标记（内存已改完；这里只拼 SQL）。
- * 新 id 用 upsert（行可能不存在 —— 老文件没有索引记录），name 交给默认值。
- */
+// 落一批标记（内存已改完；这里只拼 SQL）。新 id 用 upsert（行可能不存在 —— 老文件没有索引记录），name 交给默认值
 function persist(ids, value) {
   if (!ids.length) return Promise.resolve(false)
   const d = dbData()
@@ -75,7 +72,7 @@ function persist(ids, value) {
   return dbExec(stmts)
 }
 
-/** 把一批 id 的标记置 0（不删行，行里的索引数据仍有效） */
+// 把一批 id 的标记置 0（不删行，行里的索引数据仍有效）
 function persistClear(ids) {
   if (!ids.length) return Promise.resolve(false)
   const d = dbData()
@@ -90,12 +87,12 @@ function persistClear(ids) {
   return dbExec(['UPDATE ' + T_TRACK + ' SET dl_origin = 0 WHERE id IN (' + nums.join(',') + ');'])
 }
 
-/** 确保已载入（各导出函数内部都会等它） */
+// 确保已载入（各导出函数内部都会等它）
 export function loadOrigin() {
   return load()
 }
 
-/** 归属标记（须先 await loadOrigin；未载入时返回 0） */
+// 归属标记（须先 await loadOrigin；未载入时返回 0）
 export function originOf(id) {
   if (!mem) return 0
   return mem[String(id)] || 0
@@ -109,10 +106,7 @@ export function isPlaylistOwned(id) {
   return originOf(id) === ORIGIN_PLAYLIST
 }
 
-/**
- * 标记用户自己的单曲（手动下载）。数组批量，写一次库。
- * 已有 playlist 标记会被 user 覆盖（用户明确要了这首，归属归用户）。
- */
+// 标记用户自己的单曲（手动下载）：数组批量，写一次库；已有 playlist 标记会被 user 覆盖（用户明确要了这首，归属归用户）
 export async function markUser(ids) {
   try {
     await load()
@@ -137,11 +131,7 @@ export async function markUser(ids) {
   }
 }
 
-/**
- * 标记歌单批量下载。数组批量，写一次库。
- * 已有 user 的保持 user；已有 playlist 的保持；没有标记的写成 playlist。
- * 返回新标记数量。
- */
+// 标记歌单批量下载：数组批量，写一次库；已有 user 的保持 user，已有 playlist 的保持，没有标记的写成 playlist
 export async function markPlaylist(ids) {
   try {
     await load()
@@ -165,12 +155,8 @@ export async function markPlaylist(ids) {
   }
 }
 
-/**
- * 歌单批量下载**跳过已存在文件**时的归属处理：
- *   - 没有任何标记 → 补 user（遗留文件 / 用户以前自己下的，按用户资产处理）
- *   - 已有标记 → 原样保留
- * 这样「下载全部」不会把用户已有的文件认领成歌单归属，移出索引时也不会误进遗留。
- */
+// 歌单批量下载跳过已存在文件时的归属处理：没有任何标记 → 补 user（遗留文件 / 用户以前自己下的，按用户资产处理）；已有标记 → 原样保留
+// 这样「下载全部」不会把用户已有的文件认领成歌单归属，移出索引时也不会误进遗留
 export async function markSkippedExisting(ids) {
   try {
     await load()
@@ -194,7 +180,7 @@ export async function markSkippedExisting(ids) {
   }
 }
 
-/** 删单首/多首 → 清标记（文件删掉后归属也失效） */
+// 删单首/多首 → 清标记（文件删掉后归属也失效）
 export async function clearOrigin(ids) {
   try {
     await load()
@@ -215,7 +201,7 @@ export async function clearOrigin(ids) {
   }
 }
 
-/** 清空全部标记（存储管理「清空已下载」时调）：只把列置 0，不动曲目索引行 */
+// 清空全部标记（存储管理「清空已下载」时调）：只把列置 0，不动曲目索引行
 export async function clearAllOrigins() {
   mem = {}
   try {

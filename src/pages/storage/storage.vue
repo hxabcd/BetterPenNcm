@@ -30,7 +30,6 @@
         <text class="sg-btn-t" :style="btnTextStyle(isArmed('covers'))">{{ coverBtnText }}</text>
       </div>
 
-
     </scroller>
 
     <!-- 提示挂 page-shell 直接子级（同其余 9 页），不随 scroller 滚动 -->
@@ -39,14 +38,10 @@
 </template>
 
 <script>
-/**
- * 存储管理页（配套音质/缓存功能）
- *
- * 数据来自 services/player/cache.js（文件系统为真相 + storage 元数据）：
- * 统计走 exec 通道（du/ls 一次调用），可用空间走 df（fs.statfs 语义可疑，见 cache.js 注释）。
- * 清空是破坏性操作 → 两次点按确认；清音乐缓存前先 stop() 停播（文件要没了）。
- * 页面会挂两遍 → _dead 守卫（account.vue 同款）。
- */
+/* 数据来自 services/player/cache.js（文件系统为真相 + storage 元数据）：
+   统计走 exec 通道（du/ls 一次调用），可用空间走 df —— `fs.statfs` 语义可疑，别用。
+   清空是破坏性操作 → 两次点按确认；清音乐缓存前先 stop() 停播（文件要没了）。
+   页面会挂两遍 → _dead 守卫。 */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import HintToast from '../../components/HintToast.vue'
@@ -85,7 +80,8 @@ export default {
     },
     cacheText() {
       if (this.cacheCount < 0) return '统计中...'
-      const lim = cacheLimitMb() // 0 = 不限，由 cache.js 统一读
+      // 0 = 不限，由 cache.js 统一读
+      const lim = cacheLimitMb() 
       return this.cacheCount + ' 首 · ' + fmtSize(this.cacheBytes) + (lim ? ' / 上限 ' + limitLabel(lim) : ' · 不限')
     },
     coverText() {
@@ -145,11 +141,10 @@ export default {
       }
       this.disarm()
       this.hint = '正在清空...'
-      // 正在播放的本地文件马上要被删，先停播（避免边删边读）。
-      // 走播放器单例而不是裸 stop()：状态/timer/gen 一起收干净，且裸 stop 会让播放器
-      // 收到「结束事件」被误判成播完去连播（流式定位改造发现）。
-      // 批量下载先取消、整库索引（doneCache/localPath）先作废 —— 否则清完同会话内
-      // 还会拿着已删文件的路径去播（设计校验抓的）
+      /* 正在播放的本地文件马上要被删，先停播（避免边删边读）。走播放器单例而不是裸 stop()：
+         状态/timer/gen 一起收干净，且裸 stop 会让播放器收到「结束事件」被误判成播完去连播。
+         批量下载先取消、整库索引（doneCache/localPath）先作废 —— 否则清完同会话内还会
+         拿着已删文件的路径去播。 */
       try {
         await player.stop()
       } catch (e) {}
@@ -161,9 +156,9 @@ export default {
       } catch (e) {}
       const r = await clearSongs()
       if (this._dead) return
-      // 播放队列来自「本地下载」（playList 的 'downloads' 标记）→ 队列里全是刚被删的歌，
-      // 同步清空（removeFromQueue 全删 = clearPlayback：回空态 + 清会话快照）；
-      // 混合来源的队列不动 —— 里面的歌删了本地文件还能流播
+      // 播放队列来自「本地下载」（playList 的 'downloads' 标记）→ 队列里全是刚被删的歌，同步清空
+      //（removeFromQueue 全删 = clearPlayback：回空态 + 清会话快照）；混合来源的队列不动 ——
+      // 里面的歌删了本地文件还能流播
       try {
         const st = player.state()
         if (st.queueSrc === 'downloads' && st.queue && st.queue.length) {
@@ -175,6 +170,7 @@ export default {
       this.showToast('已清空 ' + ((r.removed && r.removed.count) || 0) + ' 首已下载')
       await this.refresh()
     },
+
     /** 清空**自动缓存**（cache/）：不动下载队列 —— 只让播放器重新探测本地文件 */
     async doClearCache() {
       if (!this.isArmed('cache')) {
@@ -184,9 +180,9 @@ export default {
       }
       this.disarm()
       this.hint = '正在清空...'
-      // 正在播的歌若用的是缓存文件：文件被删后 fd 仍在（声音不断），但 localPath 已失效，
-      // seek/续播会撞一次空 → 先作废路径索引让它们重新探测。
-      // **不调 forgetAll/cancelDownload**：那会把用户正在跑的下载任务一起取消。
+      /* 正在播的歌若用的是缓存文件：文件被删后 fd 仍在（声音不断），但 localPath 已失效，
+         seek/续播会撞一次空 → 先作废路径索引让它们重新探测。
+         **不调 forgetAll/cancelDownload**：那会把用户正在跑的下载任务一起取消。 */
       try {
         invalidateLocalPaths()
       } catch (e) {}
@@ -227,8 +223,9 @@ export default {
   border-bottom-style: solid;
   border-bottom-color: @line;
 }
+/* 标签列定宽：最长标签「可用空间」4 字 */
 .sg-label {
-  width: 34vh; /* 最长标签「可用空间」4 字 */
+  width: 34vh; 
   flex: none;
   font-size: @fs-dim;
   color: @text-2;
@@ -240,6 +237,7 @@ export default {
   lines: 1;
   text-overflow: ellipsis;
 }
+
 /* 高 16vh ≈ 38px：破坏性按钮点击区给大，误触才有两次确认兜底 */
 .sg-btn {
   height: 16vh;

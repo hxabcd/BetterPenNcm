@@ -1,7 +1,7 @@
 <template>
   <div class="cmp">
-    <!-- 顶栏 48px（设计稿 TopBar，底边 TOK.line）：
-         左「评论」24px 粗体白 + 总数 14px 白（两者顶对齐，见样式注释）；
+
+    <!-- 顶栏 48px（设计稿 TopBar，底边 TOK.line）：左「评论」24px 粗体白 + 总数 14px 白（两者顶对齐）；
          右「发布评论」（pen-line 24px + 20px 白，padding 6px，距右 12px） -->
     <div class="cmp-bar">
       <div class="cmp-ttl">
@@ -16,6 +16,7 @@
 
     <!-- 内容区 scroller（视口 480×192）：上/左右 12px 由各块自己的 margin 拼出 -->
     <scroller class="cmp-sc">
+
       <!-- 「热门评论」行：高 24、左 padding 10 → 文字左缘 = 12+10=22，与设计稿 Title1 一致；
            没有热门评论的歌（新歌/零评论）不显示这一行，直接进正片 -->
       <div class="cmp-sect" v-if="hotList.length">
@@ -62,7 +63,6 @@
         </div>
       </div>
 
-      <!-- 首屏加载 / 加载失败（可点重试）/ 无评论：三态互斥，各自独立单类名 -->
       <div class="cmp-state" v-if="showLoading">
         <text class="cmp-state-t">加载中…</text>
       </div>
@@ -73,7 +73,6 @@
         <text class="cmp-state-t">暂无评论</text>
       </div>
 
-      <!-- 还有更多时的「加载更多」行；达到平台单次渲染上限后换成不可点的提示 -->
       <div class="cmp-more" v-if="canLoadMore" @click="loadMore">
         <text class="cmp-more-t">{{ moreLabel }}</text>
       </div>
@@ -81,23 +80,16 @@
         <text class="cmp-end-t">{{ capLabel }}</text>
       </div>
 
-      <!-- 底部留白 12px：scroller 本身没有内边距，用零内容块补（最后一张卡的 margin-bottom 不算） -->
       <div class="cmp-pad"></div>
     </scroller>
   </div>
 </template>
 
 <script>
-/**
- * 播放页「评论」子面板（480×240；几何表见 docs/播放页.md，px 与设备 1:1）。
- * 组件**自己不上底色**：父级 .ply-sub 给 TOK.subBg + 左侧圆角。
- *
- * 接口：services/ncm/comments.js —— 读评论明文匿名可用；点赞/发评论走 weapi，未登录返回 301。
- *
- * 平台约束（详见 docs/平台约束与自检.md）：一次渲染 ≤50 行 → 评论卡合计最多 RENDER_MAX 张，
- * 超出换成「已显示前 N 条」提示；页面会挂两遍 → 异步回调都过 _dead/_gen 守卫；
- * 子组件不渲染 hint-toast，提示一律 this.$emit('toast', 文案) 交给页面。
- */
+
+// 评论接口：读评论匿名可用；点赞/发评论走 weapi，未登录返回 301
+// 平台约束：页面会挂两遍 → 异步回调都过 _dead/_gen 守卫；子组件不渲染 hint-toast，提示一律 $emit('toast') 交给页面
+
 import { TOK } from '../../ui/tokens.js'
 import { ICON } from '../../assets/icons.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
@@ -106,41 +98,43 @@ import { loggedIn } from '../../services/ncm/login.js'
 import { openTextEdit } from '../../core/platform/systemKeyboard.js'
 import { log } from '../../core/infra/log.js'
 
-/** 单次渲染的评论卡上限：热门 + 其余合计不超过 50（平台「一次渲染 ≤50 行」的既有口径） */
+// 单次渲染的评论卡上限：热门 + 其余合计 ≤50（平台「一次渲染 ≤50 行」的既有口径）
 const RENDER_MAX = 50
 
 export default {
   name: 'CommentPanel',
   mixins: [accentMixin],
   props: {
-    /** 当前歌曲 id（页面给 st.cur.id；0 = 未在播放） */
+
+    // 当前歌曲 id（页面给 st.cur.id；0 = 未在播放）
     songId: { type: [Number, String], default: 0 }
   },
   data() {
     return {
       ICON: ICON,
-      loading: false, // 首屏请求中
-      loadingMore: false, // 追加请求中
-      failed: false, // 首屏请求失败（显示可点重试）
-      hasLoaded: false, // 至少成功加载过一次
-      hot: [], // 热门评论（只有 offset=0 的回包才有）
-      list: [], // 正片评论（原始累积，可能含重复 id，由 restList 去重）
-      total: 0, // 服务端给的总评论数（顶部计数用）
-      cursor: 0, // 下一次请求的 offset（按**原始**条数走，不能用去重后的显示条数）
-      more: false, // 服务端还有更多
-      capped: false, // 已达到渲染上限（还有更多但不再追加）
-      posting: false // 输入法/发评论进行中：防重复触发
+      loading: false, 
+      loadingMore: false, 
+      failed: false, 
+      hasLoaded: false, 
+      // 热门评论（只有 offset=0 的回包才有）
+      hot: [], 
+      list: [], 
+      total: 0, 
+      // 下一次请求的 offset：按原始条数走，不能用去重后的显示条数
+      cursor: 0, 
+      more: false, 
+      capped: false, 
+      posting: false 
     }
   },
   computed: {
-    /** 热门卡列表（不参与去重，按服务端顺序） */
+
     hotList() {
       return this.hot
     },
-    /**
-     * 正片卡列表：去掉与热门重复的（实测会重复），并去掉翻页错位造成的同 id 重复。
-     * 去重在这里做（渲染层），comments.js 保留服务端原样 —— 顶部热门区与正片区不会出现同一张卡。
-     */
+
+    // 正片卡：去掉与热门重复的（实测会重复）与翻页错位造成的同 id 重复；
+    // 去重放渲染层，comments.js 保留服务端原样
     restList() {
       const seen = {}
       const h = this.hot
@@ -155,15 +149,15 @@ export default {
       }
       return out
     },
-    /** 顶栏评论总数：首屏回来前不显示（避免先闪一个 0） */
+
     totalText() {
       return this.hasLoaded ? String(this.total) : ''
     },
-    /** 加载更多行的文案（请求中给「加载中…」，避免连点） */
+
     moreLabel() {
       return this.loadingMore ? '加载中…' : '加载更多'
     },
-    /** 达到渲染上限后的提示（还有更多、但平台一次渲染装不下） */
+
     capLabel() {
       return '已显示前 ' + RENDER_MAX + ' 条评论'
     },
@@ -181,10 +175,9 @@ export default {
     }
   },
   watch: {
-    /**
-     * 换歌：重载评论。平台 watch 不去重（同值会被反复回调），入口用 _songKey 自判重；
-     * 回调里 loadFirst 会持有 _gen 快照，慢回包不会覆盖新歌的数据。
-     */
+
+    // 平台 watch 不去重（同值会被反复回调）→ 用 _songKey 自判重；
+    // loadFirst 里的 _gen 快照保证慢回包不覆盖新歌的数据
     songId(v) {
       if (String(v || 0) === this._songKey) return
       this._songKey = String(v || 0)
@@ -195,7 +188,7 @@ export default {
     this._dead = false
     this._songKey = ''
     this._gen = 0
-    this._likeBusy = {} // commentId → true：同一张卡的点赞请求在途时吞掉连点
+    this._likeBusy = {} 
   },
   mounted() {
     this.loadFirst()
@@ -205,12 +198,12 @@ export default {
     this._likeBusy = {}
   },
   methods: {
-    /** 提示统一抛给页面（子组件不渲染 hint-toast） */
+
     showToast(text) {
       this.$emit('toast', text)
     },
-    /** 首屏 / 换歌 / 发评论后重载：清空旧数据 → 取 offset=0（热门 + 第一页正片）。
-     *  sid 只在 watcher 里显式传入（不依赖 prop 更新与 watcher 的先后顺序）。 */
+
+    // sid 由 watcher 显式传入，不依赖 prop 更新与 watcher 回调的先后顺序
     async loadFirst(sid) {
       const songId = sid === undefined ? this.songId : sid
       const key = String(songId || 0)
@@ -225,6 +218,7 @@ export default {
       this.failed = false
       this.loadingMore = false
       if (!songId) {
+
         // 没有在播曲：不发请求，直接空态（页面在无曲时也会渲染本面板）
         this.loading = false
         this.hasLoaded = true
@@ -234,7 +228,7 @@ export default {
       this.hasLoaded = false
       try {
         const r = await fetchComments(songId, 0, PAGE_LIMIT)
-        if (this._dead || gen !== this._gen) return // 期间换歌 / 面板已销毁：丢弃本次回包
+        if (this._dead || gen !== this._gen) return 
         this.hot = r.hot
         this.list = r.list
         this.total = r.total
@@ -250,18 +244,19 @@ export default {
         log('comment', '评论加载失败 id=' + songId + ' ' + ((e && e.message) || ''))
       }
     },
-    /** 加载失败后点整块重试 */
+
     retry() {
       if (this.loading) return
       this.loadFirst()
     },
-    /** 底部「加载更多」：按 cursor 取下一页，追加到正片列表 */
+
     async loadMore() {
       if (this.loadingMore || this.capped || !this.more) return
       const songId = this.songId
       if (!songId) return
       const gen = this._gen
-      // 剩余渲染预算（≤50 行）。room 用**显示条数**算：去重后的卡才是实际渲染的行数
+
+      // room 用显示条数算：去重后的卡才是实际渲染的行数
       const room = RENDER_MAX - this.hot.length - this.restList.length
       if (room <= 0) {
         this.capped = this.more
@@ -275,6 +270,7 @@ export default {
         const from = this.cursor
         this.list = this.list.concat(r.list)
         this.cursor += r.list.length
+
         // 回包为空但仍说 more → 停止，否则「加载更多」会无限空转
         this.more = r.more && r.list.length > 0
         this.loadingMore = false
@@ -288,15 +284,13 @@ export default {
         log('comment', '评论加载更多失败 ' + ((e && e.message) || ''))
       }
     },
-    /** 点赞态的数字颜色：已赞用主题色浅色（暗底上更醒目），否则次要文字色 */
+
     likeTextStyle(c) {
       return { color: c && c.liked ? this.accent.light : TOK.text2 }
     },
-    /**
-     * 点赞 / 取消（乐观更新，失败整体回滚）：
-     * 未登录先本地拦（toast 未登录），避免白打一次 301；同一条卡在途时吞掉连点。
-     * 注意服务端是**切换**接口（见 comments.js 文件头），所以请求期间不允许再点同一条。
-     */
+
+    // 点赞/取消（乐观更新，失败整体回滚）：未登录先本地拦，避免白打一次 301；
+    // 服务端是切换接口（见 comments.js），所以请求在途时不允许再点同一条
     async onLike(c) {
       if (!c || !c.id || !this.songId) return
       if (!loggedIn()) {
@@ -327,14 +321,12 @@ export default {
         this._likeBusy[id] = false
       }
     },
-    /**
-     * 发布评论：未登录/无在播曲先拦 → 系统输入法（openTextEdit）→ weapi 发评论
-     * → 成功 toast「评论已发布」并重载第一页（新评论在最新里）。
-     * 取消输入 / 输入法不可用时 openTextEdit 回 null，直接静默返回。
-     */
+
+    // 发评论：输入法 → weapi → 成功 toast 并重载第一页（新评论在最新里）
     async onPost() {
       if (this.posting) return
-      // songId 在开输入法**之前**锁定：输入法期间自动切歌的话，评论仍然发到用户点按钮时那首
+
+      // songId 在开输入法之前锁定：输入法期间自动切歌的话，评论仍发到用户点按钮时那首
       const songId = this.songId
       if (!songId) {
         this.showToast('未在播放')
@@ -352,7 +344,8 @@ export default {
         } catch (e) {
           raw = null
         }
-        if (raw === null) return // 取消输入 / 输入法不可用
+        // 取消输入 / 输入法不可用都回 null
+        if (raw === null) return 
         const text = String(raw).trim()
         if (!text) {
           this.showToast('评论内容不能为空')
@@ -363,7 +356,7 @@ export default {
         if (r.ok) {
           this.showToast('评论已发布')
           log('comment', '评论已发布 id=' + songId + ' 字数=' + text.length)
-          // 期间没换歌才重载（换歌时新歌列表已经在 loadFirst 里了）
+
           if (String(this.songId) === String(songId || 0)) this.loadFirst()
           return
         }
@@ -380,16 +373,15 @@ export default {
 <style lang="less" scoped>
 @import '../../styles/common.less';
 
-/* 根：铺满父级面板、**不上底色**（父级 .ply-sub / .ply-drawer 给 TOK.subBg 和左侧圆角）。
-   宽度用 100% 而不是定宽：面板宽度随机型变（S7 480 / 窄屏抽屉更宽），
-   面板内各块用百分比自适应，改宽度只改 player.vue 一处。 */
+/* 根：铺满父级、不上底色（父级 .ply-sub / .ply-drawer 给 TOK.subBg 和左侧圆角）；
+   宽度用 100% 不写定宽：面板宽度随机型变（S7 480 / 窄屏抽屉更宽） */
 .cmp {
   width: 100%;
   height: 100vh;
   flex-direction: column;
   overflow: hidden;
 }
-/* ---- 顶栏 48px ---- */
+
 .cmp-bar {
   width: 100%;
   height: 48px;
@@ -403,9 +395,9 @@ export default {
   border-bottom-style: solid;
   border-bottom-color: @line;
 }
-/* 标题组：96×29 @(12,9.5)。「评论」24px 的天然行盒就是这个高度；
-   顶对齐（设计稿 Count 框与 Title 框同顶），不要再写 line-height 去挪基线 ——
-   平台对 <text> 的 line-height 支持未验证（全项目只 ControlPanel 用过一次） */
+
+/* 顶对齐（设计稿 Count 框与 Title 框同顶），不要再写 line-height 去挪基线 ——
+   平台对 text 的 line-height 支持未验证（全项目只 ControlPanel 用过一次） */
 .cmp-ttl {
   flex-direction: row;
   align-items: flex-start;
@@ -420,29 +412,29 @@ export default {
   color: @text;
   margin-left: 2px;
 }
-/* 发布评论：120×36（icon 24 + 间距 4 + 文字 20，padding 6） */
+
 .cmp-post {
   flex-direction: row;
   align-items: center;
   padding: 6px;
 }
 .cmp-pen {
-  width: 10vh; /* 24px */
+  width: 10vh; 
   height: 10vh;
 }
 .cmp-post-t {
-  font-size: 8.33vh; /* 20px */
+  font-size: 8.33vh; 
   color: @text;
-  margin-left: 1.67vh; /* 4px */
+  margin-left: 1.67vh; 
 }
-/* ---- 内容区 ---- */
+
 /* 视口 = 240-48 = 192px；父高确定（根 100vh）→ flex:1 才有高度 */
 .cmp-sc {
   flex: 1;
 }
-/* 热门评论行：24 高、左 padding 10，上边距 12 = 设计稿 Title1 @(12,60) */
+
 .cmp-sect {
-  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
+  width: 95%; 
   height: 24px;
   flex: none;
   flex-direction: row;
@@ -452,13 +444,13 @@ export default {
   padding-left: 10px;
 }
 .cmp-sect-t {
-  font-size: 8.33vh; /* 20px */
+  font-size: 8.33vh; 
   font-weight: bold;
   color: @text;
 }
-/* 评论卡：456 宽、行距 10（卡与卡之间 / 标题与首卡之间），底 TOK.cardBg、圆角 8、padding 8 */
+
 .cmp-card {
-  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
+  width: 95%; 
   flex: none;
   flex-direction: column;
   margin-left: 12px;
@@ -467,7 +459,7 @@ export default {
   border-radius: 8px;
   background-color: @card-bg;
 }
-/* 用户行：44 高（上下 padding 4 + 头像 36），左右 padding 6 */
+
 .cmp-user {
   width: 100%;
   flex: none;
@@ -478,6 +470,7 @@ export default {
   padding-top: 4px;
   padding-bottom: 4px;
 }
+
 /* 头像 36 圆形：平台不认 border-radius:50%，写半径 18px；父级 overflow 裁成圆 */
 .cmp-avbox {
   width: 36px;
@@ -493,17 +486,16 @@ export default {
   width: 36px;
   height: 36px;
 }
-/* 昵称 20px 白：flex:1 占据剩余宽度（定宽行里才能 lines:1 省略号） */
+
 .cmp-nick {
   flex: 1;
-  font-size: 8.33vh; /* 20px */
+  font-size: 8.33vh; 
   color: @text;
   lines: 1;
   text-overflow: ellipsis;
   margin-left: 10px;
 }
-/* 正文：24px 白、行高 29px（设计稿 Text 框 440×29/行），可折行 → 不写 lines。
-   卡片内三段的行距 6：UserInfo → Text → Status（设计稿 y8/58/93，各差 6） */
+
 .cmp-tw {
   width: 100%;
   flex: none;
@@ -518,7 +510,7 @@ export default {
   line-height: 29px;
   color: @text;
 }
-/* 状态行：28 高（上下 padding 4 + 内容 20），左右 padding 8，日期与点赞分列两端 */
+
 .cmp-st {
   width: 100%;
   height: 28px;
@@ -533,26 +525,26 @@ export default {
   padding-bottom: 4px;
 }
 .cmp-date {
-  font-size: 6.67vh; /* 16px */
+  font-size: 6.67vh; 
   color: @text-2;
 }
-/* 点赞区：数字 16px + 图标 20px、间距 4；高 28 让点击区顶到状态行上下边（视觉不变） */
+
 .cmp-like {
   height: 28px;
   flex-direction: row;
   align-items: center;
 }
 .cmp-lc {
-  font-size: 6.67vh; /* 16px */
+  font-size: 6.67vh; 
   color: @text-2;
   text-align: right;
-  margin-right: 1.67vh; /* 4px */
+  margin-right: 1.67vh; 
 }
 .cmp-thumb {
-  width: 8.33vh; /* 20px */
+  width: 8.33vh; 
   height: 8.33vh;
 }
-/* ---- 三态（加载/失败/空）：占满内容区 192px 居中 ---- */
+
 .cmp-state {
   width: 100%;
   height: 192px;
@@ -561,12 +553,12 @@ export default {
   justify-content: center;
 }
 .cmp-state-t {
-  font-size: 8.33vh; /* 20px */
+  font-size: 8.33vh; 
   color: @text-3;
 }
-/* 「加载更多」行：可点，高 36（与 20px 文字留出触摸余量），行内居中 */
+
 .cmp-more {
-  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
+  width: 95%; 
   height: 36px;
   flex: none;
   flex-direction: row;
@@ -576,12 +568,12 @@ export default {
   margin-top: 10px;
 }
 .cmp-more-t {
-  font-size: 8.33vh; /* 20px */
+  font-size: 8.33vh; 
   color: @text-3;
 }
-/* 达到渲染上限的提示行：不可点，样式同加载更多 */
+
 .cmp-end {
-  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
+  width: 95%; 
   height: 36px;
   flex: none;
   flex-direction: row;
@@ -594,7 +586,7 @@ export default {
   font-size: 14px;
   color: @text-3;
 }
-/* scroller 没有内边距 → 末尾补 12px 视觉留白 */
+
 .cmp-pad {
   width: 100%;
   height: 12px;

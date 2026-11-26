@@ -1,26 +1,15 @@
 #!/bin/bash
-# 公共库（供 build.sh / install.sh / shot.sh / build_probe.sh / nav_selftest.sh source）
-#
-# 定位：只放「环境探测 / 设备 / 产物 / 输出」这类通用能力，**不放业务流程**
-# （备份、装机顺序、构建步骤留在各自脚本里，读脚本就知道它做了什么）。
-#
-# 为什么要有它：resolve_tools 的 worktree 兜底、设备选择、按 appid 挑产物这三件事，
-# 原先在三个脚本里各写了一份且细节不一致（nav_selftest.sh 有 appid 校验，install.sh 没有）。
-#
-# 约定：调用方 source 本文件后调 proj_init，再按需要调其余函数。
-# 不在此文件里 set -e/-u，交调用方决定。
+# 调用方 source 本文件后调 proj_init；本文件不 set -e/-u，交调用方决定。
 
-# ---------- 输出 ----------
 info() { printf '%s\n' "$*"; }
 warn() { printf '⚠ %s\n' "$*" >&2; }
 die() { printf '✗ %s\n' "$*" >&2; exit 1; }
 
-# ---------- 阶段与计时 ----------
 _TOTAL_T0=$(date +%s)
 _STEP_T0=$_TOTAL_T0
 _STEP_FIRST=1
 
-stage() {  # stage <标题>：打印阶段标题，并给出上一阶段耗时
+stage() {
   local now
   now=$(date +%s)
   if [ "$_STEP_FIRST" = 0 ]; then printf '    (%ss)\n' "$(( now - _STEP_T0 ))"; fi
@@ -29,22 +18,20 @@ stage() {  # stage <标题>：打印阶段标题，并给出上一阶段耗时
   _STEP_FIRST=0
 }
 
-stage_done() {  # 收尾打印总耗时
+stage_done() {
   local now
   now=$(date +%s)
   printf '    (%ss)\n' "$(( now - _STEP_T0 ))"
   printf '==> 完成，总耗时 %ss\n' "$(( now - _TOTAL_T0 ))"
 }
 
-# ---------- 项目根 ----------
 proj_init() {
   PROJ="$(cd "$(dirname "$0")/.." && pwd)"
   cd "$PROJ" || die "进不去项目根：$PROJ"
 }
 
-# ---------- 工具链 ----------
-# 主检出的 tools/ 在工作区根；worktree 里 $PROJ/../.. 是 .agents/worktrees，
-# 用 git 的 common-dir 反查主工作树（worktree 的 .git 是文件，指向主仓库 .git）。
+# 主检出的 tools/ 在工作区根；worktree 里 $PROJ/../.. 是整个 .agents/worktrees，
+# 用 git 的 common-dir 反查主工作树（worktree 的 .git 是指向主仓库 .git 的文件）。
 _workspace_root() {
   local common root
   common="$(git -C "$PROJ" rev-parse --git-common-dir 2>/dev/null)" || return 1
@@ -79,8 +66,8 @@ resolve_tools() {
   CLI="${BPNCM_CLI:-$TOOLS/aiot-build/node_modules/aiot-vue-cli/src/cli.js}"
 }
 
-# 便携 Node 18 是下载来的裸 exe，可能被安全软件拦成「无输出直接退出 1」。
-# aiot-cli 在 Node 22 上实测可用；Node 26 必定崩溃。
+# 便携 Node 18 是下载来的裸 exe，可能被安全软件拦成「无输出直接退出 1」；
+# aiot-cli 实测在 Node 22 上可用，Node 26 必定崩溃。
 require_node() {
   [ -x "$NODE" ] || die "找不到便携 Node：$NODE（可用 BPNCM_NODE=<node.exe> 指定）"
   "$NODE" -v >/dev/null 2>&1 || die "Node 起不来：$NODE
@@ -94,8 +81,8 @@ qjsc_busy() {
   tasklist /NH /FI "IMAGENAME eq qjsc20200705.exe" 2>/dev/null | tr -d '\r' | grep -qi 'qjsc20200705'
 }
 
-# ---------- 应用元信息 ----------
-appid_of() {  # appid_of [package.json] → 打印 appid（本机没有 jq，用 sed）
+# 本机没有 jq，用 sed 取 appid
+appid_of() {
   local f="${1:-$PROJ/package.json}" v
   [ -f "$f" ] || die "找不到 $f"
   v="$(sed -n 's/.*"appid"[[:space:]]*:[[:space:]]*"\([0-9A-Za-z]*\)".*/\1/p' "$f" | head -1)"
@@ -103,23 +90,18 @@ appid_of() {  # appid_of [package.json] → 打印 appid（本机没有 jq，用
   printf '%s\n' "$v"
 }
 
-# ---------- 产物 ----------
-# 按 appid 过滤是硬要求：build/ 里同时可能有正式版与探针版，
+# 按 appid 过滤是硬要求：build/ 里可能同时有正式版与探针版，
 # 只按 mtime 取最新会把探针版装成正式应用（build_probe.sh 跑过就会出现）。
-pick_amr() {  # pick_amr <appid> → 打印该 appid 最新的 .amr 绝对路径
+pick_amr() {
   local appid="$1"
   ls -t "$PROJ/build/$appid".*.amr 2>/dev/null | head -1
 }
 
-# ---------- 设备 ----------
-# 设备连接统一走 lib/device.sh 的传输层（dev_run/dev_put/dev_get/dev_exists）。
-# 这里加载它，让所有 source common.sh 的脚本都能用同一套原语。
-# 用 BASH_SOURCE 定位而不是 $PROJ：调用方可能先 source 本文件再跑 proj_init
-# （device_livecheck.sh 就是这样），也可能用 set -u。
+# 设备操作统一走 device.sh 的传输层原语（dev_run/dev_put/dev_get/dev_exists）。
+# 用 BASH_SOURCE 定位而不是 $PROJ：调用方可能先 source 本文件再跑 proj_init。
 # shellcheck source=device.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/device.sh"
 
-# ---------- 网络 ----------
 # PC 的局域网 IPv4（设备要能访问 8888 端口拉日志）
 pc_lan_ip() {
   local ip

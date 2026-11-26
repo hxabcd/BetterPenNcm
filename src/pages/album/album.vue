@@ -46,9 +46,7 @@
 
 <script>
 /**
- * 专辑页（从歌曲信息页的「专辑」或歌手页的专辑卡进入）
- *
- * 数据：/api/v1/album/{id}　—— 实测 album.size 与 songs.length 一致（12/12、25/25），
+ * 数据：/api/v1/album/{id} —— 实测 album.size 与 songs.length 一致（12/12、25/25），
  * 一次请求就拿到专辑元信息 + 全量曲目，不用再单独拉曲目表。
  */
 import PageShell from '../../components/PageShell.vue'
@@ -100,11 +98,10 @@ export default {
       offline: false, // 离线视图：数据全部来自本地索引（只含已下载的曲目）
       localOnly: false, // 从本地下载-专辑进入：在线也强制本地视图
       hint: '加载中...',
-      /* ---- 多选下载（：专辑页也是「所有曲目列表」之一）---- */
-      estText: '', // 估算体积文案（仅 isArmed('dl') 时被读；armed/toast 由 mixin 提供）
+
+      estText: '', // 估算体积文案（仅 isArmed('dl') 时被读）
       dl: null, // 下载活动快照（bindDl 订阅，签名判重后赋值）
-      /* ---- 收藏（CSV「专辑详情」行的底键）----
-         subscribed：true/false；null = 不知道（未登录 / 离线 / 状态接口失败），按未收藏显示。 */
+      // subscribed：true/false；null = 不知道（未登录 / 离线 / 状态接口失败），按未收藏显示
       subscribed: null,
       subBusy: false
     }
@@ -122,6 +119,7 @@ export default {
       if (this.offline) parts.push('本地')
       return parts.join(' · ')
     },
+
     /** 渲染分片（全量 songs 已在内存；多选/播放全部仍用全量） */
     visibleSongs() {
       return this.songs.slice(0, this.shown)
@@ -138,18 +136,18 @@ export default {
       if (t) return t
       if (this.multi) {
         if (this.isArmed('dl')) {
-          // 数量前缀是本页特有信息，句式走 armRailText 统一模板（ui/arm.js）
+
           return '空间可能不足（需约 ' + this.estText + '）· ' + this.armRailText('下载', this.selIds.length)
         }
-        return this.multiBarSub // 句式由 multiSelectMixin 统一（缺省 M = songs.length）
+        return this.multiBarSub 
       }
-      // 常态：灰色专辑名（名字在下面的大封面旁已有，但顶栏滚动后是唯一标识，留着）
+
       return clipText(this.album.name || '专辑', 22)
     },
     /**
      * 左栏（CSV「专辑详情」行）：返回 + 播放全部 + 多选 + 收藏。
      * 多选态按「只读列表」给：关闭 + 下一首播放 + 收藏到歌单 + 下载（专辑曲目没有删除概念）。
-     * 离线视图只留返回（收藏是联网动作，播放/多选在离线时也没有可用动作）。
+     * 离线视图只留返回（收藏是联网动作）。
      */
     rail() {
       if (this.multi) {
@@ -177,8 +175,7 @@ export default {
     this.id = p.id || 0
     this.localOnly = !!p.local
     if (p.name) this.album.name = p.name
-    // 下载活动订阅（顶栏副题显示进度）；页面会挂两遍 → 每实例各订各退。
-    // bindDl = 订阅 + 可见性门控 + 首帧快照（见 ui/mixins/dlsub.js）
+    // 下载活动订阅（顶栏副题显示进度）；页面会挂两遍 → 每实例各订各退
     this._dlOff = bindDl(this, dlApi, function (s) {
       self.syncDl(s)
     })
@@ -192,7 +189,6 @@ export default {
     this._dlOff = null
   },
   methods: {
-    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
     listPageConfig() {
       return { slice: 'visibleSongs', rowPx: ROW_PX_SONG }
     },
@@ -202,6 +198,7 @@ export default {
         this.hint = '缺少专辑 id'
         return
       }
+
       // 数据源二选一：有网 = 纯云端（不闪本地视图）；
       // 离线（系统 API global.isOnline()，见 net/status.js）= 直接本地索引，不发请求。
       // localOnly（从本地下载-专辑进入）= 在线也强制本地视图，只显示已下载曲目。
@@ -261,8 +258,6 @@ export default {
       player.playList(this.songs, i)
       go('player', {})
     },
-    /* ---- 多选下载 ---- */
-    /** 点行分派：多选态 = 勾选，否则点播 */
     onRow(i) {
       if (!this.multi) {
         this.play(i)
@@ -273,7 +268,6 @@ export default {
         this.toggleSel(s.id) // 选择变化自动 disarm（ui/multi.js）
       }
     },
-    /** 长按整行 → 歌曲详情页（与播放页点歌名等效）；多选态忽略（那时点行是勾选） */
     onHold(i) {
       if (this.multi) return
       const s = this.songs[i]
@@ -281,7 +275,6 @@ export default {
       log('album', '长按 → 歌曲详情 id=' + s.id)
       go('songinfo', { id: s.id })
     },
-    /* ---- 多选 ——状态机在 ui/multi.js，本页只给范围与计数口径 ---- */
     multiList() {
       return this.songs
     },
@@ -305,7 +298,7 @@ export default {
         if (this._dead) return
         if (sp.tight) {
           // 空间可能不足：第一次点按只进入待确认（顶栏常显提示 + 按钮变实心红）。
-          // 3 秒自动复位由 armMixin 管；estText 只在待确认态里被读，留旧值不可见
+          // 3 秒自动复位由 armMixin 管
           this.arm('dl')
           this.estText = fmtSize(sp.est)
           log('album', '空间预检不足：需约 ' + fmtSize(sp.est) + ' / 可用 ' + fmtSize(sp.free))
@@ -324,7 +317,7 @@ export default {
         log('album', '下载结果 ' + JSON.stringify(r))
       })
     },
-    /** 下载活动 → this.dl（签名判重：快照 ~400ms 一发，不判重就是持续重渲染，坑 16 同族） */
+    /** 下载活动 → this.dl（签名判重：快照 ~400ms 一发，不判重就是持续重渲染） */
     syncDl(s) {
       const d = s || {}
       const sig = dlSig(d)
@@ -332,8 +325,7 @@ export default {
       this._dlSig = sig
       this.dl = d
     },
-    /* ---- 播放全部 / 收藏 ---- */
-    /** 播放全部：整张专辑（songs 已是全量，不受渲染分片影响）设为队列，从第一首起播 */
+    /** 播放全部：整张专辑设为队列（songs 已是全量，不受渲染分片影响），从第一首起播 */
     playAll() {
       if (!this.songs.length) {
         this.showToast('没有可播放的曲目')
@@ -372,8 +364,6 @@ export default {
       this.showToast(r.needLogin ? '未登录，无法收藏' : '操作失败' + (r.message ? '：' + r.message : ''))
       log('album', '收藏失败 code=' + r.code + ' ' + (r.message || ''))
     },
-    /* ---- 多选态的两颗只读动作键 ---- */
-    /** 下一首播放：插到当前曲之后（player.insertNext），完成后退出多选 */
     doNext() {
       const picked = selPicked(this.selIds, this.songs)
       if (!picked.length) {
@@ -386,7 +376,6 @@ export default {
       const t = playNextText(r)
       if (t) this.showToast(t)
     },
-    /** 收藏到歌单：跳歌单选择页（pick 模式带一批 id） */
     doToPlaylist() {
       const picked = selPicked(this.selIds, this.songs)
       if (!picked.length) {
@@ -405,7 +394,6 @@ export default {
       if (!this.artists.length) return
       go('artist', { id: this.artists[0].id, name: this.artists[0].name, local: this.offline ? 1 : 0 })
     },
-    /* ---- 左栏（分派骨架见 ui/frame.js）---- */
     onBack() {
       // 多选态：返回键是「退出多选」（图标 ×，见 rail()），不退页面
       if (this.exitMultiIfAny()) return
@@ -478,6 +466,7 @@ export default {
   color: @text-3;
   margin-top: 1.4vh;
 }
+
 /* 多选态顶栏右侧的「全选 / 全不选」：占满顶栏高度当点击区（同曲目列表页 .lst-all） */
 .ab-all {
   height: @topbar-h;

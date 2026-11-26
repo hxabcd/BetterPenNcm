@@ -1,21 +1,17 @@
-/**
- * fs 小工具：模块句柄单例 + 全工程共用的读/删/建目录。
- *
- * 约定：
- *   - 所有函数**不抛异常**：失败返回安全默认（0 / false / '' / []）；调用方无需再包 try。
- *   - **只做原生调用**：`fs` 的 exists / stat / statfs / readdir / readFile / mkdir / rm
- *     都是 native（微秒级、不分叉）。建目录与递归删除都走 `mkdir` / `rm`，不再 fork shell。
- *   - 平台 `fs` **没有写入接口**（`writeFile` / `rename` / `unlink` 是 undefined），
- *     所以**这里没有写函数**：文本一律进 SQLite（`core/platform/db.js` 的 kv / track_meta /
- *     track_lyric）。历史上的 `printf > tmp && mv -f` 通道已删除 —— 它每次写都是一次
- *     `process.exec`（真机 92~139ms），134KB 的播放快照分片写实测 2511ms。
- */
+
+
+// fs 小工具：模块句柄单例 + 全工程共用的读 / 删 / 建目录。
+// 所有函数不抛异常：失败返回安全默认（0 / false / '' / []），调用方无需再包 try。
+// 全部是原生调用（exists / stat / statfs / readdir / readFile / mkdir / rm 都是 native，
+// 微秒级、不分叉）；建目录与递归删除也走 mkdir / rm，不 fork shell。
+// ⚠ 平台 fs **没有写入接口**（writeFile / rename / unlink 是 undefined），所以这里没有写函数：
+// 文本一律进 SQLite（db.js 的 kv / track_meta / track_lyric），二进制走 http.download({outPath})。
+// shell 重定向写文本每次都是一次 process.exec（真机 92~139ms），不要再引入。
 
 let fsReady = null
 
 /**
  * fs 模块句柄（平台模块可能包一层 default，两种形态都兼容）。
- *
  * X3S 没有 `fs` 裸模块（import 抛错）→ 回退到原生桥 bridgeFs()（见 bridge.js）；
  * S7 / X5 上原生模块可用，行为不变。首探结果缓存，不会反复 import 抛错。
  */
@@ -110,7 +106,8 @@ export async function statOf(p) {
   }
 }
 
-const readyDirs = {} // 已确认存在的目录（幂等缓存，免得每次写盘都 exists 一次）
+// 已确认存在的目录（幂等缓存，免得每次写盘都 exists 一次）
+const readyDirs = {} 
 
 /** 确保目录存在（幂等；失败返回 false，只记一次日志）。
  *  `fs.mkdir` 在真机上**自动建多级父目录**（实测 `a/b/c` 一次成功），不需要 `-p` */
@@ -151,6 +148,6 @@ export async function removePath(path) {
  */
 export async function removeTree(dir) {
   await rmQuiet(dir)
-  readyDirs[dir] = false // 目录没了，下次 ensureDir 要重新建
+  readyDirs[dir] = false 
   return !(await fileExists(dir))
 }

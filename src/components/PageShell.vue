@@ -1,9 +1,9 @@
 <template>
   <div class="psh" :style="bgStyle">
-    <!-- :key=railSig：**槽位键集合变化时整体重建 NavRail**（修「点多选键界面不切换」）——
+    <!-- :key=railSig：槽位键集合变化时整体重建 NavRail（修「点多选键界面不切换」）——
          设备端渲染器对「长度相同、key 全换」的 v-for 更新会抛异常（日志实证 console.error(null)），
          改成整组件重建走「删旧建新」这条每天都走通的路径；键集合不变（只是 on/danger/icon 变化）
-         时签名不变，仍走普通属性补丁（播放/暂停图标那类更新一向正常）。 -->
+         时签名不变，仍走普通属性补丁（播放/暂停图标那类更新一向正常） -->
     <nav-rail :key="railSig" :items="railItems" @action="onRail" />
     <div class="psh-body">
       <slot></slot>
@@ -16,29 +16,17 @@ import NavRail from './NavRail.vue'
 import { accentMixin } from '../ui/mixins/accent.js'
 import { railBack } from '../ui/rail.js'
 
-/**
- * 页面外壳：左侧全局操作栏 + 右侧内容列。
- *
- * 用法：
- *   <page-shell :rail="rail" @rail="onRail">
- *     <page-topbar … />
- *     <scroller …>…</scroller>
- *   </page-shell>
- *
- * `rail` 是 [{key, icon, on?, text?}]，由 ui/rail.js 的构造函数拼；
- * 第一个槽位固定是返回（railBack()）。**返回不在这里处理** —— 组件里拿不到
- * `this.$page` 不可靠，所以 back 事件原样抛给页面，由 ui/mixins/frame.js 的
- * pageFrameMixin 分派到 onBack()（默认 `this.$page.finish()`）。
- */
+/* 返回不在这里处理：组件里拿不到 `this.$page` 不可靠，back 事件原样抛给页面，
+   由 ui/mixins/frame.js 的 pageFrameMixin 分派到 onBack()（默认 `this.$page.finish()`） */
 export default {
   name: 'PageShell',
-  // 壳的底色运行时可换（设置页 → 背景色）：bg/accent 与订阅由 accentMixin 管
+  /* 壳的底色运行时可换（设置页 → 背景色）：bg/accent 与订阅由 accentMixin 管 */
   mixins: [accentMixin],
   components: { 'nav-rail': NavRail },
   props: {
     /**
-     * 左栏槽位。**必须先过 railItems 收敛**（防呆）：页面给什么（undefined /
-     * 误传了函数）都兜底成 [返回]，保证整条左栏不会消失。
+     * 左栏槽位。**必须先过 railItems 收敛**（防呆）：页面给什么（undefined / 误传了函数）
+     * 都兜底成 [返回]，保证整条左栏不会消失。
      */
     rail: { type: Array, default: null }
   },
@@ -69,12 +57,11 @@ export default {
 <style lang="less" scoped>
 @import '../styles/common.less';
 
-/* 页面外壳：横向 flex —— 左栏 + 内容列 */
 .psh {
   width: 100vw;
   height: 100vh;
   flex-direction: row;
-  /* 底色由内联 :style 给（主题可换，见 ui/theme.js） */
+  /* 底色走内联 :style（主题可换，见 ui/theme.js），这里不写 background-color */
 }
 .psh-body {
   flex: 1;

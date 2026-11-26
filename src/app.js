@@ -1,10 +1,10 @@
-/* 应用入口：继承 $falcon.App，实现应用级生命周期 */
+
 import { flushNow, pauseForExit } from './services/player/player.js'
 import { stopForExit } from './services/player/download.js'
 import { log } from './core/infra/log.js'
 import { noteLifeCycle } from './core/infra/nav.js'
 
-/** 异常转文本（错误对象经框架桥接会显示成 null，这里自己拼 message + 栈前几行） */
+// 错误对象经框架桥接传过来会显示成 null，这里自己拼 message + 栈前几行
 function errText(err) {
   try {
     if (!err) return String(err)
@@ -20,9 +20,9 @@ function errText(err) {
 class App extends $falcon.App {
   constructor() {
     super()
-    /* 诊断钩子（多选重渲染崩溃排查）：框架把渲染/回调异常交给
-       `$falcon.onAppError(err)`（jsfm-nvue 的 handleError 里**动态取字段**调用，
-       所以覆盖有效），但它在控制台只打 null。这里把真实信息引到设备日志。 */
+
+    // 框架把渲染/回调异常交给 $falcon.onAppError(err)（jsfm-nvue 的 handleError 动态取字段调用，
+    // 所以覆盖有效），但它在控制台只打 null；这里把真实信息引到设备日志
     try {
       /* global $falcon */
       const prev = $falcon.onAppError
@@ -35,7 +35,6 @@ class App extends $falcon.App {
     } catch (e) {}
   }
 
-  /** 框架的 app 级 onError 生命周期（_performAppLifeCycle('onError', err, 'error')） */
   onError(err) {
     try {
       log('app', 'App.onError: ' + errText(err))
@@ -43,11 +42,8 @@ class App extends $falcon.App {
     if (super.onError) super.onError(err)
   }
 
-  /**
-   * 框架的 app 级**页面**生命周期：每个页面的 load / newOptions / show / hide / unload
-   * 都会转发到这里（设备端 jsfm-nvue 的 _performPageLifeCycle 调 _performAppLifeCycle('onPageLifeCycle')）。
-   * 导航层用它记账页面实例的存活（槽位分配 / 回退判断），见 core/infra/nav.js。
-   */
+  // 页面的 load/newOptions/show/hide/unload 都会转发到这里（jsfm-nvue 的 _performPageLifeCycle）；
+  // 导航层靠它记账页面实例存活（槽位分配 / 回退判断）
   onPageLifeCycle(options) {
     try {
       noteLifeCycle(options)
@@ -63,21 +59,27 @@ class App extends $falcon.App {
     super.onShow()
   }
 
+  
+
+  
   // 切后台/退出：把当前播放位置立刻写进「上次播放状态」快照（平时播放中每 5 秒节流存一次，
-  // 大队列退回 15 秒；这里兜底存最准的一次）。失败无副作用。
-  // ⚠️ 这里**不能**暂停音乐：设备实测 onHide 在「切到其他应用 / 锁屏 / closeApp 退出」时都会派发，
-  // 挂暂停会把后台听歌打断 —— 只有 onDestroy 才是「退出」。
+  // 大队列退回 15 秒；这里兜底存最准的一次），失败无副作用
+  // ⚠️ 这里不能暂停音乐：设备实测 onHide 在「切到其他应用 / 锁屏 / closeApp 退出」时都会派发，
+  // 挂暂停会打断后台听歌 —— 只有 onDestroy 才是「退出」
   onHide() {
     flushNow()
     super.onHide()
   }
 
-  // 应用销毁（「退出时暂停音乐」的第二道保险）：正常退出路径是主页左栏「返回」→
-  // index.vue 里 await player.pauseForExit() 后再 closeApp（那里最可靠，不等销毁时机）；
-  // 这里兜底系统/框架直接销毁应用的情形，pauseForExit 幂等（已暂停就不动）。
+  
+
+  // 退出时暂停音乐的第二道保险：正常退出路径是主页左栏「返回」→ index.vue 里
+  // await player.pauseForExit() 后再 closeApp，那里最可靠；这里兜底系统/框架直接销毁应用，pauseForExit 幂等
   onDestroy() {
-    // 兜底：系统/框架直接销毁时也尽量停掉后台 curl（正常退出路径已在 index.vue 里
-    // await 过；这里只尽力而为，来不及的部分由下次启动的下载对账收拾）。
+
+    
+    // 兜底：系统/框架直接销毁时也尽量停掉后台 curl（正常退出路径已在 index.vue 里 await 过；
+    // 来不及的部分由下次启动的下载对账收拾）
     try {
       stopForExit()
     } catch (e) {}

@@ -1,17 +1,7 @@
-/**
- * 下载元数据 / 退出对账离线自检（**不是产品代码**，只在 PC 上用 Node 跑）。
- *
- *   node scripts/download_selftest.mjs
- *
- * 做法与 storage_selftest.mjs 相同：整棵 src 复制到临时目录，只把平台说明符
- * （fs / process / http / sqlite3）换成 shim，其余代码一字不改。
- *
- * 覆盖本次下载稳定性改动的关键不变式：
- *   1) begin 先写基础元数据（n/a/d/c + p + z + f），put 写完成态并清 p/z；
- *   2) 有音频但元数据只剩 {p} 时，能从索引/歌曲对象就地补，不重新拉音频；
- *   3) 退出时已下满的 .part 在启动对账里转正，并清掉没用的 .rc；
- *   4) 下载判重：元数据完整才跳过；证据不足的旧行会被要求重下。
- */
+
+
+// 下载元数据 / 退出对账离线自检（**不是产品代码**，只在 PC 上用 Node 跑）：node scripts/download_selftest.mjs
+// 做法：整棵 src 复制到临时目录，只把平台说明符（fs / process / http / sqlite3）换成 shim，其余代码一字不改。
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
@@ -28,7 +18,6 @@ const bad = (n, d) => { failures.push(n + (d ? ' — ' + d : '')); console.log('
 const eq = (n, g, w) => (JSON.stringify(g) === JSON.stringify(w) ? ok(n) : bad(n, 'got=' + JSON.stringify(g) + ' want=' + JSON.stringify(w)))
 const truthy = (n, v) => (v ? ok(n) : bad(n, 'falsy'))
 
-/* ---------------- 平台 shim（与 storage_selftest 同形状） ---------------- */
 const fsShim = {
   exists: (p) => fs.existsSync(p),
   stat: async (p) => {
@@ -165,7 +154,6 @@ async function prepareTree(sandbox) {
   return srcDst
 }
 
-/* ---------------- 主流程 ---------------- */
 const sandbox = await fsp.mkdtemp(path.join(os.tmpdir(), 'bpncm-dl-'))
 shDir = path.join(sandbox, '_sh')
 await fsp.mkdir(shDir, { recursive: true })
@@ -193,6 +181,7 @@ const scheduler = await import(U('services/player/scheduler.js'))
 const fetcher = await import(U('services/player/fetcher.js'))
 const download = await import(U('services/player/download.js'))
 const exec = await import(U('core/platform/exec.js'))
+
 // Windows 沙箱/受限环境可能禁止 fork：promote 需要 mv（exec），此时跳过转正断言，
 // 其余（元数据/判重/退出）仍可完整验证。
 const canExec = await exec.has('curl')
@@ -200,7 +189,6 @@ const canExec = await exec.has('curl')
 await db.ensureStateDb()
 await db.open()
 
-/* ================= 1) begin / put 的写入协议 ================= */
 console.log('1) begin 先写基础元数据，put 写完成态并清标记')
 const begun = await cache.beginMeta(
   { id: 1, name: '歌名', artist: '歌手', durationMs: 123456, cover: 'http://c' },
@@ -222,7 +210,6 @@ eq('put 写入档位', m1b && m1b.q, 'exhigh')
 eq('put 清掉 p', m1b && m1b.p, '')
 eq('put 清掉 z', m1b && m1b.z, 0)
 
-/* ================= 2) 构造下载目录 ================= */
 const dlRoot = paths.downloadsDir()
 function makeTrack(id, ext, size) {
   const dir = path.join(dlRoot, String(id))
@@ -237,20 +224,17 @@ function makePart(id, ext, size) {
   return dir
 }
 
-// 3) 退出时已下满的 flac 残片 + rc=0
 makePart(3, 'flac', 40000)
 fs.writeFileSync(path.join(dlRoot, '3', 'track.flac.part.rc'), '0')
 await media.writeMeta(3, 'download', { n: '残片歌', p: 'lossless', z: 40000, f: 1 })
 
-// 4) 没有 .part 的孤立 .rc
 fs.mkdirSync(path.join(dlRoot, '4'), { recursive: true })
 fs.writeFileSync(path.join(dlRoot, '4', 'track.mp3.rc'), '0')
 
-// 5) 有音频、元数据只剩 {p}+f=1：应收敛成 q（不需要外网）
 makeTrack(5, 'mp3', 40000)
 await media.writeMeta(5, 'download', { n: '索引歌', a: '索引歌手', d: 1000, p: 'exhigh', z: 0, f: 1 })
 
-// 8) 有音频、元数据只剩 {p}+f=0（升级中断）：只补名字，p 必须保留给下次下载
+// 有音频、元数据只剩 {p}+f=0（升级中断）：只补名字，p 必须保留给下次下载
 makeTrack(8, 'mp3', 40000)
 await media.writeMeta(8, 'download', { n: '', a: '', d: 0, p: 'lossless', z: 40000, f: 0 })
 
@@ -273,7 +257,6 @@ await localmeta.putIndex(8, {
   popularity: 0
 })
 
-/* ================= 3) 启动对账 ================= */
 console.log('\n2) 启动对账：补元数据 / 转正残片 / 清临时文件')
 const rec = await download.reconcileDownloads()
 truthy('对账至少扫描到构造的目录', rec.scanned >= 3)
@@ -300,10 +283,10 @@ function traceNote(r) {
   console.log('    （对账统计：补 ' + r.repaired + ' / 转正 ' + r.promoted + ' / 清 ' + r.cleaned + '）')
 }
 
-/* ================= 4) 下载判重：证据不足才重下 ================= */
 console.log('\n3) 下载判重：完整元数据跳过；证据不足重下')
 makeTrack(6, 'mp3', 40000)
-await media.writeMeta(6, 'download', { n: '证据不足', p: 'exhigh' }) // f 缺省 = 旧版本残留
+// f 缺省 = 旧版本残留的元数据
+await media.writeMeta(6, 'download', { n: '证据不足', p: 'exhigh' }) 
 makeTrack(7, 'mp3', 40000)
 await media.writeMeta(7, 'download', { n: '已完整', q: 'exhigh', y: 'mp3', b: 320000, p: '', f: 0 })
 
@@ -323,14 +306,12 @@ eq('跳过时不会调用下载器', fakeCalls, [])
 const pending = await store.getStorage(store.KEY_DL_PENDING)
 eq('正常结束后清掉待续传快照', pending, null)
 
-/* ================= 5) 退出收尾 ================= */
 console.log('\n4) 退出收尾')
 await download.stopForExit()
 truthy('stopForExit 置退出标志', fetcher.isStopping() === true)
 download.resetExit()
 truthy('closeApp 失败时可复位', fetcher.isStopping() === false)
 
-/* ================= 汇总 ================= */
 console.log('\n========================================================')
 if (failures.length) {
   console.log('失败 ' + failures.length + ' 项 / 通过 ' + pass + ' 项')

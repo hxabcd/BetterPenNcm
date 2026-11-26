@@ -14,11 +14,10 @@
 </template>
 
 <script>
+
 /**
  * 本地下载-歌单索引页的行：封面/图标 + 歌单名 + 副行 + 可进入提示。
- *
- * 与 SongRow / EntryRow 的区别：这一页是「歌单条目」不是歌曲，行高更大，
- * 支持两种视觉——有封面的歌单（cover + coverId）与无封面的特殊入口
+ * 两种视觉：有封面的歌单（cover + coverId），以及无封面的特殊入口
  * （全部下载 / 单曲下载 / 遗留歌曲，显示一个图标）。
  *
  * 封面由行自己 mounted 时取（cover.js 队列），回调里写组件自己的普通属性，
@@ -31,6 +30,7 @@ import { TOK } from '../ui/tokens.js'
 export default {
   name: 'LibraryRow',
   props: {
+
     /** {name, sub, cover, coverId, icon, flag} */
     item: { type: Object, required: true }
   },
@@ -91,7 +91,8 @@ export default {
   width: 22vh;
   height: 22vh;
 }
-/* 特殊入口的图标：封面盒里居中，11vh ≈ 26px */
+
+/* 特殊入口的图标：11vh ≈ 26px */
 .dlrow-ico {
   width: 11vh;
   height: 11vh;
@@ -117,6 +118,7 @@ export default {
   text-overflow: ellipsis;
   margin-top: 1.2vh;
 }
+
 /* A/D 等状态标记（歌单索引行用；普通行没有） */
 .dlrow-flag {
   font-size: @fs-dim;
@@ -125,6 +127,7 @@ export default {
   flex: none;
   margin-left: 2vh;
 }
+
 /* 可进入提示：灰色 chevron（同 CueRow） */
 .dlrow-cue {
   width: 11vh;

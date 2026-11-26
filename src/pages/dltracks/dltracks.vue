@@ -6,8 +6,7 @@
       </div>
     </page-topbar>
 
-    <!-- 歌单内曲目列表的状态卡片（git fetch / pull）：作为列表第一项跟随滚动，
-         左侧上次拉取日期，右侧拉取/同步两个带图标按钮。
+    <!-- 歌单内曲目列表的状态卡片（git fetch / pull）：作为列表第一项跟随滚动。
          拉取只更新远端信息；同步才下载 A 并清理 D（策略 A：只解除归属，不删文件）。 -->
     <scroller class="dlt-list" @scroll="onInfiniteScroll">
       <div class="dlt-status" v-if="isPlaylist">
@@ -45,18 +44,14 @@
 </template>
 
 <script>
-/**
- * 本地下载-曲目列表（四种 kind 共用一个页面，kind 由页面参数传入）：
- *   all 全部已下载 ｜ single 单曲下载 ｜ orphan 遗留歌曲（歌单批量下载、但已不被任何索引歌单
- *   引用；策略 A 保留文件）｜ playlist 某个已索引歌单（额外显示状态卡片 + A/D 标记）。
- *
- * 歌单内的行（A/D 都相对「本地文件」计算，不相对 baseIds 的上次快照，口径见 locallists.js）：
- *   - A（新增）= remoteIds − 本地已下载：在线点击流播，离线提示「还没下载」；
- *   - D（移除）= baseIds − remoteIds 且本地有文件：点击播本地，同步后从歌单消失（策略 A 保留
- *     文件），去向由归属决定（歌单批量下载 → 遗留歌曲；用户单曲 → 单曲下载）。
- *
- * 同步 = 先拉取，再下载所有 A，把 D 从 baseIds 移除；失败/取消的 A 保持 A，下次重试。
- */
+/* 四种 kind 共用一个页面（由页面参数传入）：all 全部已下载 ｜ single 单曲下载 ｜
+   orphan 遗留歌曲（歌单批量下载、但已不被任何索引歌单引用；策略 A 保留文件）｜
+   playlist 某个已索引歌单（额外显示状态卡片 + A/D 标记）。
+   歌单内的 A/D 都相对「本地文件」计算、不相对 baseIds 的上次快照（口径见 locallists.js）：
+     A（新增）= remoteIds − 本地已下载：在线点击流播，离线提示「还没下载」
+     D（移除）= baseIds − remoteIds 且本地有文件：点击播本地，同步后从歌单消失（策略 A 保留
+       文件），去向由归属决定（歌单批量下载 → 遗留歌曲；用户单曲 → 单曲下载）
+   同步 = 先拉取，再下载所有 A，把 D 从 baseIds 移除；失败/取消的 A 保持 A，下次重试。 */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import EmptyHint from '../../components/EmptyHint.vue'
@@ -91,9 +86,10 @@ const KIND_NAME = {
   orphan: '遗留歌曲'
 }
 
-const PAGE = PAGE_SONG // 平台一次渲染 ≤50 行（AGENTS 坑 5）
+// 平台一次渲染 ≤50 行
+const PAGE = PAGE_SONG 
 
-/** 列表项的 id 归一（口径见 localmeta.songIdOf）；顺带复制一份，避免改动缓存里的对象 */
+/** 列表项 id 归一（口径见 localmeta.songIdOf）；顺带复制一份，避免改动缓存里的对象 */
 function normSong(s) {
   const out = {}
   for (let k in s) out[k] = s[k]
@@ -117,7 +113,8 @@ export default {
       kind: 'all',
       pid: 0,
       pageName: '',
-      fullRows: [], // 全量（新→旧 / 远端顺序），rows 是前 N 条切片
+      // 全量（新→旧 / 远端顺序），rows 是前 N 条切片
+      fullRows: [], 
       rows: [],
       hasMore: false,
       added: 0,
@@ -126,7 +123,8 @@ export default {
       songBytes: 0,
       loading: true,
       hint: '读取中...',
-      busy: '', // '' | 'pull' | 'sync'
+      // '' | 'pull' | 'sync'
+      busy: '', 
       dl: null
     }
   },
@@ -134,6 +132,7 @@ export default {
     isPlaylist() {
       return this.kind === 'playlist'
     },
+
     /** 顶栏可点进「歌单详情」：仅本地索引歌单的曲目页；多选态顶栏显示勾选状态，不可点 */
     canOpenInfo() {
       return !this.multi && this.isPlaylist && !!this.pid
@@ -175,13 +174,11 @@ export default {
       }
       return this.fullRows.length + ' 首 · ' + fmtSize(this.songBytes)
     },
-    /**
-     * 左栏：返回 + 播放全部 + 多选；多选态按 CSV「多选（本地下载）」给
-     * 关闭 / 下一首播放 / 收藏到歌单 / 删除。
-     * ⚠ 遗留歌曲页把「收藏到歌单」换成「保留为单曲」：那一页的主要动作是把文件
-     * 从「遗留」转为「单曲下载」（markUser），四个上下文槽位放不下两颗额外键
-     * （返回 + 3 已是上限，见 NavRail 的 100vh 几何）。
-     */
+
+    /* 左栏：返回 + 播放全部 + 多选；多选态给关闭 / 下一首播放 / 收藏到歌单 / 删除。
+       ⚠ 遗留歌曲页把「收藏到歌单」换成「保留为单曲」（markUser，把文件从「遗留」转为
+       「单曲下载」）—— 返回 + 3 已是槽位上限（NavRail 的 100vh 几何装不下第四颗）。
+       ⚠ 必须在 computed 不能放 methods：模板 `:rail` 是「取字段」，method 版取到函数会炸。 */
     rail() {
       if (this.multi) {
         const out = [railBack(ICON.stop), railBtn('next', ICON.listplus)]
@@ -211,6 +208,7 @@ export default {
     } catch (e) {
       log('dltracks', '$page.on(show) 订阅失败 ' + ((e && e.message) || e))
     }
+
     // 参数通道按实例槽位 key 记账，取参必须用真实页名（写死逻辑页名只在兜底时命中）
     this.openPage(paramsFor((this.$page && this.$page.$pageName) || 'dltracks', this.$page ? this.$page.options : null))
     log('dltracks', '曲目列表页挂载')
@@ -263,16 +261,16 @@ export default {
       if (this._dead) return
       const token = (this._loadToken || 0) + 1
       this._loadToken = token
-      /* 已展开的条数：从其它页返回、拉取/同步后重读时保留分页进度，
-         否则每次退回都只剩首批 PAGE 首，用户得反复点「加载更多」。
-         切换歌单时 openPage 会先清空 rows，这里读到 0，仍从 PAGE 起。 */
+      /* 已展开的条数：onShow 重读 / 拉取同步后重读时保留分页进度，否则每次退回都只剩
+         首批 PAGE 首、用户得反复点「加载更多」。切换歌单时 openPage 会先清空 rows，
+         这里读到 0，仍从 PAGE 起。 */
       const keepRows = this.rows.length
       this._loaded = false
       this._localIds = null
       try {
         const downloaded = (await listSongs()).map(normSong)
         if (this._dead || token !== this._loadToken) return
-        // 拉取/同步复用这次目录扫描，避免在 locallists 里再扫一遍
+        // 拉取/同步复用这次目录扫描结果，避免在 locallists 里再扫一遍
         this._localIds = downloaded.map(function (s) { return s.id })
         this._loaded = true
         let rows = []
@@ -300,8 +298,9 @@ export default {
             pool = this.kind === 'single' ? split.single : split.orphan
           }
           pool = pool.slice()
+          // 新→旧（同旧本地下载页）
           pool.sort(function (a, b) {
-            return (b.mtime || 0) - (a.mtime || 0) // 新→旧（同旧本地下载页）
+            return (b.mtime || 0) - (a.mtime || 0) 
           })
           rows = []
           for (let i = 0; i < pool.length; i++) {
@@ -337,12 +336,13 @@ export default {
       this.rows = this.fullRows.slice(0, this.rows.length + AUTO_BATCH)
       this.hasMore = this.fullRows.length > this.rows.length
     },
-    /* ---- 行交互 ---- */
+
     onRow(i) {
       const r = this.rows[i]
       if (!r) return
       if (this.multi) {
-        if (r.downloaded === false) return // A 条目还没下载，不能删/保留
+        // A 条目还没下载，不能删/保留
+        if (r.downloaded === false) return 
         this.toggleSel(r.song.id)
         return
       }
@@ -356,8 +356,9 @@ export default {
         this.showToast('离线，这首还没下载')
         return
       }
-      // 离线时队列里排除 A 条目（没有本地文件，轮到必失败）；在线保留完整顺序。
-      // 队列用**全量 fullRows**：只播可见的 50 行会让连播在分页边界断掉。
+
+      // 离线时队列排除 A 条目（没有本地文件，轮到必失败）；在线保留完整顺序。
+      // ⚠ 队列用**全量 fullRows**：只播可见的 50 行会让连播在分页边界断掉。
       const source = this.fullRows
       const pool = off ? source.filter(function (x) { return x.downloaded !== false }) : source
       let at = 0
@@ -395,15 +396,16 @@ export default {
       log('dltracks', '长按 → 歌曲详情 id=' + r.song.id)
       go('songinfo', { id: r.song.id })
     },
+
     /** 顶栏 → 歌单详情（名字先带过去当标题，详情页拿到接口数据后再以接口为准） */
     openInfo() {
       if (!this.canOpenInfo) return
-      // 带上本页 pageId：详情页删掉歌单时顺手把它关掉（同 list 页）
+      // 带上本页 pageId：详情页删掉歌单时顺手把它关掉
       // entry:'dl' = 从本地下载进来：plinfo 左栏底键换「移除本地索引」，删除收进「更多」面板
       const fromPage = (this.$page && this.$page.$pageId) || ''
       go('plinfo', { id: this.pid, name: this.title, fromPage: fromPage, entry: 'dl' })
     },
-    /* ---- 拉取 / 同步 ---- */
+
     async doPull() {
       if (this.busy || !this.isPlaylist || !this.pid) return
       if (this.loading) {
@@ -412,7 +414,7 @@ export default {
       }
       this.busy = 'pull'
       this.showToast('拉取中...', 60000)
-      // localIds 由本页目录扫描结果复用；未就绪时让 locallists 自己扫一次
+
       const r = await pullList(this.pid, this._loaded ? this._localIds : null)
       this.busy = ''
       this.hideToast()
@@ -453,12 +455,9 @@ export default {
         4000
       )
     },
-    /* ---- 多选 ---- */
-    /**
-     * 多选范围 = **整份列表**（全部已下载曲目），不是已渲染的 50 行：
-     * 全选/删除/保留都覆盖整单，页面仍只渲染 rows（前 N 行）。
-     * A 条目（远端有、本地没下载）不参与任何操作，排除。
-     */
+
+    /* 多选范围 = **整份列表**（全部已下载曲目），不是已渲染的 50 行：全选/删除/保留都覆盖
+       整单，页面仍只渲染 rows（前 N 行）。A 条目（远端有、本地没下载）不参与任何操作，排除。 */
     multiList() {
       const out = []
       for (let i = 0; i < this.fullRows.length; i++) {
@@ -483,23 +482,20 @@ export default {
       }
       this.arm('del')
     },
-    /**
-     * 多选删除：**乐观更新 + 后台删除**。
-     * 数百首逐首删（目录 rm + 3 条 SQLite 写）要十几秒，等整批删完才刷新会让
-     * UI 长时间停在旧列表「像没反应」。所以：点删除 → 立即退出多选、立即从
-     * fullRows/rows 摘掉行（UI 一次到位）→ deleteBatch 在服务层后台逐首跑
-     * （不依赖本页存活，中途退出页面删除继续）→ 每首回调更新进度副题 →
-     * 结束后 loadView() 对账一次（拦 catch 到的漏网行 / 失败行）。
-     * 数据安全：deleteCached 目录与元数据成对增删，中途打断只意味着「剩下的没删」。
-     */
+
+    /* 多选删除：**乐观更新 + 后台删除**。数百首逐首删（目录 rm + 3 条 SQLite 写）要十几秒，
+       等整批删完才刷新会让 UI 长时间停在旧列表「像没反应」。所以：点删除 → 立即退出多选、
+       立即从 fullRows/rows 摘掉行 → deleteBatch 在服务层后台逐首跑（不依赖本页存活，
+       中途退出页面删除继续）→ 每首回调更新进度副题 → 结束后 loadView() 对账一次。
+       数据安全：deleteCached 目录与元数据成对增删，中途打断只意味着「剩下的没删」。 */
     async doDeleteSelected() {
       const ids = this.selIds.slice()
       if (!ids.length) {
         this.showToast('未选中歌曲')
         return
       }
-      // 有正在跑的批量删除时并入会丢事件顺序；直接拒绝（deleteBatch 单例不会重叠，
-      // 但上一场还没结束时 selIds 可能又攒了一波 —— 提示等它跑完）
+      // 有正在跑的批量删除时并入会丢事件顺序，直接拒绝（deleteBatch 单例不会重叠，
+      // 但上一场还没结束时 selIds 可能又攒了一波）
       if (deleteBatchState().running) {
         this.showToast('正在删除上一批，稍候再试')
         return
@@ -521,10 +517,12 @@ export default {
           self.showToast('已删除 ' + st.done + ' 首' +
             (st.failed ? ' · ' + st.failed + ' 首失败' : '') +
             ' · 释放 ' + fmtSize(st.bytes))
-          self.loadView() // 对账：服务层删干净后列表与磁盘一致；失败的行还在
+          // 对账：服务层删干净后列表与磁盘一致；失败的行还在
+          self.loadView() 
         }
       })
     },
+
     /** 乐观摘行：从 fullRows/rows 同步剔除 ids（字符串比较；不存在的 id 静默跳过） */
     removeRowsLocal(ids) {
       const kill = {}
@@ -543,6 +541,7 @@ export default {
         if (player.state().queueSrc === 'downloads') player.removeFromQueue(ids)
       } catch (e) {}
     },
+
     /** 遗留歌曲 → 保留为单曲：改归属标记，文件不动；重新分类后从遗留页消失 */
     async keepSelected() {
       if (!this.selIds.length) {
@@ -554,10 +553,12 @@ export default {
       await this.loadView();
       this.showToast('已保留为单曲 ' + n + ' 首');
     },
+
     /** 选中的曲目对象（顺序 = 列表顺序）；A 条目不在 selIds 里，取不到就跳过 */
     selectedSongs() {
       return selPicked(this.selIds, this.multiList());
     },
+
     /** 下一首播放：插到当前曲之后（player.insertNext），完成后退出多选 */
     doNext() {
       const picked = this.selectedSongs();
@@ -571,6 +572,7 @@ export default {
       const t = playNextText(r);
       if (t) this.showToast(t);
     },
+
     /** 收藏到歌单：跳歌单选择页（pick 模式带一批 id） */
     doToPlaylist() {
       const picked = this.selectedSongs();
@@ -593,7 +595,7 @@ export default {
       this._dlSig = sig
       this.dl = d
     },
-    /* ---- 左栏 ---- */
+
     onBack() {
       if (this.exitMultiIfAny()) return
       this.$page.finish()
@@ -613,8 +615,7 @@ export default {
 <style lang="less" scoped>
 @import '../../styles/common.less';
 
-/* 状态卡片：列表第一项，随内容滚动（不再钉在顶栏下方）。
-   上下各 4vh：拉开与顶栏 / 首行的距离，滚出屏幕后不再占列表高度。 */
+/* 状态卡片：列表第一项，随内容滚动（不钉在顶栏下方）；上下各 4vh 拉开与顶栏/首行的距离 */
 .dlt-status {
   height: 18vh;
   flex: none;
@@ -636,8 +637,8 @@ export default {
 .dlt-fill {
   flex: 1;
 }
-/* 拉取 / 同步：带图标的按钮（14vh ≈ 34px 高，小屏上更好点）。
-   圆角用全局卡片圆角，不再做整条胶囊。 */
+
+/* 拉取 / 同步：带图标的按钮（14vh ≈ 34px 高，小屏上更好点）；圆角用全局卡片圆角 */
 .dlt-btn {
   height: 14vh;
   flex-direction: row;
@@ -661,6 +662,7 @@ export default {
 .dlt-list {
   flex: 1;
 }
+
 /* 分页加载：与曲目列表页同一口径（一次渲染 ≤50 行） */
 .dlt-more {
   height: 18vh;
@@ -669,7 +671,8 @@ export default {
 }
 .dlt-more-t {
   font-size: @fs-dim;
-  color: @accent-2; /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
+  /* 书面值是默认（红）主题；运行时由模板内联 style 给当前主题色 */
+  color: @accent-2; 
 }
 /* 多选态顶栏右侧的「全选 / 全不选」（同其它列表页） */
 .dlt-all {
@@ -682,7 +685,8 @@ export default {
 }
 .dlt-all-t {
   font-size: @fs-dim;
-  color: @accent-2; /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
+  /* 书面值是默认（红）主题；运行时由模板内联 style 给当前主题色 */
+  color: @accent-2; 
 }
 .dlt-bottom {
   height: 4vh;

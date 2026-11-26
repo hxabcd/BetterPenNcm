@@ -1,12 +1,10 @@
 <template>
   <page-shell :rail="rail" @rail="onRail">
+    <!-- 平台没有内置 tab 组件，自绘；选中态走内联样式（不支持 .a.b 复合选择器）。
+         artist 源（歌手专辑）与 pick 模式都没有页签 —— 订阅歌单实测加不了歌（401 无权限），
+         所以选择页只列「创建」页签里的（含置顶的「我喜欢」）。 -->
     <page-topbar :title="title" :sub="sub">
-      <!-- pivot 直接并进顶栏（不用胶囊，就是两个文字页签）。
-          平台没有内置 tab 组件，自绘；选中态走内联样式（不支持 .a.b 复合选择器）。
-           每个页签的**右上角**带一个小号计数（网易云手机客户端页签上标的做法）——
-           见 .pls-tabrow 的顶对齐实现。
-          artist 源（歌手专辑）没有页签；pick 模式（选歌单）也没有 —— 订阅歌单实测
-          加不了歌（401 无权限），所以只列「创建」页签里的（含置顶的「我喜欢」）。 -->
+
       <div class="pls-tabs" v-if="!isArtist && !pickMode">
         <div class="pls-tab" @click="switchTab('created')">
           <div class="pls-tabrow">
@@ -71,9 +69,6 @@ import { coverKey } from '../../services/cover/cover.js'
 import { infiniteScrollMixin } from '../../ui/mixins/infinite.js';
 import { listPageMixin } from '../../ui/mixins/listpage.js'
 
-/* 每行卡片数：**按内容区宽度自动选**（S7 4 列 / X3S 800 宽 3 列）。
-   PER_ROW 只作兜底默认，实际用 grid.cols（见 computed）。 */
-
 const ALBUM_PAGE = 30; // 歌手专辑一次拉多少（实测 offset 分页有效）
 
 /** 输入法里名字的字符上限（服务端还要按显示宽度卡 40，见 fitPlaylistName） */
@@ -99,7 +94,7 @@ export default {
       hint: "加载中...",
       artistId: 0, // source=artist 时的歌手 id
       artistName: "",
-      more: false, // 还有更多（仅 source=artist 的**服务端**分页用）
+      more: false, // 还有更多（仅 source=artist 的服务端分页用）
       shown: PAGE_CARD, // 用户歌单的渲染分片（本地全量在内存，按卡片数递增）
       loadingMore: false,
       pickId: 0,
@@ -119,13 +114,9 @@ export default {
       return this.tab === "created" ? this.all.created : this.all.subscribed;
     },
     /**
-     * 歌单顺序固定为「更新时间」倒序（这页不做排序 UI，
-     * 排序功能放到曲目列表页）。updateTime 来自 /api/user/playlist，
-     * 由 playlist.js 的 fetchUserPlaylists 带出。
-     *
-     * 「我喜欢」在「创建」页签**置顶**：排序之后再 unshift 插队 —— 它的 updateTime
-     * 可能很旧，放进排序会被甩到中间去。
-     * source=artist 时不重排 —— 专辑按接口返回的顺序（新→旧）就好。
+     * 歌单顺序固定为「更新时间」倒序（updateTime 来自 /api/user/playlist，由 playlist.js 的
+     * fetchUserPlaylists 带出）。「我喜欢」排序之后再 unshift 置顶 —— 它的 updateTime
+     * 可能很旧，放进排序会被甩到中间去。artist 源不重排（专辑按接口返回的顺序，新→旧）。
      */
     sorted() {
       if (this.isArtist) return this.albums;
@@ -140,20 +131,16 @@ export default {
     visibleItems() {
       return this.isArtist ? this.sorted : this.sorted.slice(0, this.shown);
     },
-    /** 还有没有更多：歌手专辑看服务端 more；用户歌单看本地分片是否还有剩余 */
+
     hasMore() {
       if (this.isArtist) return !!this.more;
       return this.sorted.length > this.visibleItems.length;
     },
-    /**
-     * 「创建歌单」这个动作给不给：只在**自己创建的**列表里给 ——
-     * 收藏（订阅）列表与歌手专辑列表都不是「我的歌单」，新建没有落点。
-     * 「添加到歌单」的选择态（pickMode）也走 created 页签，所以自动继承。
-     */
+
     showCreate() {
       return !this.isArtist && this.tab === "created" && loggedIn();
     },
-    /** 网格列数与每张卡宽（px）：按本机型内容区宽度实算，见 core/platform/viewport.js */
+
     grid() {
       // 每张卡至少 76vh 宽（S7: 182px / X3S: 193px）—— 再窄歌单名的可用宽度就不够看了
       return fitColumns(76, 5, 7, 4)
@@ -161,7 +148,7 @@ export default {
     cardWpx() {
       return this.grid.cardWpx
     },
-    /** 按 grid.cols 个一组分行 */
+
     rows() {
       const out = [];
       const list = this.visibleItems;
@@ -171,15 +158,14 @@ export default {
       }
       return out;
     },
-    /** 页签名由 pivot 表达，标题就不重复了 */
+
     title() {
       if (this.pickMode) return "添加到歌单";
       if (!this.isArtist) return "我的歌单";
       return this.artistName ? this.artistName + " · 专辑" : "全部专辑";
     },
     sub() {
-      // 顶栏不放「N 个歌单」这类计数（卡片上已经有了，页签名由 pivot 表达）
-      // —— 计数改挂在 pivot 页签自己的右上角（.pls-tab-c 上标）
+
       if (this.pickMode) {
         const n = this.pickIds.length
         if (n === 1) return this.pickName ? "歌曲：" + this.pickName : "选一个歌单";
@@ -188,25 +174,20 @@ export default {
       if (this.isArtist) return this.albums.length + " 张";
       return "";
     },
-    /** 「创建」页签计数：含置顶的「我喜欢」（与首页卡片的口径一致） */
+
     createdTabCount() {
       return this.all.created.length + (this.all.liked ? 1 : 0);
     },
-    /** 「收藏」页签计数 */
+
     subTabCount() {
       return this.all.subscribed.length;
     },
     /**
-     * 左栏：返回 + 底键「创建歌单」。
-     *
-     * 走左栏而不是在网格里塞一张入口卡：网格第一格被固定的入口占掉后，
-     * 「我喜欢」的置顶位置和每页 4 张的分组都要为它让位，而这是个低频动作。
-     * 「添加到歌单」的选择态（pickMode）用的是同一个页面、同一个页签，键自动继承 ——
-     * 选歌单时发现没有合适的，直接新建并把选中的歌加进去。
+     * 左栏：返回 + 底键「创建歌单」（pick 模式用同一页面同一页签，键自动继承 ——
+     * 选歌单时发现没有合适的，直接新建并把选中的歌加进去）。
      *
      * ⚠ 必须留在 computed：模板 `:rail="rail"` 编译成「取字段」，methods 里取到的是函数
      * （pageFrameMixin 已有同名 computed，Vue 只留 mixin 那份并 warn，页面这份整个失效）。
-     * 本页曾误写进 methods → 「创建歌单」键从未出现，见 docs/平台约束与自检.md。
      */
     rail() {
       const out = [railBack()];
@@ -216,8 +197,7 @@ export default {
   },
   mounted() {
     this._dead = false;
-    // 歌单详情页改过歌单（改名/删除/收藏状态）→ 本页重拉一次（loadUserPlaylists 带 force）；
-    // 注册/退役见 ui/mixins/pagebus.js
+    // 歌单详情页改过歌单（改名/删除/收藏状态）→ 本页重拉一次
     this.onPageEvent("bpncm:playlist-changed", "load");
     /* 本页会在栈里同时存活多个实例（浏览态 / 「添加到歌单」选择态 / 歌手专辑），
        参数通道 core/infra/nav.js 的 pending 按**实例槽位 key** 记账，
@@ -356,10 +336,8 @@ export default {
     },
     /* ---- 创建歌单 ---- */
     /**
-     * 名字走系统输入法（与 plinfo 改名同款），创建完：
-     *   - 普通浏览态：重拉列表，新歌单按 updateTime 排在最前（「我喜欢」置顶之后）
-     *   - 选歌单态（添加到歌单）：紧接着把选中的歌加进去再退页 ——
-     *     实测新建完**立刻**就能 manipulate/tracks 加歌，不用等列表刷新
+     * 名字走系统输入法（与 plinfo 改名同款）。实测新建完**立刻**就能 manipulate/tracks 加歌，
+     * 不用等列表刷新 —— 选歌单态下建完直接把选中的歌加进去再退页。
      * 名字先按服务端口径（显示宽度 ≤40）截断再发，避免 400「标题字数异常」。
      */
     async onCreate() {
@@ -474,8 +452,7 @@ export default {
 }
 /* 页签行 = 文字 + 右上角计数。**align-items: flex-start 是上标的关键**：
    计数（@fs-mute 6vh）顶部与页签名（@fs-strong 8.5vh）顶部齐平、字号小一号，
-   视觉上就落在文字的右上角（网易云手机客户端页签上标的做法）。
-   用顶对齐而不是绝对定位的负偏移——平台会把负偏移当 0（AGENTS.md 平台坑 17）。 */
+   视觉上就落在文字的右上角。用顶对齐而不是绝对定位的负偏移 —— 平台会把负偏移当 0。 */
 .pls-tabrow {
   flex-direction: row;
   align-items: flex-start;
@@ -483,7 +460,7 @@ export default {
 .pls-tab-t {
   font-size: @fs-strong;
 }
-/* 计数的水平间距取小值（「间距要很小」），紧贴文字右上方 */
+/* 计数的水平间距取小值（紧贴文字右上方） */
 .pls-tab-c {
   font-size: @fs-mute;
   margin-left: 0.5vh;
@@ -507,6 +484,7 @@ export default {
 }
 .pls-more-t {
   font-size: @fs-dim;
-  color: @accent-2; /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
+  /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
+  color: @accent-2; 
 }
 </style>

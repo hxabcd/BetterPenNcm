@@ -32,7 +32,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 # 不指定 --adb/--ssh/--vm 时按项目配置选设备（工作区 targets.env 或本项目
-# .dictpen-dev.env）；显式指定才覆盖。不再把 adb 写死成默认值。
+# .dictpen-dev.env）；显式指定才覆盖。
 SEL_ARGS=()
 [ -n "$MODE" ] && SEL_ARGS+=("--transport=$MODE")
 [ -n "$DEV_SERIAL" ] && SEL_ARGS+=("--target=$DEV_SERIAL")
@@ -43,19 +43,18 @@ info "目标: $DEVICE_LABEL"
 PASS=0; FAIL=0
 step() { if [ "$2" = 0 ]; then info "  ✓ $1"; PASS=$((PASS+1)); else warn "  ✗ $1"; FAIL=$((FAIL+1)); fi; }
 
-# 1) dev_check
 dev_check; step "连通性校验 (dev_check)" $?
 
-# 2) dev_run：命令串能完整送达
+# dev_run：命令串要完整送达（引号/管道不能被本地吞掉）
 OUT="$(dev_run 'echo DEV_RUN_OK' 2>/dev/null | tr -d '\r')"
 [ "$(printf '%s' "$OUT" | grep -c DEV_RUN_OK)" = 1 ]; step "dev_run 命令执行" $?
 
-# 3) dev_exists：存在性判断（用一定存在的 / 与一定不存在的路径做正反验）
+# dev_exists：只能看输出判断（adb 不回传退出码），用一定存在 / 一定不存在的路径正反各验一次
 dev_exists /; step "dev_exists 命中 /" $?
 dev_exists /userdisk/__bpncm_livecheck_absent__ && RC=1 || RC=0
 [ "$RC" = 0 ]; step "dev_exists 正确判空" $?
 
-# 4) dev_put / dev_get 二进制往返（写 /tmp，tmpfs 重启自清）
+# dev_put / dev_get 二进制往返（写 /tmp：tmpfs，重启自清）
 TMP_IN="$(mktemp)"; TMP_OUT="$(mktemp)"
 printf 'livecheck\000\001\377\r\n' > "$TMP_IN"
 REMOTE="/tmp/.bpncm_livecheck.bin"
@@ -68,7 +67,7 @@ fi
 dev_run "rm -f $REMOTE" >/dev/null 2>&1 || true
 rm -f "$TMP_IN" "$TMP_OUT"
 
-# 5) 关键设备能力（装机/截图依赖）
+# 关键设备能力：装机/截图依赖设备上有 miniapp_cli
 CAP="$(dev_run 'command -v miniapp_cli; command -v md5sum' 2>/dev/null | tr -d '\r')"
 [ "$(printf '%s' "$CAP" | grep -c miniapp_cli)" = 1 ]; step "设备有 miniapp_cli" $?
 
@@ -76,5 +75,3 @@ info ""
 info "结果: PASS=$PASS FAIL=$FAIL（目标 $DEVICE_LABEL）"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
-
-

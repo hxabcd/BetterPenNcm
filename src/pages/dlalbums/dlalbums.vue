@@ -30,16 +30,7 @@
 </template>
 
 <script>
-/**
- * 本地下载-专辑：歌曲本地索引里的所有专辑，卡片网格。
- *
- * 卡面（见 components/AlbumCard.vue）：专辑封面（取专辑内歌曲的封面）+ 专辑名(L1)
- * + 专辑艺术家(L2) + 歌曲数量/年份(L3)。
- *
- * 左栏排序键展开 ContextSheet：「排序依据（标题/年份/数量）+ 列数（2/3/4）」。
- * 默认按年份新→旧（专辑库最常见），标题默认 A→Z、数量默认多→少；
- * 同一项再点一次切升降序。
- */
+
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import AlbumCard from '../../components/AlbumCard.vue'
@@ -63,12 +54,11 @@ const SORTS = [
   { key: 'count', label: '数量' }
 ]
 
-const PAGE = PAGE_CARD // 一次最多 40 张卡（4 列 10 行 / 2 列 20 行，均在 ≤50 行内）
+// 首屏 40 张卡：4 列 10 行 / 2 列 20 行，都在平台 ≤50 行内
+const PAGE = PAGE_CARD 
 
-/**
- * 默认列数：按**内容区宽度**自动选（S7 1020 宽 → 4 列；X3S/X5 800 宽 → 3 列）。
- * 不再读 `env.screenWidth` —— 那个字段在 X3S 上根本不存在（只有 deviceWidth）。
- */
+/* 默认列数按**内容区宽度**自动选（S7 1020 宽 → 4 列；X3S/X5 800 宽 → 3 列）。
+   ⚠ 不读 `env.screenWidth`：该字段在 X3S 上不存在（只有 deviceWidth）。 */
 function defaultCols() {
   return fitColumns(76, 5, 7, 4).cols
 }
@@ -108,7 +98,7 @@ export default {
       })
       return out
     },
-    /** 每张卡的定宽（px）：按当前列数在本机型内容区里均分（末列不再溢出被裁） */
+
     cardWpx() {
       // 用户选的列数可能在小屏上装不下：卡宽按内容区均分（变窄，不溢出）
       return cardWidthPx(this.cols, 5, 7)
@@ -157,7 +147,7 @@ export default {
     this._onShow = null
   },
   methods: {
-    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    /** 列表页骨架声明（ui/mixins/listpage.js）：切片数组字段名与行高 */
     listPageConfig() {
       return { slice: 'rows', rowPx: ROW_PX_CARD }
     },
@@ -166,7 +156,7 @@ export default {
         const list = await localAlbumList()
         if (this._dead) return
         this.albums = list
-        /* 不重置 shown：从专辑详情返回时保留已展开的分页（排序 / 列数切换另行重置）。 */
+        /* 不重置 shown：从专辑详情返回时保留已展开的分页（排序 / 列数切换另行重置） */
         this.loading = false
         log('dlalbums', '专辑 ' + list.length + ' 张')
       } catch (e) {
@@ -191,7 +181,7 @@ export default {
         this.sortAsc = !this.sortAsc
       } else {
         this.sortKey = k
-        // 标题默认 A→Z；年份默认新→旧；数量默认多→少
+        // 切换排序项时的默认方向：标题 A→Z；年份新→旧；数量多→少
         this.sortAsc = k === 'title'
       }
       this.shown = PAGE
@@ -215,9 +205,8 @@ export default {
 <style lang="less" scoped>
 @import '../../styles/common.less';
 
-/* 卡片外边距结构同歌单列表页：每张卡自带 5vh 右间距，列表右 padding 收窄。
-   2/3/4 列的卡片宽度分别 190/124/92.5vh，加 5vh 间距后总宽 390/387/390vh，
-   均在内容区 ~400vh（左栏 25vh 之后）内。 */
+/* 卡片外边距结构同歌单列表页：每张卡自带 5vh 右间距，列表右 padding 收窄到 1vh
+   （末卡的右间距由 padding 吃掉，total 才不会顶出右沿）。 */
 .dal-list {
   flex: 1;
   padding-top: 4vh;
@@ -235,7 +224,8 @@ export default {
 }
 .dal-more-t {
   font-size: @fs-dim;
-  color: @accent-2; /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
+  /* 书面值是默认（红）主题；运行时由模板内联 style 给当前主题色 */
+  color: @accent-2; 
 }
 .dal-bottom {
   height: 4vh;

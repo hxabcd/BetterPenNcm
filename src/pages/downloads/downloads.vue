@@ -2,8 +2,7 @@
   <page-shell :rail="rail" @rail="onRail">
     <page-topbar title="本地下载" :sub="barSub" />
 
-    <!-- 同主页的横向卡片流：歌单 / 歌手 / 专辑。
-         三张卡都是 scroller 的直接子节点（不包 wrapper，理由同首页的 .idx-row）。 -->
+    <!-- 三张卡必须是 scroller 的直接子节点（不能包 wrapper，同首页 .idx-row） -->
     <scroller class="dlo-row" scroll-direction="horizontal" :show-scrollbar="false">
       <div class="dlo-card dlo-pl" @click="openPl">
         <image class="dlo-ico" :src="cico('dlpl')" />
@@ -29,20 +28,8 @@
 </template>
 
 <script>
-/**
- * 本地下载（总览页）—— 从首页「本地下载」卡进入。
- *
- * 结构 = 同主页的横向卡片流：歌单 / 歌手 / 专辑。
- *   - 歌单：已添加到本地索引的歌单（索引页还有「全部下载」「单曲下载」「遗留歌曲」）；
- *   - 歌手 / 专辑：已下载歌曲的本地索引聚合（离线可用）。
- *
- * 数据源：
- *   - 歌单数量 = player/locallists.js 的 indexedCount()
- *   - 歌手/专辑数量 = player/localmeta.js 的 localStats()
- *   - 总曲目/体积 = player/cache.js 的 stats()（文件系统为真相）
- * 删除/多选不在总览页：进入具体列表后操作（旧的单页下载列表已拆成
- * 「全部下载 / 单曲下载 / 遗留歌曲 / 歌单内歌曲」四类）。
- */
+/* 口径：歌单数 = locallists.indexedCount()；歌手/专辑 = localmeta.localStats()；
+   曲目/体积 = cache.stats()（以文件系统为真相）。删除/多选不在总览页，进具体列表操作。 */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import HintToast from '../../components/HintToast.vue'
@@ -112,7 +99,7 @@ export default {
     rail() {
       return [
         railBack(),
-        // 下载队列：有未查看的已完成任务时高亮（同旧本地下载页）
+        // dl.finished = 未查看的已完成任务数，>0 时高亮提示去队列
         railBtn('queue', ICON.tasks, !!(this.dl && this.dl.finished > 0))
       ]
     }
@@ -120,7 +107,7 @@ export default {
   mounted() {
     this._dead = false
     const self = this
-    // 下载活动订阅（可见性门控 + 首帧快照，见 ui/mixins/dlsub.js）
+    // 订阅只建立一次：回调按页面可见性门控，挂载时补一次快照（见 ui/mixins/dlsub.js）
     this._dlOff = bindDl(this, dlApi, function (s) {
       self.syncDl(s)
     })
@@ -145,7 +132,7 @@ export default {
     this._onShow = null
   },
   methods: {
-    /** 三张卡的裸图标：按当前主题色取 PNG（平台不能给 <image> 染色） */
+    /** 按主题色取 PNG：平台不能给 <image> 染色，只能换预生成的着色变体 */
     cico(key) {
       return aIcon(key, this.accent.key)
     },
@@ -165,6 +152,7 @@ export default {
         this.loading = false
         log('downloads', '总览 歌单=' + this.plCount + ' 歌手=' + this.arCount +
           ' 专辑=' + this.alCount + ' 歌曲=' + this.songCount + ' / ' + fmtSize(this.bytes))
+
         // 老下载缺本地索引/时长的后台补齐（一次最多 30 首；异常自己吃掉，不影响总览）
         if (!skipEnrich) {
           this.enrich().catch(function (e) {
@@ -180,12 +168,10 @@ export default {
       if (this._dead || !(fb > 0)) return
       this.free = fb
     },
-    /**
-     * 老下载补齐（本功能上线前下的歌）：缺本地索引或时长的逐首 saveSongExtras
-     * （v3 详情 → 本地索引 + 歌词落盘 + 封面预热），一次 ≤30 首、串行。
-     * 连续 2 首失败即停（离线时逐首吃超时没有意义）；在线时下次进页面继续。
-     * 补到的时长/封面写回下载元数据，之后列表行/歌手/专辑聚合直接可用。
-     */
+
+    /* 补齐本功能上线前下的歌：缺本地索引或时长的逐首 saveSongExtras（v3 详情 → 本地索引 +
+       歌词落盘 + 封面预热），一次 ≤30 首、串行。连续 2 首失败即停（离线时逐首吃超时没有意义），
+       在线时下次进页面继续。补到的时长/封面写回下载元数据，行/歌手/专辑聚合直接可用。 */
     async enrich() {
       if (enriching || this._dead) return
       if (await isOffline()) return
@@ -281,9 +267,8 @@ export default {
 <style lang="less" scoped>
 @import '../../styles/common.less';
 
-/* 竖向预算同首页：内容区 85vh；scroller 上下 6vh + 卡高 70vh = 82vh，留 3vh 余量。
-   卡宽与首页文字卡一致（23% ≈ 219px）：3×219 + 2×9.6 ≈ 676px。
-   内容不足一屏时右侧自然留白，横向滑动行为不变。 */
+/* 竖向预算：内容区 85vh；scroller 上下 6vh + 卡高 70vh = 82vh，留 3vh 余量。
+   卡宽 23% ≈ 219px：3×219 + 2×9.6 ≈ 676px，一屏刚好三张。 */
 .dlo-row {
   flex: 1;
   padding: 6vh 3vh;
@@ -298,8 +283,7 @@ export default {
   border-radius: 6vh;
   margin-right: 4vh;
 }
-/* 三张卡版式一致：图标贴顶、标题/副行贴底，中间由 .dlo-fill 吸收余量。
-   上/左内边距相等（5vh）→ 墨迹到左、到上视觉等距（同首页文字卡）。 */
+
 .dlo-pl {
   flex-direction: column;
   align-items: flex-start;

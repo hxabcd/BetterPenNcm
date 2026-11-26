@@ -1,19 +1,9 @@
-/**
- * 存储层离线集成自检（**不是产品代码**，只在 PC 上用 Node 跑）。
- *
- * 为什么需要它：存储层的核心结论（原生 sqlite3 通道 / kv 文档表 / 每曲一目录 /
- * 迁移幂等）全都落在平台边界上（$dataDir、只读 fs 模块、process.exec）。设备不在手边时，
- * 唯一能证明「这些代码真的跑得起来」的办法是：用真实文件系统 + 真实 sqlite 扮演平台，
- * 把模块**原样**跑一遍。
- *
- *   node scripts/storage_selftest.mjs
- *
- * 做法：把 src/ 整棵复制到临时目录，只把平台说明符（'fs' / 'process' / 'http' /
- * 'sqlite3'）换成 shim，其余代码一字不改 —— 检验的是真产品逻辑，替换的只有平台边界。
- *
- * 覆盖：paths 形状 / db 建表与 upsert 与 kv / media 每曲一目录与曲目文档 /
- *       store 的合并写 / 两个库的表清单互斥 / cover 单尺寸不变式。
- */
+
+
+// 存储层离线集成自检（**不是产品代码**，只在 PC 上用 Node 跑）：node scripts/storage_selftest.mjs
+// 为什么需要它：存储层的核心结论（原生 sqlite3 通道 / kv 文档表 / 每曲一目录 / 迁移幂等）全都落在平台边界上
+// （$dataDir、只读 fs 模块、process.exec），设备不在手边时只能「用真实文件系统 + 真实 sqlite 扮演平台」来证明跑得起来。
+// 做法：把 src/ 整棵复制到临时目录，只把平台说明符（'fs' / 'process' / 'http' / 'sqlite3'）换成 shim，其余代码一字不改。
 import { exec as cpExec } from 'node:child_process'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -24,7 +14,6 @@ import { DatabaseSync } from 'node:sqlite'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 
-/* ---------------- 结果统计 ---------------- */
 let pass = 0
 const failures = []
 const ok = (n) => { pass++; console.log('  ✓ ' + n) }
@@ -37,10 +26,8 @@ function eq(name, got, want) {
 }
 const truthy = (n, v) => (v ? ok(n) : bad(n, 'falsy: ' + JSON.stringify(v)))
 
-/* ---------------- 平台 shim ---------------- */
 const fsShim = {
-  // 平台 fs 只有这些能力：**没有写入接口**（writeFile/rename/unlink 全是 undefined），
-  // mkdir / rm 递归可用 —— 与真机实测一致
+  // 平台 fs 只有这些能力：**没有写入接口**（writeFile/rename/unlink 全是 undefined），mkdir / rm 递归可用 —— 与真机实测一致
   exists: (p) => fs.existsSync(p),
   stat: async (p) => {
     const st = fs.statSync(p)
@@ -126,7 +113,7 @@ function makeSqliteShim() {
       return 0
     }
     _bind() {
-      // node:sqlite 用匿名参数数组；这里统一成位置参数
+
       return this.params.map((v) => (v === undefined || v === null ? null : v))
     }
     async step() {
@@ -135,7 +122,7 @@ function makeSqliteShim() {
         if (!this._i) this._i = 0
         if (this._i >= this._rows.length) return null
         const row = this._rows[this._i++]
-        // 真机返回「按列顺序的数组」
+
         return Object.values(row)
       } catch (e) {
         return String((e && e.message) || e)
@@ -176,7 +163,7 @@ function makeSqliteShim() {
     }
     async exec(sql) {
       try {
-        // node:sqlite 的 exec 支持多条语句（含 BEGIN/COMMIT）
+
         this.raw.exec(sql)
         return 0
       } catch (e) {
@@ -203,7 +190,6 @@ function makeSqliteShim() {
   return { Database }
 }
 
-/* ---------------- 复制 + 只替换平台说明符 ---------------- */
 async function prepareTree(sandbox) {
   const shimDir = path.join(sandbox, '_shim')
   await fsp.mkdir(shimDir, { recursive: true })
@@ -212,7 +198,6 @@ async function prepareTree(sandbox) {
   const httpUrl = pathToFileURL(path.join(shimDir, 'http.mjs')).href
   const sqliteUrl = pathToFileURL(path.join(shimDir, 'sqlite3.mjs')).href
 
-  // shim 模块转发到全局，便于测试里改行为；named export 与产品代码的调用形态一致
   await fsp.writeFile(path.join(shimDir, 'fs.mjs'),
     'const s = globalThis.__fsShim\nexport default s\n' +
     ['exists', 'stat', 'readdir', 'mkdir', 'rm', 'readFile', 'statfs']
@@ -224,18 +209,17 @@ async function prepareTree(sandbox) {
   await fsp.writeFile(path.join(shimDir, 'sqlite3.mjs'),
     'const s = globalThis.__sqliteShim\nexport default s\nexport const Database = s.Database\n')
 
-  // 整棵 src 复制过去（只拷 js/vue/json 等文本，跳过图标二进制）
   const srcDst = path.join(sandbox, 'src')
   for (const axis of ['core', 'ui', 'services']) {
     await fsp.cp(path.join(ROOT, 'src', axis), path.join(srcDst, axis), { recursive: true })
   }
-  // logconfig.generated.js 是构建生成物（不进仓库、本地也常缺）→ 造一个空的顶上
+
   const logCfg = path.join(srcDst, 'core/infra/logconfig.generated.js')
   if (!fs.existsSync(logCfg)) await fsp.writeFile(logCfg, "export const LOG_SRV = ''\n")
-  // buildInfo.js 同样是构建生成物
+
   const buildInfo = path.join(srcDst, 'core/infra/buildInfo.js')
   if (!fs.existsSync(buildInfo)) await fsp.writeFile(buildInfo, "export const BUILD = 'selftest'\nexport const BUILD_TAG = 'st'\n")
-  // src 整棵是 ESM（.js 后缀），靠这个 package.json 让 Node 按 ESM 解析
+
   await fsp.writeFile(path.join(srcDst, 'package.json'), '{"type":"module"}\n')
 
   let rewritten = 0
@@ -246,7 +230,7 @@ async function prepareTree(sandbox) {
       if (!e.name.endsWith('.js')) continue
       let s = await fsp.readFile(p, 'utf8')
       const before = s
-      // 只动这些平台说明符，别的一字不改
+
       s = s.replace(/from\s+(['"])fs\1/g, "from '" + fsUrl + "'")
       s = s.replace(/import\(\s*(['"])fs\1\s*\)/g, "import('" + fsUrl + "')")
       s = s.replace(/from\s+(['"])process\1/g, "from '" + procUrl + "'")
@@ -259,12 +243,11 @@ async function prepareTree(sandbox) {
     }
   }
   for (const axis of ['core', 'ui', 'services']) await walk(path.join(srcDst, axis))
-  // url shim 目录放进去，保证 import 路径可解析
+
   await fsp.mkdir(path.join(srcDst, 'core', 'infra', '_shim'), { recursive: true })
   return { srcDst, rewritten }
 }
 
-/* ---------------- 主流程 ---------------- */
 const sandbox = await fsp.mkdtemp(path.join(os.tmpdir(), 'bpncm-store-'))
 shDir = path.join(sandbox, '_sh')
 await fsp.mkdir(shDir, { recursive: true })
@@ -278,7 +261,7 @@ console.log('存储层自检（沙箱 ' + sandbox + '）\n')
 
 const dataDir = path.join(sandbox, 'appdata')
 await fsp.mkdir(dataDir, { recursive: true })
-globalThis.$dataDir = dataDir + '/' // 真机末尾自带斜杠
+globalThis.$dataDir = dataDir + '/' 
 
 const { srcDst, rewritten } = await prepareTree(sandbox)
 console.log('1) 环境')
@@ -295,9 +278,8 @@ const config = (await import(U('core/infra/config.js'))).default
 const history = await import(pathToFileURL(path.join(srcDst, 'services/player/history.js')).href)
 const session = await import(pathToFileURL(path.join(srcDst, 'services/player/session.js')).href)
 
-/* ---- paths ---- */
 console.log('\n2) paths —— 路径形状与唯一真源')
-// 本机 $dataDir 是 Windows 反斜杠路径（设备上是 POSIX），断言只核尾斜杠被折掉、分隔符是 /
+
 eq('normDir 去尾斜杠且无重复斜杠', paths.normDir(), String(dataDir).replace(/\//g, '\\'))
 truthy('dbFile 落在 data 根', paths.dbFile() === paths.normDir() + '/local_index.db')
 truthy('stateDbFile 落在 data 根', paths.stateDbFile() === paths.normDir() + '/state.db')
@@ -305,7 +287,6 @@ truthy('曲目目录 = <root>/<id>', paths.trackDir(42, 'download') === paths.da
 truthy('paths 不再导出 configFile / stateFile 等文本文件路径', paths.configFile === undefined && paths.stateFile === undefined)
 truthy('paths 不再导出 trackMeta / trackLyrics', paths.trackMeta === undefined && paths.trackLyrics === undefined)
 
-/* ---- fsutil ---- */
 console.log('\n3) fsutil —— 只做原生调用（不 fork）')
 const beforeFork = execCount
 truthy('ensureDir 建多级目录', await fsutil.ensureDir(path.join(dataDir, 'a/b/c')))
@@ -314,7 +295,6 @@ truthy('removeTree 递归删除', await fsutil.removeTree(path.join(dataDir, 'a'
 truthy('删完 exists=false', !(await fsutil.fileExists(path.join(dataDir, 'a'))))
 eq('建目录/删目录全程 0 次 fork', execCount - beforeFork, 0)
 
-/* ---- db 通道 ---- */
 console.log('\n4) db —— 原生 sqlite3 通道（两个库）')
 const conn = await db.ensureDb()
 truthy('ensureDb 拿到索引库连接', conn !== null)
@@ -325,7 +305,6 @@ eq('两个库文件路径不同', paths.dbFile() !== paths.stateDbFile(), true)
 truthy('local_index.db 在盘上', fs.existsSync(paths.dbFile()))
 truthy('state.db 在盘上', fs.existsSync(paths.stateDbFile()))
 
-// 表必须落在正确的库里：索引库只有 6 张索引表，状态库只有 kv/track_meta/track_lyric
 {
   const a = new DatabaseSync(paths.dbFile())
   const idxTables = a.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r) => r.name)
@@ -361,7 +340,6 @@ truthy('upsertSql 写入 track', (await db.exec([
 ])) !== false)
 eq('写库全程 0 次 fork', execCount - beforeDbFork, 0)
 
-/* kv 表 ---- 原 store.js 的四个顶层 JSON 文件 */
 truthy('kvPut 写配置', await db.kvPut(store.KEY_SETTINGS, '{"rate":1.25}'))
 eq('kvGet 读回同一份文本', await db.kvGet(store.KEY_SETTINGS), '{"rate":1.25}')
 eq('getStorage 走 kv 表', await store.getStorage(store.KEY_SETTINGS), '{"rate":1.25}')
@@ -370,20 +348,18 @@ eq('setStorage 后读回', await store.getStorage(store.KEY_PLAY_HIST), '[{"id":
 truthy('removeStorage 删掉', await store.removeStorage(store.KEY_PLAY_HIST))
 eq('删完读回 null', await store.getStorage(store.KEY_PLAY_HIST), null)
 
-// 合并写：同一 key 连发 20 次只有最新一版落库
 for (let i = 0; i < 20; i++) store.setStorage(store.KEY_PLAYER_STATE, '{"i":' + i + '}')
 await new Promise((r) => setTimeout(r, 200))
 eq('合并写只留最新一版', await store.getStorage(store.KEY_PLAYER_STATE), '{"i":19}')
 
-/* ---- media 曲目文档 ---- */
 console.log('\n5) media —— 每曲一目录 + 曲目文档在库里')
 const tk = path.join(dataDir, 'downloads/42')
 await fsutil.ensureDir(tk)
-fs.writeFileSync(path.join(tk, 'track.mp3'), Buffer.alloc(40000)) // > MIN_AUDIO_BYTES
+fs.writeFileSync(path.join(tk, 'track.mp3'), Buffer.alloc(40000)) 
 const hit = await media.hitAudio(42, 'download')
 truthy('hitAudio 命中（>30KB）', hit && hit.size === 40000)
 await media.patchMeta(42, 'download', { n: '歌名', b: 320 })
-await media.patchMeta(42, 'download', { q: 'exhigh' }) // 合并写不能擦掉 n
+await media.patchMeta(42, 'download', { q: 'exhigh' }) 
 const meta = await media.readMeta(42, 'download')
 eq('patchMeta 合并保留旧字段', meta && meta.n, '歌名')
 eq('patchMeta 合并且更新新字段', meta && meta.q, 'exhigh')
@@ -397,7 +373,6 @@ await media.dropTrackDir(42, 'download')
 truthy('dropTrackDir 删目录', !fs.existsSync(tk))
 eq('dropTrackDir 同时删库里的元数据', await media.readMeta(42, 'download'), null)
 
-/* ---- config / history / session ---- */
 console.log('\n6) 上层（config / history / session）走同一个库')
 await config.load()
 await config.set('rate', 1.5)
@@ -415,7 +390,6 @@ await new Promise((r) => setTimeout(r, 200))
 const back = await session.load()
 eq('session 快照可读', back && back.positionMs, 5000)
 
-/* ---- 库文件本身 ---- */
 console.log('\n7) 库文件')
 truthy('local_index.db 存在于 data 根', fs.existsSync(paths.dbFile()))
 truthy('state.db 存在于 data 根', fs.existsSync(paths.stateDbFile()))
@@ -426,7 +400,7 @@ truthy('state.db 存在于 data 根', fs.existsSync(paths.stateDbFile()))
   for (const t of ['album', 'artist', 'playlist', 'playlist_track', 'track', 'track_artist']) {
     truthy('索引库表存在：' + t, tables.includes(t))
   }
-  // 索引库**不该**含状态表（用户要求两者分开）
+
   for (const t of ['kv', 'track_meta', 'track_lyric']) {
     truthy('索引库里没有 ' + t, !tables.includes(t))
   }
@@ -443,7 +417,6 @@ truthy('state.db 存在于 data 根', fs.existsSync(paths.stateDbFile()))
   }
 }
 
-/* ---------------- 汇总 ---- */
 console.log('\n' + '='.repeat(60))
 if (failures.length) {
   console.log('失败 ' + failures.length + ' 项 / 通过 ' + pass + ' 项')

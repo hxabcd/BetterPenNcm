@@ -1,7 +1,7 @@
 <template>
   <div class="skp">
     <!-- 顶栏：左「进度控制」点击 = 返回上一个子面板（emit close）；右「定时播放」= emit timer。
-         两个点击区各自挂 handler（平台没有 stopPropagation，互斥区不能挂在共同父节点上） -->
+         两个点击区各自挂 handler：平台没有 stopPropagation，互斥点击区不能挂共同父节点上 -->
     <div class="skp-bar">
       <div class="skp-head" @click="onClose">
         <text class="skp-title">进度控制</text>
@@ -59,22 +59,13 @@
 
 <script>
 /**
- * 播放页「进度控制」子面板（设计稿 TimeShiftPanel 14:1755，480×240）
- *
- * 布局（设计稿 px 与设备 px 1:1；宽度超 100vh 的值一律写 px —— 平台会把 vh 宽度静默截到 100vh）：
- *   顶栏 48px、底边 1px 分割线：左「进度控制」24px 粗体白（点击 = 回到上一个子面板，emit close）；
- *   右「定时播放」（timer 图标 24px + 20px 白字，padding 6px、右 12px，emit timer）。
- *   内容区 padding 12：时间行 64 + 间距 10 + 进度条行 28 + 间距 10 + 4 键行 56 = 168，
- *   加上下 padding 24 正好 192（= 240 − 48），与设计稿 Container 一致。
- *
- * 为什么拖动只认「两点 x 之差」：触摸坐标字段因固件而异（见 core/platform/touch.js 头注释的实测：
- *   本固件的 pageX 是「相对触发节点」的坐标，screenX 才是屏幕绝对的）。本组件**不做点哪跳哪**：
- *   按下只记起点、不跳，移动时按 (x − 起点x) / trackW 折算比例（trackW = 面板宽 − 24，见 BODY_PAD）——
- *   只要按下与移动取到的是同一个字段，坐标原点在哪都相互抵消，不需要知道进度条在屏幕上的绝对起点。
+ * 拖动只认「两点 x 之差」的原因：触摸坐标字段因固件而异（core/platform/touch.js 实测：本固件
+ * pageX 是相对触发节点的坐标，screenX 才是屏幕绝对的，同一触摸两者恒差 42px）。所以本组件不做
+ * 点哪跳哪：按下只记起点、不跳，移动时按 (x − 起点x) / trackW 折算比例 —— 只要按下与移动取到
+ * 同一字段，坐标原点在哪都会相互抵消，无需知道进度条在屏幕上的绝对起点。
  *
  * 组件自己不上底色/圆角：480×240 的深底与左侧圆角由播放页的子面板容器给。
- * 静态色走 common.less 的生成令牌段（@line / @card-bg / @track-bg / @text / @text-2，
- * 源头是 ui/tokens.js）；主题色运行时可换，只能内联（平台样式只认单类名选择器）。
+ * 主题色运行时可换，只能内联（平台样式只认单类名选择器）。
  *
  * 页面可能挂两遍：本面板没有 mounted 副作用（不订阅播放器、不拉数据，st 全部由父级传入），
  * 重复挂载天然幂等。
@@ -84,20 +75,18 @@ import { fmtDur } from '../../core/infra/format.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
 import { ICON } from '../../assets/icons.js'
 
-/* 可拖线宽（px）= 面板宽 − 内容区左右 padding 12×2。原先是写死的 456（= S7 面板 480 − 24），
-   面板加宽后必须跟着变：拖动的比例、填充宽、手柄位置都用它做 px 反推（见 fillStyle/knobStyle/onMove），
-   样式侧则统一写 100%（.skp-body 已扣 padding），两者等价。
-   面板宽由模板传入（player.vue 的 panelW），不在样式里写死。 */
+/* 可拖线宽 = 面板宽 − 内容区左右 padding 12×2。拖动比例、填充宽、手柄位置都用它做 px 反推
+   （fillStyle / knobStyle / onMove），样式侧统一写 100%（.skp-body 已扣 padding），两者等价 */
 const BODY_PAD = 24
 
-/* 拖动看门狗（ms）：部分固件可能不发 touchend（LyricBoard.vue 踩过同一坑，那里也是 60s 兜底）。
-   拖动状态不复位的话，进度显示会冻在拖到的位置、不再跟歌走 —— 超时按一次「松手」收尾。
-   60s 足够长，正常操作（哪怕按住仔细对位置）绝不会被它打断。 */
+/* 拖动看门狗(ms)：部分固件不发 touchend（LyricBoard.vue 同样 60s 兜底）。拖动状态不复位的话
+   进度显示会冻在拖到的位置、不再跟歌走 —— 超时按一次「松手」收尾。60s 足够长，正常操作打不断 */
 const WATCHDOG_MS = 60000
 
 export default {
   name: 'SeekPanel',
-  mixins: [accentMixin], // accent.c = 当前主题色（已播部分 / 手柄不用它，手柄是白圆）
+  /* 主题色只用在内联样式里（平台样式只认单类名选择器，运行时换色只能内联） */
+  mixins: [accentMixin], 
   props: {
     /** player.state() 快照（positionMs / durationMs / cur / status 等） */
     st: { type: Object, default: function () { return {} } },
@@ -116,6 +105,7 @@ export default {
     trackW() {
       return Math.max(1, (Number(this.panelW) || 480) - BODY_PAD)
     },
+
     /** 总时长 ms（0 = 无曲目 / 时长未知） */
     durMs() {
       const d = Number(this.st.durationMs) || 0
@@ -128,6 +118,7 @@ export default {
       const p = (Number(this.st.positionMs) || 0) / d
       return p < 0 ? 0 : p > 1 ? 1 : p
     },
+
     /** 显示用进度：拖动中显示拖动位置，否则跟播放器 */
     shownPct() {
       return this.dragPct >= 0 ? this.dragPct : this.pct
@@ -141,7 +132,8 @@ export default {
     durText() {
       return fmtDur(this.durMs)
     },
-    /** 已播部分：宽度 px 反推（百分比宽度不可靠），底色走主题色 */
+
+    /** 已播部分：宽度用 px 反推（百分比宽度在本渲染器不可靠），底色走主题色 */
     fillStyle() {
       return {
         width: Math.round(this.trackW * this.shownPct) + 'px',
@@ -154,17 +146,14 @@ export default {
     }
   },
   methods: {
-    /* ---- 顶栏 ---- */
     onClose() {
       this.$emit('close')
     },
     onTimer() {
       this.$emit('timer')
     },
-    /* ---- ±秒键 ---- */
     /**
-     * 相对当前位置跳 deltaMs。
-     * 夹紧到 0..duration（把「超出范围的意图」落成终点，而不是拒发）；
+     * 相对当前位置跳 deltaMs。夹紧到 0..duration（把「超出范围的意图」落成端点，而不是拒发）；
      * duration 为 0 = 没有可定位的曲目，直接不发（避免把无效 seek 丢给页面）。
      */
     jump(deltaMs) {
@@ -175,15 +164,17 @@ export default {
       if (pos > d) pos = d
       this.$emit('seek', pos)
     },
-    /* ---- 拖动：只认两点 x 差，不依赖坐标系绝对性 ---- */
+
     onDown(e) {
       const x = touchAxis(e, 'x')
-      if (!isFinite(x)) return // 取不到坐标就当没按（别让进度条莫名跳走）
-      if (!this.durMs) return // 没有可定位的曲目：拖了也没意义
+      // 取不到坐标就当没按，别让进度条莫名跳走
+      if (!isFinite(x)) return 
+      if (!this.durMs) return 
       this._sx = x
-      this._sp = this.pct // 从当前进度起拖：按下时不跳
+      // 从当前进度起拖：按下时不跳
+      this._sp = this.pct 
       this.dragPct = this.pct
-      // 看门狗：万一这轮收不到 touchend，60s 后按「松手」收尾（见 WATCHDOG_MS 注释）
+
       this.clearWatchdog()
       const self = this
       this._wd = setTimeout(function () {
@@ -203,10 +194,13 @@ export default {
       this.clearWatchdog()
       if (this.dragPct < 0) return
       const p = this.dragPct
-      this.dragPct = -1 // 先复位：一次拖动只发一次 seek
+      // 先复位再发 seek：一次拖动只发一次
+      this.dragPct = -1 
       const d = this.durMs
-      if (!d) return // 拖的过程中时长丢了（换曲 / 停播）→ 不发明知无效的跳转
-      this.$emit('seek', Math.round(p * d)) // 页面负责再夹紧 0..duration
+      // 拖的过程中时长丢了（换曲 / 停播）→ 不发明知无效的跳转
+      if (!d) return 
+      // 页面负责再夹紧 0..duration
+      this.$emit('seek', Math.round(p * d)) 
     },
     clearWatchdog() {
       if (this._wd) {
@@ -232,7 +226,7 @@ export default {
   flex-direction: column;
 }
 
-/* ---- 顶栏 h48：底边 1px 分割线；左标题可点、右定时播放入口 ---- */
+/* 顶栏 h48：底边 1px 分割线；左标题可点、右定时播放入口 */
 .skp-bar {
   width: 100%;
   height: 48px;
@@ -245,7 +239,7 @@ export default {
   border-bottom-style: solid;
   border-bottom-color: @line;
 }
-/* 标题包裹层：只负责水平排 + 垂直居中（点击区 = 文字自身，够点） */
+
 .skp-head {
   flex: none;
   flex-direction: row;
@@ -256,6 +250,7 @@ export default {
   font-weight: bold;
   color: @text;
 }
+
 /* 撑开：把「定时播放」推到右端（比 space-between 更保险，同 PageTopbar 的 fill 做法） */
 .skp-gap {
   flex: 1;
@@ -276,16 +271,16 @@ export default {
   margin-left: 4px;
 }
 
-/* ---- 内容区 456×168（480 − 左右 12，192 − 上下 12） ---- */
+/* 内容区 456×168（480 − 左右 12，192 − 上下 12） */
 .skp-body {
   width: 100%;
   flex: 1;
   flex-direction: column;
   padding: 12px;
 }
-/* 时间行 h64：40px 粗体白 / 40px 灰斜杠 / 40px 粗体白，水平居中，间距 8px（斜杠两侧各 8） */
+/* 时间行 h64：40px 粗体白 / 40px 灰斜杠 / 40px 粗体白，水平居中，斜杠两侧各 8px */
 .skp-time {
-  width: 100%; /* 面板宽自适应（原 456px = S7 面板 480 − padding 24） */
+  width: 100%; 
   height: 64px;
   flex: none;
   flex-direction: row;
@@ -303,9 +298,10 @@ export default {
   margin-left: 8px;
   margin-right: 8px;
 }
+
 /* 进度条行 h28：上下 padding 4 → 可拖线 456×20 */
 .skp-prog {
-  width: 100%; /* 面板宽自适应（原 456px = S7 面板 480 − padding 24） */
+  width: 100%; 
   height: 28px;
   flex: none;
   flex-direction: column;
@@ -313,13 +309,15 @@ export default {
   padding-bottom: 4px;
   margin-top: 10px;
 }
+
 /* 可拖线：宽度跟随 .skp-body 内容宽（= 面板宽 − 24），与 JS 的 trackW 等价；20px 高 = 手柄直径 */
 .skp-line {
-  width: 100%; /* 面板宽自适应（原 456px = S7 面板 480 − padding 24） */
+  width: 100%; 
   height: 20px;
   flex: none;
   position: relative;
 }
+
 /* 进度槽：8px 高、圆角 4px，在 20px 高的线里垂直居中（top 6 = (20 − 8) / 2） */
 .skp-groove {
   position: absolute;
@@ -330,7 +328,8 @@ export default {
   border-radius: 4px;
   background-color: @track-bg;
 }
-/* 已播部分：宽度由 fillStyle 给 px；底色书面值 @accent，运行时内联覆盖成主题色 */
+
+/* 已播部分：宽度由 fillStyle 给 px；底色书面值 @accent，运行时由内联样式覆盖成主题色 */
 .skp-fill {
   position: absolute;
   left: 0;
@@ -339,6 +338,7 @@ export default {
   border-radius: 4px;
   background-color: @accent;
 }
+
 /* 手柄 20px 白圆：压线居中靠负 margin（负的绝对偏移会被当成 0，负 margin 已实测可用） */
 .skp-knob {
   position: absolute;
@@ -349,16 +349,17 @@ export default {
   border-radius: 10px;
   background-color: @text;
 }
-/* 4 键行 h56：按钮 106.5×56、间距 10px（用 margin 不用 gap —— 本渲染器对 flex gap 无把握） */
+
+/* 4 键行 h56；间距用 margin 不用 gap —— 本渲染器对 flex gap 无把握 */
 .skp-keys {
-  width: 100%; /* 面板宽自适应（原 456px = S7 面板 480 − padding 24） */
+  width: 100%; 
   height: 56px;
   flex: none;
   flex-direction: row;
   margin-top: 10px;
 }
-/* 四个键等分整行：flex:1 + 统一右间距 10，末键不留 margin（平台不支持 :last-child）。
-   原来是写死 106.5px（4×106.5 + 3×10 = 456），面板加宽后写死值会挤在左边。 */
+
+/* 四个键等分整行：flex:1 + 统一右间距 10，末键不留 margin（平台不支持 :last-child） */
 .skp-key {
   flex: 1;
   height: 56px;

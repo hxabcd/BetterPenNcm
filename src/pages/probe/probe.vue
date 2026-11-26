@@ -24,7 +24,7 @@
       <view v-else :style="styleF"></view>
     </view>
 
-    <!-- CSS 能力探针（2026-11-01）：四种过渡/动画写法各占一个方块，同时右移 80px，
+    <!-- CSS 能力探针：四种过渡/动画写法各占一个方块，同时右移 80px，
          监听 transitionend / animationend 判定是否真的在插值。结果看日志 `[probe] css ...`。 -->
     <view class="pcss">
       <view class="pcss-a" :style="cssA" @transitionend="cssEnd('a')"></view>
@@ -78,7 +78,7 @@
   top: 110px;
   left: 620px;
 }
-/* ---- CSS 能力探针：底部一排方块（从左往右移 80px） ---- */
+
 .pcss {
   position: absolute;
   left: 4px;
@@ -99,7 +99,7 @@
   margin-right: 10px;
   background-color: #33ff99;
 }
-/* 第三种：transition 写在 class 里（不在内联样式），内联只改 transform */
+
 .pcss-c {
   width: 18px;
   height: 18px;
@@ -128,20 +128,18 @@
 </style>
 
 <script>
-/**
- * 临时能力探针页（复核用，独立 appid 构建，不随正式版发布）：
- *   1. storage.getStorageInfo 是否存在 / storage 大值写入
- *   2. fs.readdir 返回形状
- *   3. FLAC 直链 playFile 可播性（PC 端 range_server.py 提供 /probe.flac）
- *   4. position:absolute 的 top/left/right 组合（页面上色块，截图判读）
- *   5. v-if 切换含 slot / 不含 slot 组件（页面上色块，3 秒翻转）
- *   6. 导航层自测：core/infra/nav.js 的「逻辑页 → 实例槽位」push/pop 语义 + 两类边界
- *      （平台回退弹层后的槽位释放、15 层深度压力），日志 `[nav]` / `[navtest]`，
- *      PC 侧断言见 scripts/nav_selftest.sh；正式版不打包本页
- *
- * FLAC 直链主机取自构建时注入的 LOG_SRV（同机不同端口），避免把内网 IP 写进源码。
- * 日志走 core/infra/log.js：console.warn 兜底进 /data/applog/YD_PEN_APP.log。
- */
+
+// 临时能力探针页（复核用，独立 appid 构建，不随正式版发布）：
+//   1. storage.getStorageInfo 是否存在 / storage 大值写入
+//   2. fs.readdir 返回形状
+//   3. FLAC 直链 playFile 可播性（PC 端 range_server.py 提供 /probe.flac）
+//   4. position:absolute 的 top/left/right 组合（页面上色块，截图判读）
+//   5. v-if 切换含 slot / 不含 slot 组件（页面上色块，3 秒翻转）
+//   6. 导航层自测：nav.js 的「逻辑页 → 实例槽位」push/pop 语义 + 边界情况
+//      （平台回退弹层后的槽位释放、15 层深度压力、连点合并、degrade），
+//      日志 `[nav]` / `[navtest]`，PC 侧断言见 scripts/nav_selftest.sh。
+// FLAC 直链主机取自构建时注入的 LOG_SRV（同机不同端口），避免把内网 IP 写进源码。
+// 日志走 core/infra/log.js：console.warn 兜底进 /data/applog/YD_PEN_APP.log。
 import { log, brief } from '../../core/infra/log.js'
 import { sleep } from '../../core/infra/util.js'
 import { readNames } from '../../core/platform/fsutil.js'
@@ -151,6 +149,7 @@ import { go, stackKeys } from '../../core/infra/nav.js'
 import ProbeSlot from '../../components/ProbeSlot.vue'
 import ProbeNoSlot from '../../components/ProbeNoSlot.vue'
 
+// 页面会挂两遍：模块级 started 是 bootOnce 的第一道防重
 let started = false
 let navTestStarted = false
 let navTestDone = false
@@ -178,6 +177,7 @@ export default {
       styleD: 'width:16px;height:16px;background-color:#ff00ff;',
       styleE: 'width:16px;height:16px;background-color:#00ffff;',
       styleF: 'width:16px;height:16px;background-color:#ffff00;',
+
       // CSS 能力探针：四种写法的内联样式（初始 transform 0，稍后改成 80px）
       cssA: '',
       cssB: '',
@@ -192,7 +192,8 @@ export default {
   },
   methods: {
     bootOnce() {
-      if (started) return // 页面会挂两遍
+      // 页面会挂两遍
+      if (started) return 
       started = true
       const vm = this
       setInterval(function () {
@@ -204,12 +205,13 @@ export default {
       }, 3000)
       runTests(vm)
       runCssProbe(vm)
-      // 导航层自测与本页原有探针流程并行：原有流程耗时较长（FLAC 播放），
-      // 自测只依赖 mounted 后能调 $falcon.navTo，尽早开始以便在原有流程
-      // 「DONE 后 10 秒 closeApp」之前跑完（步骤见 runNavSelfTest）。
+
+      // 导航自测与本页原有流程并行：原有流程耗时较长（FLAC 播放），自测只依赖 mounted 后
+      // 能调 $falcon.navTo，尽早开始以便在原有流程「DONE 后 10 秒 closeApp」之前跑完
       startNavSelfTest()
     },
-    /** 过渡/动画结束事件（平台若不支持这些事件，计数会一直是 0） */
+
+    // 过渡/动画结束事件（平台若不支持这些事件，计数会一直是 0）
     cssEnd(k) {
       this.cssCounts[k] = (this.cssCounts[k] || 0) + 1
       this.cssText =
@@ -219,11 +221,9 @@ export default {
   }
 }
 
-/* ==================== CSS 能力探针（2026-11-01 加） ==================== */
-
 const BOX = 'width:18px;height:18px;background-color:#3366ff;'
 
-/** rAF：500ms 内回调几次。0 = 完全不调度（歌词面板拖动/换行卡住就是这个原因） */
+// rAF：500ms 内回调几次。0 = 完全不调度（歌词面板拖动/换行卡住就是这个原因）
 function probeRaf() {
   return new Promise(function (done) {
     if (typeof requestAnimationFrame !== 'function') {
@@ -245,11 +245,12 @@ function probeRaf() {
       else finish()
     }
     requestAnimationFrame(loop)
-    setTimeout(finish, 900) // 一帧都不来也要收尾
+    // 一帧都不来也要收尾
+    setTimeout(finish, 900) 
   })
 }
 
-/** setTimeout 链：8 次 16ms 的真实间隔（判断定时器精度够不够做帧驱动） */
+// setTimeout 链：8 次 16ms 的真实间隔（判断定时器精度够不够做帧驱动）
 function probeTimers() {
   return new Promise(function (done) {
     const gaps = []
@@ -269,7 +270,7 @@ function probeTimers() {
   })
 }
 
-/** 过渡/动画：把四个方块右移 80px，看 transitionend / animationend 是否在 700ms 内到达 */
+// 过渡/动画：把四个方块右移 80px，看 transitionend / animationend 是否在 700ms 内到达
 function probeTransitions(vm) {
   return new Promise(function (done) {
     vm.cssA = BOX + 'transform:translateX(0px);transition:transform 300ms linear;'
@@ -291,15 +292,14 @@ function probeTransitions(vm) {
 }
 
 async function runCssProbe(vm) {
-  await new Promise(function (r) { setTimeout(r, 900) }) // 等首帧
+  // 等首帧
+  await new Promise(function (r) { setTimeout(r, 900) }) 
   log('probe', 'css 探针开始')
   await probeRaf()
   await probeTimers()
   await probeTransitions(vm)
   log('probe', 'css 探针结束')
 }
-
-/* ==================== 测试流程 ==================== */
 
 async function runTests(vm) {
   log('probe', 'BOOT page=probe')
@@ -311,13 +311,14 @@ async function runTests(vm) {
   await testFlac()
   vm.status = 'DONE'
   log('probe', 'DONE')
+
   // 留 10 秒供截图/切后台，再自行退出
   setTimeout(waitNavTestThenClose, 10000)
 }
 
-/** 原有流程 DONE 后 10 秒退出；若导航自测（含深度压力）还没跑完则顺延，避免退出截断自测。
- *  自测跑完后再留 10 秒：PC 侧要在这段时间里停止 logserver，避免应用退出时的页面卸载事件
- *  混进 nav_selftest.sh 的「无非预期 page-unload」断言。探针原有退出行为不变，只推迟时机。 */
+// 原有流程 DONE 后 10 秒退出；若导航自测（含深度压力）还没跑完则顺延，避免退出截断自测。
+// 自测跑完后再留 10 秒：PC 侧要在这段时间里停止 logserver，避免应用退出时的页面卸载事件
+// 混进 nav_selftest.sh 的「无非预期 page-unload」断言。探针原有退出行为不变，只推迟时机。
 function waitNavTestThenClose() {
   if (navTestStarted && !navTestDone) {
     setTimeout(waitNavTestThenClose, 500)
@@ -477,30 +478,16 @@ async function testFlac() {
   await step('flac-seek5', 5000, 1.0, 4000)
 }
 
-/* ==================== 导航层自测 ====================
- * 验证 core/infra/nav.js 的「逻辑页 → 实例槽位」是否得到标准 push/pop：
- *   - 同一逻辑页连续 go 两次 → 分别拿到 <base> / <base>2 两个槽位（都是 push，不销毁下层）；
- *   - go(player) 走 reuse（全局目的地页，不叠第二层）；
- *   - $falcon.closePageByName(槽位) 只关当前一层，下层页面仍存活 → 日志里有对应 page-unload。
- * 另有两类边界（task-3）：
- *   A. 平台「命中栈内页」回退会销毁它上面的页面（真实用户流：深层页面点播放）——
- *      销毁后的槽位必须被生命周期记账释放，后续同逻辑页 go 要能重新 push，不能 degrade；
- *   B. 深度压力：把栈推到 15 层，确认 page-load 齐全、无非预期 page-unload（平台页栈上限）、
- *      再逐个 close 回收到 5 层且每步栈快照正确；12 层时停一下供 PC 侧采样内存/截图。
- * 再加两类新边界（task-4，导航层按审计意见改动后）：
- *   C. 连点合并：同一 tick 连发两次「同逻辑页 + 同参数」只生效一次（第二次 dup-ignore）；
- *      同 tick 但参数不同则必须两次都生效（不能误伤）。
- *   D. degrade 路径：artist 6 个槽位压满后再 go('artist') 应复用**最上层**同类实例
- *      （不新增第 7 个槽位/实例，日志 degrade）；关掉最上层释放槽位后再 go 必须恢复 push。
- * 被导航到的页面可能未登录 / 无网络而加载失败，与导航层无关：只以 `[nav]` 日志为断言依据，
- * 每步独立 try/catch，失败只记日志、不中断后续步骤。
- * 页面会挂两遍：模块级 navTestStarted 防重（bootOnce 的 started 已是第一道）。
- * PC 侧断言见 scripts/nav_selftest.sh（grep device_log.txt）。
- */
-const NAV_STEP_MS = 650 // 给平台派发页面 load / unload 生命周期留时间
+// 导航层自测：验证 core/infra/nav.js 的「逻辑页 → 实例槽位」是否得到标准 push/pop，
+// 以及平台「命中栈内页」回退、槽位耗尽 degrade、连点合并三类边界。
+// 被导航到的页面可能未登录 / 无网络而加载失败，与导航层无关：只以 `[nav]` 日志为断言依据；
+// 每步独立 try/catch，失败只记日志、不中断后续步骤。
+// 页面会挂两遍：模块级 navTestStarted 防重。PC 侧断言见 scripts/nav_selftest.sh。
+const NAV_STEP_MS = 650 
 
-/** 执行一步导航并在前后各记一条 [navtest]；异常只记 FAIL，不中断后续步骤。
- *  ms 缺省用 NAV_STEP_MS（给平台派发页面 load/unload 生命周期留时间）；需要长时间保持某栈状态的步骤传更大值。 */
+// 执行一步导航并在前后各记一条 [navtest]；异常只记 FAIL，不中断后续步骤。
+// ms 缺省用 NAV_STEP_MS（给平台派发页面 load/unload 生命周期留时间）；
+// 需要长时间保持某栈状态的步骤传更大值。
 async function navStep(tag, fn, ms) {
   log('navtest', tag + ' begin')
   try {
@@ -512,17 +499,21 @@ async function navStep(tag, fn, ms) {
   await sleep(ms === undefined ? NAV_STEP_MS : ms)
 }
 
-/** 记录当前槽位栈（nav.js 的实例存活记账） */
+// 记录当前槽位栈（nav.js 的实例存活记账）
 function navStack(tag) {
   log('navtest', tag + ' stack=' + JSON.stringify(stackKeys()))
 }
 
+// 深度压力段：把页面栈推到 15 层，确认 page-load 齐全、无非预期 page-unload（平台页栈上限），
+// 再逐个 close 回收到 5 层且每步栈快照正确；12 层时停 7 秒供 PC 侧采样内存/截图。
+// 连点合并段：同 tick 同参数只生效一次；同 tick 参数不同必须两次都生效。
+// degrade 段：artist 6 个槽位压满后再 go 应复用最上层同类实例（不新增第 7 个槽位），
+// 关掉最上层释放槽位后再 go 必须恢复 push。
 async function runNavSelfTest() {
   if (navTestStarted) return
   navTestStarted = true
   navStack('start')
 
-  // 1) 同一逻辑页连续两层：list / list2
   await navStep('1 go list a', function () {
     go('list', { kind: 'search', keyword: 'a' })
   })
@@ -531,14 +522,12 @@ async function runNavSelfTest() {
   })
   navStack('after list2')
 
-  // 2) 关掉上层（模拟返回）：list2 卸载，但下层 list 必须还在（旧语义会连环销毁）
   await navStep('3 close list2', function () {
     /* global $falcon */
     $falcon.closePageByName('list2')
   })
   navStack('after close list2')
 
-  // 3) 另一逻辑页两连开：playlists / playlists2，再关上层
   await navStep('4 go playlists', function () {
     go('playlists', {})
   })
@@ -551,7 +540,6 @@ async function runNavSelfTest() {
   })
   navStack('after close playlists2')
 
-  // 4) player 是全局目的地页：连续两次 go 都应为 reuse（第二次平台原地补发 options，不叠层）
   await navStep('7 go player', function () {
     go('player', {})
   })
@@ -560,7 +548,6 @@ async function runNavSelfTest() {
   })
   navStack('after player2')
 
-  // 5) queue 两连开：queue / queue2（第二层必须是 queue2）
   await navStep('9 go queue', function () {
     go('queue', {})
   })
@@ -569,12 +556,6 @@ async function runNavSelfTest() {
   })
   navStack('done')
 
-  /* ---------- A. 平台回退弹层后的槽位释放 ----------
-   * 当前栈 [index,list,playlists,player,queue,queue2]。player 是全局目的地页（reuse）：
-   * 再 go('player') 时平台按「命中栈内页」语义销毁它上面的 queue2 / queue，把 player 挪回栈顶；
-   * 导航层靠页面卸载生命周期把这两个槽位释放 → 随后 go('queue') 必须重新 push 到 queue 槽位，
-   * 不能因为槽位仍被已销毁的实例占着而 degrade（这正是真实用户流：深层页面点「播放」再进队列）。
-   */
   await navStep('11 go player from deep stack', function () {
     go('player', {})
   })
@@ -584,12 +565,6 @@ async function runNavSelfTest() {
   })
   navStack('after requeue')
 
-  /* ---------- B. 深度压力：把页面栈推到 15 层 ----------
-   * 槽位规划（nav.js PAGES 表）：list 共 6（基础 + list2..list6，本段用 5 层）、album 2 层、
-   * artist 2 层、songinfo 2 层；从 [index,list,playlists,player,queue] 继续往上压 → 共 15 层。
-   * 12 层时停 7 秒：PC 侧要在稳定状态跑 miniapp_cli memoryApp + 截屏（锚点 = deep12 栈快照）。
-   * 之后逐个 close 回收到 [index,list,playlists,player,queue]，每关一层记一次栈快照。
-   */
   await navStep('13 go list2', function () {
     go('list', { kind: 'search', keyword: 'deep2' })
   })
@@ -611,8 +586,8 @@ async function runNavSelfTest() {
   await navStep('19 go artist', function () {
     go('artist', {})
   })
-  navStack('deep12') // 12 层（index,list,playlists,player,queue,list2..list5,album,album2,artist）
-  await navStep('20 deep12 hold', function () {}, 7000) // 保持 12 层：给 PC 侧截屏/内存采样留足 7 秒（日志 POST 有延迟）
+  navStack('deep12') 
+  await navStep('20 deep12 hold', function () {}, 7000) 
   await navStep('21 go artist2', function () {
     go('artist', {})
   })
@@ -622,9 +597,8 @@ async function runNavSelfTest() {
   await navStep('23 go songinfo2', function () {
     go('songinfo', {})
   })
-  navStack('deep-full') // 15 层
+  navStack('deep-full') 
 
-  // 逐个 close 回收到 5 层；每次关的都是当前栈顶，关完记一次栈快照（PC 侧逐条断言）
   const DEEP_CLOSE = [
     'songinfo2',
     'songinfo',
@@ -652,31 +626,18 @@ async function runNavSelfTest() {
   }
   navStack('deep-done')
 
-  /* ---------- C. 连点合并（500ms 内同逻辑页 + 同参数只生效一次） ----------
-   * C1：同一个 tick 连发两次完全相同的 go()（用户「点一下没反应再点」）→ 第二发应被合并
-   *     （dup-ignore 日志），只压一层：push 计数只 +1、page-load 只 +1。
-   * C2：同一个 tick 连发两次但参数不同 → 不能误伤，两发都要 push（各占一个槽位）。
-   * 说明：本自测各步骤间隔 650ms > DEDUPE_MS(500ms)，其它阶段不会误触发合并。
-   */
   await navStep('25 dedupe same params', function () {
     go('list', { kind: 'search', keyword: 'dedupe' })
-    go('list', { kind: 'search', keyword: 'dedupe' }) // 同 tick 同参数 → 应被合并
+    go('list', { kind: 'search', keyword: 'dedupe' }) 
   })
   navStack('after dedupe-same')
 
   await navStep('26 dedupe diff params', function () {
     go('list', { kind: 'search', keyword: 'dedupe2' })
-    go('list', { kind: 'search', keyword: 'dedupe3' }) // 同 tick 但参数不同 → 不能被合并
+    go('list', { kind: 'search', keyword: 'dedupe3' }) 
   })
   navStack('after dedupe-diff')
 
-  /* ---------- D. degrade 路径：槽位耗尽复用最上层同类实例 ----------
-   * artist 现 6 槽（artist..artist6）：从当前栈连续 go 7 次（参数各不相同，避免连点合并），
-   * 第 7 次应 degrade —— 复用栈里最上层的 artist6（平台即「当前页原地补发 options」，
-   * 不销毁任何层），不得出现第 7 个 artist 槽位/实例。
-   * 随后 close 最上层 artist6 释放槽位，再 go('artist') 必须恢复 push（artist6 重新入栈）。
-   * 最后把本阶段压的 artist 6 层与 C 阶段压的 3 层 list 逐个 close，回到 5 层。
-   */
   await navStep('27 go artist1', function () {
     go('artist', { name: 'd1' })
   })
@@ -695,11 +656,11 @@ async function runNavSelfTest() {
   await navStep('32 go artist6', function () {
     go('artist', { name: 'd6' })
   })
-  navStack('after artist6') // 14 层：artist 槽位全满（6 个）
+  navStack('after artist6') 
   await navStep('33 go artist7 expect degrade', function () {
     go('artist', { name: 'd7' })
   })
-  navStack('after degrade') // 仍 14 层：degrade 复用当前栈顶 artist6，不弹层/不加层
+  navStack('after degrade') 
   await navStep('34 close top artist6', function () {
     /* global $falcon */
     $falcon.closePageByName('artist6')
@@ -708,9 +669,8 @@ async function runNavSelfTest() {
   await navStep('35 go artist recover', function () {
     go('artist', { name: 'd8' })
   })
-  navStack('after recover') // artist6 槽位释放后恢复 push
+  navStack('after recover') 
 
-  // 清理：关掉 artist 6 层 + C 阶段 3 层 list，回到 [index,list,playlists,player,queue]
   const TASK4_CLOSE = [
     'artist6',
     'artist5',
@@ -739,7 +699,7 @@ async function runNavSelfTest() {
   navTestDone = true
 }
 
-/** 在页面 mounted 初始化之后启动（页面会挂两遍：navTestStarted 防重） */
+// 在页面 mounted 初始化之后启动（页面会挂两遍：navTestStarted 防重）
 function startNavSelfTest() {
   if (navTestStarted) return
   setTimeout(function () {

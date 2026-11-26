@@ -1,38 +1,34 @@
 /**
- * 媒体源层之一：批量下载的**活动快照、任务清单与订阅**（从 download.js 拆出）。
+ * 批量下载的活动快照、任务清单与订阅
  *
- * 语义（与原实现一致）：
- *   - 「一次下载会话」= batch 通道上有活（入队到清空）；期间 total 只增不减，
- *     done/failed/cancelled 逐首累加；同一首被后来的请求搭车不重复计数（它只有一次下载）。
- *   - 「任务」= counted 项（用户下载通道入的；播放的后台缓存不算）。已完成（成功/失败/取消）
- *     留在 finishedTasks 里，**队列页展示一次后**由页面调 ackFinished() 清掉。
- *   - 只在内存里：应用重启即空（下载队列本身也不跨重启，未完成靠 .part 续传）。
- *
- * 与调度器（scheduler.js）的分工：本模块**不 import** 调度器（避免循环依赖）——
- * 通过 wireTasks(sched) 注入一组只读/定向操作接口（队列视图、找项、摘项、打中止标记）。
+ * 语义：
+ *   - 一次下载会话 = batch 通道上有活（入队到清空）；期间 total 只增不减，done/failed/cancelled 逐首累加；
+ *     同一首被后来的请求搭车不重复计数（它只有一次下载）
+ *   - 任务 = counted 项（用户下载通道入的；播放的后台缓存不算）。已完成（成功/失败/取消）留在 finishedTasks 里，
+ *     队列页展示一次后由页面调 ackFinished() 清掉
+ *   - 只在内存里：应用重启即空（下载队列本身也不跨重启，未完成靠 .part 续传）
+ *   - 本模块不 import 调度器（避免循环依赖），调度器通过 wireTasks(sched) 注入
  */
+
+
 import { log } from '../../core/infra/log.js'
 
-/* ---- 活动快照 ---- */
 const act = { active: false, total: 0, done: 0, failed: 0, cancelled: 0, stopping: false, curId: '', curName: '', pct: 0 }
 const dlSubs = []
 let lastDlEmit = 0
 
-/* ---- 任务清单 ---- */
 const FINISH_MAX = 50
-let finishedTasks = [] // [{id, name, state:'done'|'failed'|'cancelled', error, at}] 新→旧
+// [{id, name, state:'done'|'failed'|'cancelled', error, at}] 新→旧
+let finishedTasks = [] 
 
-/* ---- 调度器接口（wireTasks 注入） ---- */
 let sched = null
 
-/** 由 download.js 在模块加载时注入调度器接口 */
+// 由 download.js 在模块加载时注入调度器接口
 export function wireTasks(iface) {
   sched = iface
 }
 
-/* ---- 调度器用的「活动」写入点（pump 侧调用） ---- */
-
-/** 开一轮新会话：计数归零 + active 点亮（enqueueBatch 用） */
+// 开一轮新会话：计数归零 + active 点亮（enqueueBatch 用）
 export function activityStart() {
   if (!act.active) {
     act.total = 0
@@ -46,7 +42,7 @@ export function activityStart() {
   emitDl(true)
 }
 
-/** 当前在跑的项点亮（pump 启动一个项时调用） */
+// 当前在跑的项点亮（pump 启动一个项时调用）
 export function activityCur(id, name) {
   act.curId = String(id)
   act.curName = name || ''
@@ -54,13 +50,13 @@ export function activityCur(id, name) {
   emitDl(true)
 }
 
-/** 进度回写（counted 项的 onProgress 用） */
+// 进度回写（counted 项的 onProgress 用）
 export function activityPct(pct) {
   act.pct = pct
   emitDl(false)
 }
 
-/** 计数 +1（kind: 'done' | 'failed' | 'cancelled'） */
+// 计数 +1（kind: 'done' | 'failed' | 'cancelled'）
 export function activityBump(kind) {
   if (kind === 'done') act.done++
   else if (kind === 'cancelled') act.cancelled++
@@ -76,7 +72,7 @@ export function isActive() {
   return !!act.active
 }
 
-/** batch 通道清空后收尾一次（active → false） */
+// batch 通道清空后收尾一次（active → false）
 export function settleActivity() {
   if (!act.active) return
   act.active = false
@@ -88,7 +84,7 @@ export function settleActivity() {
   emitDl(true)
 }
 
-/** 记一条已完成任务（只认 counted 项） */
+// 记一条已完成任务（只认 counted 项）
 export function finishTask(w, state, error) {
   if (!w || !w.counted) return
   finishedTasks.unshift({
@@ -100,8 +96,6 @@ export function finishTask(w, state, error) {
   })
   if (finishedTasks.length > FINISH_MAX) finishedTasks.length = FINISH_MAX
 }
-
-/* ---- 快照与订阅 ---- */
 
 function snapshotDl() {
   return {
@@ -118,12 +112,12 @@ function snapshotDl() {
   }
 }
 
-/** 当前下载活动快照（无活动时 active=false，其余字段无意义） */
+// 当前下载活动快照（无活动时 active=false，其余字段无意义）
 export function dlState() {
   return snapshotDl()
 }
 
-/** 订阅下载活动变化（进度节流 ~400ms 一次；结构变化立即发）。返回句柄供 offDl */
+// 订阅下载活动变化（进度节流 ~400ms 一次；结构变化立即发）。返回句柄供 offDl
 export function onDl(fn) {
   dlSubs.push(fn)
   return fn
@@ -146,12 +140,8 @@ function emitDl(force) {
   }
 }
 
-/* ---- 任务清单页（下载队列页） ---- */
-
-/**
- * 下载队列快照（下载队列页）：进行中 + 排队中（先播放通道的提权项、再批量队列）+ 已完成。
- * 已完成的由页面在离开时 ackFinished() 清掉（「展示一次后移除」）。
- */
+// 下载队列快照（下载队列页）：进行中 + 排队中（先播放通道的提权项、再批量队列）+ 已完成
+// 已完成的由页面在离开时 ackFinished() 清掉（「展示一次后移除」）
 export function dlTasks() {
   const out = { active: null, waiting: [], finished: finishedTasks.slice() }
   const run = sched && sched.runningItem()
@@ -174,7 +164,7 @@ export function dlTasks() {
   return out
 }
 
-/** 队列页展示过后清掉已完成任务（「已完成的任务在展示一次后从队列中移除」） */
+// 队列页展示过后清掉已完成任务（「已完成的任务在展示一次后从队列中移除」）
 export function ackFinished() {
   if (!finishedTasks.length) return
   log('dl', '已完成任务出队 ' + finishedTasks.length + ' 条')
@@ -182,14 +172,10 @@ export function ackFinished() {
   emitDl(true)
 }
 
-/* ---- 单任务中断（下载队列页） ---- */
-
-/**
- * 中断单个任务（下载队列页点行，两次确认后调）：
- *   - 正在跑的（批量或已提权）：打 abort 标记 → fetchToFile 片间停下（.part 保留可续传）
- *   - 排队中的：直接摘出队列按「已取消」结算
- * 返回是否命中一个任务。**不影响播放通道的后台缓存**（那不是任务）。
- */
+// 中断单个任务（下载队列页点行，两次确认后调）：
+//   - 正在跑的（批量或已提权）：打 abort 标记 → fetchToFile 片间停下（.part 保留可续传）
+//   - 排队中的：直接摘出队列按「已取消」结算
+// 不影响播放通道的后台缓存（那不是任务）
 export function cancelTask(songId) {
   if (!sched) return false
   const id = String(songId)
@@ -210,7 +196,7 @@ export function cancelTask(songId) {
   return true
 }
 
-/** emit 的强制触发（调度器结构变化时用；与 force=true 的 emitDl 等价） */
+// emit 的强制触发（调度器结构变化时用；与 force=true 的 emitDl 等价）
 export function emitNow() {
   emitDl(true)
 }

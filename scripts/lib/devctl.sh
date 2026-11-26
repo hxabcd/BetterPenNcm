@@ -1,9 +1,9 @@
 #!/bin/bash
 # 一次性设备命令的 CLI 入口（传输层 lib/device.sh 的薄壳）。
 #
-# 为什么要有它：device.sh 的五个原语只能被 source 它的 bash 脚本用，而日常大量
-# 设备交互是一次性命令（探查、miniapp_cli 调试）。有了本入口，这些操作与未来的
-# 非 bash 工具都能复用同一套后端选择（adb/ssh/vm），不必各自拼 adb -s / ssh pen。
+# device.sh 的五个原语只能被 source device.sh 的 bash 脚本用；本入口让一次性
+# 设备交互（探查、miniapp_cli 调试）与未来的非 bash 工具复用同一套后端选择
+# （adb/ssh/vm），不必各自拼 adb -s / ssh pen。
 #
 # 用法：
 #   bash scripts/lib/devctl.sh [--ssh <目标>|--device <序列号>|--vm] <动作> [参数...]
@@ -19,8 +19,6 @@
 # 示例：
 #   bash scripts/lib/devctl.sh --ssh pen run 'miniapp_cli memoryApp'
 #   bash scripts/lib/devctl.sh run 'ls /userdisk/Favorite'
-#
-# 本脚本自source common.sh，不经 proj_init 之外的项目状态；set -u 自持。
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=common.sh
@@ -48,7 +46,7 @@ ACTION="${ACTION:-}"
 [ -n "$ACTION" ] || die "devctl: 缺动作（run/put/get/exists/check；-h 看用法）"
 
 # 不指定 --ssh/--device/--vm 时按项目配置选设备（工作区 targets.env 或本项目
-# .dictpen-dev.env），不再把 adb 写死成默认值。
+# .dictpen-dev.env）；adb 不是默认值。
 _DCTL_ARGS=()
 [ -n "$MODE" ] && _DCTL_ARGS+=(--transport "$MODE")
 dev_select --project "${PROJ:-$PWD}" "${_DCTL_ARGS[@]+"${_DCTL_ARGS[@]}"}" ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}

@@ -1,28 +1,21 @@
-/**
- * SQLite 通道 —— **原生 `sqlite3` 模块**（`import('sqlite3')`），不走 CLI。
- *
- * ⚠ 不要改回 `process.exec` + `/usr/bin/sqlite3`：每次调用 = 一次 fork（S7 真机实测
- *   92~139ms/次），且 SQL 不能走命令行参数（非 ASCII 会经本机代码页转换），只能写临时
- *   .sql 文件再 `.read`，每读一次表还要多付两次文件 I/O。同一份 134KB 数据真机实测：
- *   原生 sqlite 写入 10ms / 读回 2ms，shell 分片写文本 2511ms（见 docs/存储重构.md §4）。
- *
- * ## 两个库，职责不混（各一条长连接 conn.index / conn.state）
- *
- *   local_index.db（`paths.dbFile()`）—— **只有索引**
- *     album / artist / track / track_artist / playlist / playlist_track
- *     boot 整表灌内存，此后查询不分叉；写走批量语句（一批一个事务）。
- *     **可重建**：丢了从音频文件与网络重扫，所以允许整个删掉。
- *
- *   state.db（`paths.stateDbFile()`）—— **用户资产**
- *     kv           配置 / 登录 Cookie / 播放会话快照 / 播放历史
- *     track_meta   每曲元数据      track_lyric  每曲歌词
- *     丢一个要重新登录 / 丢播放进度，所以和索引库里外分开：重置索引不会碰到登录态。
- *
- * ## 故障语义
- *
- * 所有函数**不抛**：通道不可用（没有 sqlite3 原生模块 / 打不开库）时 `data()` 给空表，
- * 上层按「没有本地库」降级 —— 文件系统才是真相，索引丢了能重建，好过整个应用起不来。
- */
+
+
+// SQLite 通道 —— 原生 import('sqlite3') 模块，不走 CLI。
+// ⚠ 不要改回 process.exec + /usr/bin/sqlite3：每次调用 = 一次 fork（S7 真机实测 92~139ms/次），
+// 且 SQL 不能走命令行参数（非 ASCII 会经本机代码页转换），只能写临时 .sql 文件再 .read，
+// 每读一次表还多付两次文件 I/O。同一份 134KB 数据真机实测：原生 sqlite 写入 10ms / 读回 2ms，
+// shell 分片写文本 2511ms。
+//
+// 两个库，职责不混（各一条长连接）：
+//   local_index.db（dbFile()）—— 只有索引：boot 整表灌内存，此后查询不分叉；写走批量语句（一批一个事务）。
+//     可重建：丢了从音频文件与网络重扫，所以允许整个删掉。
+//   state.db（stateDbFile()）—— 用户资产：kv（配置 / 登录 Cookie / 播放会话 / 播放历史）、
+//     track_meta（每曲元数据）、track_lyric（每曲歌词）。丢了要重新登录 / 丢播放进度，
+//     所以和索引库里外分开：重置索引不会碰到登录态。
+//
+// 故障语义：所有函数不抛 —— 通道不可用（没有 sqlite3 原生模块 / 打不开库）时 data() 给空表，
+// 上层按「没有本地库」降级；文件系统才是真相，索引丢了能重建，好过整个应用起不来。
+
 import { ensureDir } from './fsutil.js'
 import { dbFile, stateDbFile, normDir } from '../infra/paths.js'
 import { log } from '../../core/infra/log.js'
@@ -85,22 +78,25 @@ const DDL_INDEX = [
   'PRAGMA user_version = 1;'
 ].join('\n')
 
-/** 状态库 DDL：kv（配置/凭据/会话/历史）+ 每曲元数据与歌词。 */const DDL_STATE = [
+/** 状态库 DDL：kv（配置/凭据/会话/历史）+ 每曲元数据与歌词。
+ *  kv.k 取值：ncm_settings / ncm_cookies / bpncm_player_state / bpncm_playhist；
+ *  track_meta 原 `<track>` 目录下的 metadata.json，track_lyric 原 lyrics.json。 */
+const DDL_STATE = [
   'PRAGMA journal_mode = WAL;',
   'PRAGMA synchronous = NORMAL;',
   'CREATE TABLE IF NOT EXISTS kv (',
-  '  k TEXT PRIMARY KEY,', // ncm_settings / ncm_cookies / bpncm_player_state / bpncm_playhist
+  '  k TEXT PRIMARY KEY,', 
   '  v TEXT NOT NULL DEFAULT "",',
   '  t INTEGER NOT NULL DEFAULT 0',
   ');',
-  'CREATE TABLE IF NOT EXISTS track_meta (', // 原 <track>/metadata.json
+  'CREATE TABLE IF NOT EXISTS track_meta (', 
   '  id INTEGER NOT NULL,',
-  '  kind INTEGER NOT NULL,', // 1 = downloads（用户下载） 2 = cache（播放缓存）
+  '  kind INTEGER NOT NULL,', 
   '  v TEXT NOT NULL DEFAULT "",',
   '  t INTEGER NOT NULL DEFAULT 0,',
   '  PRIMARY KEY (id, kind)',
   ');',
-  'CREATE TABLE IF NOT EXISTS track_lyric (', // 原 <track>/lyrics.json
+  'CREATE TABLE IF NOT EXISTS track_lyric (', 
   '  id INTEGER NOT NULL,',
   '  v TEXT NOT NULL DEFAULT "",',
   '  t INTEGER NOT NULL DEFAULT 0,',
@@ -121,15 +117,14 @@ export function num(v) {
   return isFinite(n) ? String(n) : '0'
 }
 
-/* ---------------- 通道（两个库各一条长连接） ---------------- */
-
 /** 原生模块的成功约定：0 / true / 'OK' / 空返回值都算成功，其余（错误信息字符串）算失败 */
 function okRc(rc) {
   return rc === 0 || rc === true || rc === 'OK' || rc === undefined || rc === null
 }
 
-const conns = {} // 'index' | 'state' → sqlite3.Database
-const readies = {} // 'index' | 'state' → Promise<Database|null>
+// 'index' | 'state' → sqlite3.Database（长连接）/ Promise<Database|null>
+const conns = {} 
+const readies = {} 
 
 /** 两个库的打开参数（路径 + DDL），键名即上面的用途名 */
 const BANKS = {
@@ -188,11 +183,8 @@ export function ensureStateDb() {
   return ensureBank('state')
 }
 
-/* ---------------- 底层三原语（按库区分） ---------------- */
-
 /**
  * 执行一段 SQL 文本（可含多条语句）。返回 **''=成功**，否则返回错误文本；通道不可用返回 null。
- * 与旧 CLI 版的返回约定一致，方便上层判断。
  */
 async function runText(name, text) {
   const db = await ensureBank(name)
@@ -217,7 +209,7 @@ async function toObjects(st, rows) {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
     if (r && typeof r === 'object' && !Array.isArray(r)) {
-      out.push(r) // 万一某些固件直接给对象
+      out.push(r) 
       continue
     }
     const o = {}
@@ -272,9 +264,6 @@ async function query(name, sql, params) {
   }
 }
 
-/* ---------------- 键值表（原 store.js 的四个顶层 JSON 文件）→ 状态库 ---------------- */
-
-/** 读一个 key；没有/通道不可用给 null */
 export async function kvGet(k) {
   const rows = await query('state', 'SELECT v FROM kv WHERE k = ?;', [String(k)])
   if (!rows.length) return null
@@ -282,7 +271,6 @@ export async function kvGet(k) {
   return v === undefined || v === null ? null : String(v)
 }
 
-/** 写一个 key（整行替换）。返回是否成功 */
 export async function kvPut(k, v) {
   const text = v === undefined || v === null ? '' : String(v)
   const err = await runStmt('state', 'INSERT OR REPLACE INTO kv (k, v, t) VALUES (?, ?, ?);',
@@ -294,20 +282,16 @@ export async function kvPut(k, v) {
   return true
 }
 
-/** 删一个 key */
 export async function kvDel(k) {
   const err = await runStmt('state', 'DELETE FROM kv WHERE k = ?;', [String(k)])
   return err === ''
 }
-
-/* ---------------- 每曲文档表（原 metadata.json / lyrics.json）→ 状态库 ---------------- */
 
 /** kind → 表里的整数（下载 = 1，播放缓存 = 2） */
 export function kindCode(kind) {
   return kind === 'download' ? 1 : 2
 }
 
-/** 读一条曲目文档；没有给 null */
 export async function docGet(table, id, kind) {
   const params = kind === undefined ? [Number(id) || 0] : [Number(id) || 0, kindCode(kind)]
   const where = kind === undefined ? 'id = ?' : 'id = ? AND kind = ?'
@@ -335,7 +319,6 @@ export async function docAll(table, kind) {
   return out
 }
 
-/** 写一条曲目文档（整行替换）；返回是否成功 */
 export async function docPut(table, id, kind, text) {
   const nid = Number(id) || 0
   if (!nid) return false
@@ -352,7 +335,6 @@ export async function docPut(table, id, kind, text) {
   return true
 }
 
-/** 删一条曲目文档 */
 export async function docDel(table, id, kind) {
   const nid = Number(id) || 0
   if (!nid) return false
@@ -362,13 +344,12 @@ export async function docDel(table, id, kind) {
   return err === ''
 }
 
-/* ---------------- 索引导出到内存 ---------------- */
-
-let mem = null // { album:{id:row}, artist, track, playlist, track_artist:[], playlist_track:[] }
+/** 内存态中 album/artist/track/playlist → {id: row}，track_artist/playlist_track → 行数组 */
+let mem = null 
 let loading = null
-let writeChain = Promise.resolve() // 所有索引写串行，且合并成批
+// 所有索引写串行，且同一事件循环内的多条合并成一批
+let writeChain = Promise.resolve() 
 
-/** 导出单表为对象数组（索引库） */
 async function dumpTable(name) {
   return query('index', 'SELECT * FROM ' + name + ';')
 }
@@ -412,20 +393,17 @@ export function open() {
   return loading
 }
 
-/** 内存态（未 open 时为 null；调用方须先 await open()） */
 export function data() {
   return mem
 }
 
-/** 丢弃内存态（迁移/测试用，下次 open 重新导出） */
 export function reset() {
   mem = null
   loading = null
 }
 
-/* ---------------- 索引写（串行 + 批量） ---------------- */
-
-let pending = [] // 待写 SQL 语句（同一批 BEGIN/COMMIT）
+// 待写 SQL 语句（同一批 BEGIN/COMMIT）
+let pending = [] 
 
 /** 把一批语句入队并尽快写出；返回本次落盘完成的 Promise（失败不抛，只记日志） */
 function flush() {
@@ -434,8 +412,9 @@ function flush() {
   if (!batch.length) return writeChain
   writeChain = writeChain.then(async function () {
     const err = await runText('index', 'BEGIN;\n' + batch.join('\n') + '\nCOMMIT;')
-    if (err === null) return false // 通道不可用
+    if (err === null) return false 
     if (err) {
+
       // 事务中途失败会把它留在打开状态；不回滚的话后续 BEGIN 全部报错
       await runText('index', 'ROLLBACK;')
       log('db', '写索引库失败：' + String(err).slice(0, 160))
@@ -459,7 +438,7 @@ export function exec(sqlList) {
   return flush()
 }
 
-/** 整表 upsert 的语句生成：cols = [{name, v, raw?}]，conflict = 主键列名 */
+/** 整表 upsert 的语句生成：cols = [{name, v, raw?}]，pk = 主键列名 */
 export function upsertSql(table, cols, pk) {
   const names = []
   const vals = []
@@ -470,12 +449,12 @@ export function upsertSql(table, cols, pk) {
     vals.push(lit)
     if (cols[i].name === pk) pkVal = lit
   }
-  /* ⚠ 不要改回 `INSERT ... ON CONFLICT(pk) DO UPDATE`：X3S 的 libsqlite3 是 **3.21.0**
-     （2017，UPSERT 语法 3.24 才加入），真机上会报 `near "ON": syntax error`，
-     整批索引写失败（2026-11-22 X3S 实测：下载成功后 track 表仍为空）。
-     `INSERT OR IGNORE` + `UPDATE` 是 3.21 兼容的等价语义：已存在时只更新列出的列，
-     未列出的列（track.dl_origin / artist.avatar 等）保持原值，与 DO UPDATE 一致。
-     代价是每行两条语句（索引写不是热路径；S7 上同样可用）。 */
+
+  // ⚠ 不要改回 `INSERT ... ON CONFLICT(pk) DO UPDATE`：X3S 的 libsqlite3 是 **3.21.0**
+  // （2017，UPSERT 语法 3.24 才加入），真机上会报 `near "ON": syntax error`，整批索引写失败
+  // （2026-11-22 X3S 实测：下载成功后 track 表仍为空）。
+  // `INSERT OR IGNORE` + `UPDATE` 是 3.21 兼容的等价语义：已存在时只更新列出的列，
+  // 未列出的列（track.dl_origin / artist.avatar 等）保持原值。代价是每行两条语句。
   const insert = 'INSERT OR IGNORE INTO ' + table + ' (' + names.join(',') + ') VALUES (' + vals.join(',') + ');'
   const sets = []
   for (let i = 0; i < names.length; i++) {
@@ -486,7 +465,6 @@ export function upsertSql(table, cols, pk) {
   return insert + '\nUPDATE ' + table + ' SET ' + sets.join(',') + ' WHERE ' + pk + ' = ' + pkVal + ';'
 }
 
-/** 简单删除语句 */
 export function deleteSql(table, whereSql) {
   return 'DELETE FROM ' + table + ' WHERE ' + whereSql + ';'
 }

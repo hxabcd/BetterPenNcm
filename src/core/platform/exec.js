@@ -1,23 +1,20 @@
-/**
- * 命令通道：process.exec 的统一封装 + 分能力探测。
- *
- * 新代码需要命令能力（curl / du / stat / ...）时从这里过，不要各自探测。
- *
- * ⚠ **exec 昂贵**：一次调用 = 一次 fork（S7 真机实测 92~139ms，宿主进程带着
- *   Skia/QuickJS/字体，页表大、复制更贵）。所以：
- *     - 轮询/进度只许 `fs.stat` / `fs.exists`（native，零 fork）；
- *     - 写文件不在这里（平台 `fs` 没有写接口，但数据一律进 SQLite，见 core/platform/db.js）。
- *
- * 语义：
- *   - 探测失败按「不可用」缓存（false），不会反复探；`has()` 永不抛。
- *   - `run()` 是 `/bin/sh -c cmd` 的封装，**exec 不解析命令串，必须显式 /bin/sh -c**
- *     （运行时API参考 §6）。返回 {code, stdout, stderr}；通道不可用时返回 null，
- *     命令本身失败（非 0 退出）也照样 resolve —— 判断 rc 是调用方的事。
- *   - 探测在「首次用到该能力」时才发生（惰性）。
- */
+
+
+// 命令通道：process.exec 的统一封装 + 分能力探测；新代码需要命令能力（curl / du / stat / ...）
+// 时从这里过，不要各自探测。
+//
+// ⚠ exec 昂贵：一次调用 = 一次 fork（S7 真机实测 92~139ms，宿主进程带着 Skia/QuickJS/字体，
+// 页表大、复制更贵）。所以轮询/进度只许 fs.stat / fs.exists（native，零 fork）；
+// 写文件不在这里（平台 fs 没有写接口，数据一律进 SQLite，见 db.js）。
+//
+// 语义：探测失败按「不可用」缓存（false），不会反复探，has() 永不抛；探测在「首次用到该能力」
+// 时才发生。run() 是 /bin/sh -c cmd 的封装 —— **exec 不解析命令串，必须显式 /bin/sh -c**；
+// 返回 {code, stdout, stderr}，通道不可用返回 null，命令本身非 0 退出也照样 resolve，
+// 判断 rc 是调用方的事。
+
 import { log } from '../../core/infra/log.js'
 
-/* ---- 能力表：key → 探测命令（stdout 非空且 rc=0 算可用） ---- */
+/* 能力表：key → 探测命令（stdout 非空且 rc=0 算可用） */
 const PROBES = {
   curl: 'command -v curl',
   du: 'command -v du',
@@ -27,10 +24,13 @@ const PROBES = {
   ffmpeg: 'command -v ffmpeg'
 }
 
-const PROBE_TIMEOUT = 8000 // 各探针统一上限（原 6000~8000，命令都是常驻二进制、无副作用）
+// 各探针统一上限（命令都是常驻二进制、无副作用）
+const PROBE_TIMEOUT = 8000 
 
-let procReady = null // process 模块（懒加载；平台可能包一层 default）
-const caps = {} // 能力 key → boolean（true=可用；探测过即缓存）
+// process 模块（懒加载；平台可能包一层 default）
+let procReady = null 
+// 能力 key → boolean（探测过即缓存；true=可用）
+const caps = {} 
 
 /**
  * process 模块句柄。X3S 没有 process 裸模块 → 回退到原生桥 bridgeProc()
@@ -55,7 +55,6 @@ async function loadProc() {
   }
 }
 
-/** process.exec 是否可用 */
 export async function execOk() {
   try {
     const P = await getProc()
@@ -67,7 +66,8 @@ export async function execOk() {
 
 async function probe(cap) {
   if (caps[cap] !== undefined) return caps[cap]
-  caps[cap] = false // 探测期间/失败一律先记不可用，避免并发重入反复 fork
+  // 探测期间/失败一律先记不可用，避免并发重入反复 fork
+  caps[cap] = false 
   try {
     if (!(await execOk())) return false
     const P = await getProc()
@@ -83,7 +83,7 @@ async function probe(cap) {
 
 /**
  * 能力是否可用：has('curl') / has('du') / has('awk') / has('stat') / has('df') / has('ffmpeg')。
- * 未知 key 返回 false。**首次调用会同步等待一次探测**（一次 fork，真机 92~139ms）。
+ * 未知 key 返回 false。**首次调用会等待一次探测**（一次 fork，真机 92~139ms）。
  *
  * ⚠ 数据库**不在**这里：`sqlite3` 有原生模块（`import('sqlite3')`），走 core/platform/db.js，
  *   不要再给它加 CLI 探测 —— 那个通道每次调用都要 fork 一次。

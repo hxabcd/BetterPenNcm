@@ -13,24 +13,10 @@
 
 <script>
 /**
- * 逐字歌词行（只渲染「当前活动行」的原文；译文仍由 LyricTrack 渲染）。
- *
- * 为什么单独成组件：逐字推进需要按播放位置判断「当前字」，
- * 如果把 wordIdx 放在 LyricBoard 或 LyricTrack 的 data 里，每帧会带着整个渲染窗口重渲染。
- * 这里让本组件直接订阅 LyricBoard 的局部时钟（ticker 对象），状态只落在本组件内。
- *
- * 动画（2026-11-01 按真机能力重做）：
- *   - **字级推进**：只在「当前字变化」时写一次 data，不按帧更新 —— 本平台 `color` 逐帧改
- *     会被合并成最终值（写 14 帧等于写 1 帧），之前那种逐帧混色是白费开销；
- *   - **已唱/当前字白（TOK.text），未唱字灰（TOK.text2）**（内联，硬切：`color` 在本平台
- *     没有任何平滑路径，见 docs/平台约束与自检.md 的动画能力表）；逐字进度 = 颜色 + 抬起双信号；
- *     主题色只留给行左侧的指示条（LyricBoard 的 sMarkOn）。
- *   - **上浮 + 微缩放**由 class 里的 `transition: transform 120ms` 负责（`transform` 可插值）：
- *     当前字 `w-cur` 抬起，唱过的字**保持抬起不落下**（`w-past` 与 `w-cur` 同位移同缩放，
- *     切类时 transform 没有差值 → 不产生回落动画，颜色仍由内联硬切）；
- *   - `anim=false` 时全部字都用 `w-future`（不抬起，也就没有过渡，只有颜色的硬切）。
- *
- * 平台约束：样式单类名（每个状态一个完整类）；text 不嵌套；v-for key 稳定（字下标 + 段序）。
+ * 逐字行只渲染活动行的原文；译文仍由 LyricTrack 渲染。
+ * 单独成组件只为把高频更新关在本组件内：本平台逐帧改 color 会被合并成最终值（写 14 帧等于写 1 帧），
+ * 所以字级推进只在「当前字变化」时写一次 data，不按帧更新；color 也没有平滑路径 → 颜色内联硬切。
+ * 上浮/微缩放走 transform（可插值），w-past 与 w-cur 同位移同缩放，切类时无差值、不回落。
  */
 import { TOK } from '../../ui/tokens.js'
 
@@ -75,15 +61,16 @@ export default {
       }
       if (idx !== this.wordIdx) this.wordIdx = idx
     },
+
     /** 字的状态类：未唱 / 当前（抬起） / 已唱（保持抬起不落下） */
     wordCls(seg) {
       if (seg.w > this.wordIdx) return 'w-future'
       if (seg.w === this.wordIdx && this.anim) return 'w-cur'
-      // 无动画时已唱/当前字也不抬起（纯颜色硬切），统一按未抬起渲染
+
       return this.anim ? 'w-past' : 'w-future'
     },
-    /** 字的颜色：已唱/当前字白（TOK.text），未唱字灰（TOK.text2），内联硬切；
-        逐字进度 = 颜色 + 抬起双信号；主题色只留给行左侧指示条 */
+
+    /** 字的颜色内联硬切：已唱/当前字 TOK.text，未唱 TOK.text2；主题色只留给行左侧指示条 */
     wordStyle(seg) {
       return { color: seg.w > this.wordIdx ? TOK.text2 : TOK.text }
     }
@@ -105,8 +92,9 @@ export default {
   flex-direction: row;
   align-items: flex-start;
 }
-/* 三种字状态各一个完整类（平台单类名；样式全在类里，内联只给颜色）。
-   w-past 与 w-cur 同位移同缩放：唱过的字保持抬起不落下，切类时 transform 无差值 */
+
+/* 三种字状态各一个完整类（平台只认单类名）；w-past 与 w-cur 同位移同缩放：唱过的字保持抬起不落下，
+   切类时 transform 没有差值 → 不产生回落动画 */
 .w-future {
   font-size: 10.83vh;
   line-height: 31.2px;

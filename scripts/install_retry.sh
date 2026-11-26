@@ -1,14 +1,11 @@
 #!/bin/bash
-# 轮询装机：设备掉线是常态（休眠/断网/超时关机），这个脚本反复试到装上为止。
+# 轮询装机：设备掉线是常态（休眠/断网/超时关机），反复试到装上为止。
 #
 # 用法：bash scripts/install_retry.sh [总时长秒数] [间隔秒数]
 #   默认 总时长=7200（2h）、间隔=90
 #
-# 行为：
-#   - 每轮先 `devctl check` 探连通性，离线就跳过（不做无效的 push/install）；
-#   - 在线则 `devctl install <产物>` 覆盖安装（data 原样保留）；
-#   - 装完再 check 一次，两次都通才算成功。
-#   - 日志同时写 tmp/install_retry.log，后台跑时可随时 tail。
+# 每轮先 `devctl check` 探连通性，离线就跳过（不做无效的 push/install）；
+# 装完再 check 一次，两次都通才算成功。
 set -u
 export MSYS_NO_PATHCONV=1
 

@@ -29,10 +29,11 @@ LESS = os.path.join(PROJ, 'src', 'styles', 'common.less')
 
 BEGIN_MARK = '/* @tokens:begin'
 END_MARK = '/* @tokens:end */'
+
 # 允许手写在生成段之外的文件级 token（书面默认值，真值在 ui/theme.js，故意不进值表）
 OUTSIDE = ['accent', 'accent-2']
-PAD = 40  # `@name: value;` 对齐到该列后接注释
-
+# 生成行里 `@name: value;` 对齐到该列后接说明注释
+PAD = 40  
 
 def parse_tables():
     src = io.open(TOKENS_JS, encoding='utf-8').read()
@@ -60,7 +61,6 @@ def parse_tables():
             names[mm.group(1)] = mm.group(2) if mm.group(2) is not None else None
     return tok, desc, names
 
-
 def render_block(tok, desc, names):
     lines = []
     for k, v in tok.items():
@@ -70,7 +70,6 @@ def render_block(tok, desc, names):
         head = '@%s: %s;' % (less, v)
         lines.append((head.ljust(PAD) + '/* %s */' % desc.get(k, '')).rstrip())
     return lines
-
 
 def read_block(text):
     lines = text.split('\n')
@@ -85,12 +84,10 @@ def read_block(text):
         raise SystemExit('✗ common.less 里找不到 @tokens:begin/end 标记')
     return lines, b, e
 
-
 def main():
     write = '--write' in sys.argv
     tok, desc, names = parse_tables()
 
-    # 契约完整性：值表 / 说明 / LESS 名三表一一对应
     bad = []
     for k in tok:
         if k not in desc:
@@ -111,7 +108,6 @@ def main():
     lines, b, e = read_block(text)
     cur = [ln.rstrip() for ln in lines[b + 1:e]]
 
-    # 段外 token 巡检：文件里出现的 @xxx: 定义，只允许生成段内 + 白名单
     outside_defined = set()
     for i, ln in enumerate(lines):
         if b < i < e:
@@ -140,7 +136,6 @@ def main():
     for x in only_want:
         print('   值表要求: ' + x)
     return 1
-
 
 if __name__ == '__main__':
     sys.exit(main())

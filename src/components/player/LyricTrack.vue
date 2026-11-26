@@ -31,16 +31,10 @@
 
 <script>
 /**
- * 歌词行轨 —— `LyricBoard` 的窗口渲染层（只被它使用，不对外）。
- *
- * 行盒（2026-10-31 重构）：
- *   - 活动/非活动行同一行高：单行内容 60px，长行按预排视觉行数增高；
- *   - 行间无 margin/gap；行内容在行盒内垂直居中；文本左对齐；
- *   - 字号/颜色过渡发生在固定行盒内，不再动画 height，也不会推挤后续行。
- *
- * 样式对象仍由 LyricBoard 预算并挂在 row 上（引用稳定）：换行时只有旧/新两行
- * 的引用变，其余行与上次逐项相同 → Vue 的 style 补丁不产生原生写入。
- * 逐字活动行交给 LyricWordLine：它自己订阅局部时钟，高频样式不带动本组件。
+ * 行盒口径：单行 60px、长行按 lyriclayout.js 预排的视觉行数增高；行高只由行内 sRow 给，
+ * 行间无 margin/gap，内容在行盒内垂直居中。
+ * 样式对象由 LyricBoard 预算并挂在 row 上（引用稳定）：换行时只有旧/新两行的引用变，
+ * 其余逐项相同 → Vue 的 style 补丁不产生原生写入。
  */
 import LyricWordLine from './LyricWordLine.vue'
 
@@ -52,11 +46,10 @@ export default {
     rows: { type: Array, default: function () { return [] } },
     /** 高亮行下标（-1 = 还没到第一行） */
     hl: { type: Number, default: -1 },
-    /** LyricBoard 的局部时钟对象（传给 LyricWordLine；本组件不响应它的变化） */
+    /** LyricBoard 的局部时钟对象：{ on, off, ms }；引用稳定，本组件不响应它的变化 */
     ticker: { type: Object, required: true },
     /** 是否启用逐字歌词（活动行才拆字节点） */
     wordOn: { type: Boolean, default: false },
-    /** 是否启用动画过渡（传给逐字行；行级字号/颜色过渡也看它） */
     anim: { type: Boolean, default: true }
   },
   methods: {
@@ -79,12 +72,12 @@ export default {
 <style lang="less" scoped>
 @import '../../styles/common.less';
 
-/* 行轨：铺满父级（absolute + 左右 10px，列向） */
 .lt-wrap {
   width: 100%;
   flex-direction: column;
 }
-/* 行：行高内联（60px 起，长行更高）；无行距；内容垂直居中；文本左对齐 */
+
+/* 行高由行内 sRow 内联给出（60px 起、长行按预排视觉行数增高）；行间无 margin/gap，内容垂直居中 */
 .lt-row {
   position: relative;
   flex-direction: row;
@@ -92,7 +85,8 @@ export default {
   padding-left: 4px;
   padding-right: 4px;
 }
-/* 左侧指示条：绝对定位，不参与文本宽度；活动行显示主题色，其余透明 */
+
+/* 左侧指示条：绝对定位不参与文本宽度；活动行显示主题色，其余透明 */
 .lt-mark {
   position: absolute;
   left: 0;
@@ -101,7 +95,8 @@ export default {
   width: 3px;
   border-radius: 2px;
 }
-/* 文本列：flex:1 拿确定宽度；给指示条让出 7px；内容垂直居中 */
+
+/* 文本列：flex:1 拿确定宽度；margin-left 7px = lyriclayout.js 的 MARK_SPACE，给指示条让位 */
 .lt-text {
   flex: 1;
   margin-left: 7px;
@@ -112,7 +107,8 @@ export default {
   justify-content: center;
   overflow: hidden;
 }
-/* 普通原文：视觉行由 lyriclayout.js 预排，这里每行一个 text、不交给平台换行 */
+
+/* 普通原文：视觉行由 lyriclayout.js 预排，这里每个视觉行一个 text、不交给平台折行 */
 .lt-main {
   width: 100%;
   flex-direction: column;

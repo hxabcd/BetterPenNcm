@@ -1,11 +1,8 @@
-/**
- * weapi 传输层：加密 + POST + 解析
- *
- * 路径沿用接口原始写法（如 /api/login/qrcode/unikey），内部把 /api/ 换成 /weapi/。
- * 与旧版明文接口的区别只有两点：body 是 params/encSecKey 表单，payload 里多带 csrf_token。
- *
- * 注意：csrf_token 取自 cookie 里的 __csrf（登录成功后服务端才下发，未登录时为空串）。
- */
+
+
+// 路径沿用接口原始写法（如 /api/login/qrcode/unikey），内部把 /api/ 换成 /weapi/。
+// body 是 params/encSecKey 表单，payload 里多带 csrf_token（取自 cookie 的 __csrf：
+// 登录成功后服务端才下发，未登录时为空串）。
 import { request } from '../../core/infra/net/request.js'
 import { weapiBody } from './crypto.js'
 import { maskPayload } from './wecurl.js'
@@ -23,10 +20,8 @@ export const WEAPI_HEADERS = {
   'Content-Type': 'application/x-www-form-urlencoded'
 }
 
-/**
- * POST /weapi/...，返回 {status, json, body, headers}
- * opts: {timeout, tag(日志前缀)}
- */
+// POST /weapi/...，返回 {status, json, body, headers, encMs}
+// opts: {timeout, tag(日志前缀), raw(记录加密 BODY 与 cookie 名，排查风控用)}
 export async function weapiPost(path, payload, opts) {
   const o = opts || {}
   const p = Object.assign({}, payload)
@@ -46,6 +41,7 @@ export async function weapiPost(path, payload, opts) {
     log('weapi', (o.tag || '') + ' 响应非 JSON: ' + brief(r.body, 160))
   }
   if (o.tag) {
+
     // 明文日志统一脱敏（手机号/验证码/密码，见 wecurl.js 的 maskPayload）
     log('weapi', o.tag + ' url=' + url + ' 明文=' + brief(maskPayload(p), 200) + ' 加密耗时=' + encMs + 'ms')
     log(
@@ -54,6 +50,7 @@ export async function weapiPost(path, payload, opts) {
         ' 体=' + brief(json || r.body, 260)
     )
     if (o.raw) {
+
       // 排查风控用：BODY 是加密串，可原样记录；Cookie 只记名称，值不回显（会话凭据不落日志）
       log('weapi', o.tag + ' BODY=' + body)
       log('weapi', o.tag + ' COOKIE_NAMES=' + cookieNames().join(','))

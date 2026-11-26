@@ -11,13 +11,12 @@
 </template>
 
 <script>
+
 /**
- * 本地下载-歌手的行：圆形头像 + 名称 + 歌曲数量 + 可进入提示。
- *
- * 行高 32vh（≈77px），比歌曲行 23vh 高——需求明确「行高更高，单行含头像、名称、歌曲数量」。
+ * 行高 32vh（≈77px），比歌曲行 23vh 高一档。
  *
  * 头像顺序（与歌手详情共用同一套来源，避免同一歌手两处不同图）：
- *   1) 真头像：artistavatar.resolveArtistPortrait → arp<id>@60（有 meta 或在线取轻量接口）
+ *   1) 真头像：artistavatar.resolveArtistPortrait → arp<id>@60
  *   2) 兜底：代表专辑封面 al<albumId>@60（下载完成时已预热，离线可命中）
  *   3) 都没有：人形图标
  * 先立刻铺兜底图，真头像就绪后覆盖；真头像拿不到就保留兜底图。
@@ -29,6 +28,7 @@ import { ICON } from '../assets/icons.js'
 export default {
   name: 'ArtistRow',
   props: {
+
     /** {id, name, count, cover, albumId} */
     item: { type: Object, required: true }
   },
@@ -39,6 +39,7 @@ export default {
     shownCover() {
       return this.localCover
     },
+
     /** watch 的目标用 computed，避免依赖模板/预编译器对 `item.cover` 路径 watch 的支持差异 */
     coverSrc() {
       return this.item.cover
@@ -120,6 +121,7 @@ export default {
   border-bottom-style: solid;
   border-bottom-color: @line;
 }
+
 /* 圆形头像：直径 26vh → 圆角半值 13vh（平台不认 50%） */
 .arow-av {
   width: 26vh;

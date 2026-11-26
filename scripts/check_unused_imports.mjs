@@ -1,4 +1,4 @@
-// 未使用 import 检查：按「导入名在文件里出现次数」判，去掉 import 行本身再数
+
 import fs from 'node:fs'
 
 const files = process.argv.slice(2)
@@ -6,11 +6,13 @@ let bad = 0
 for (const f of files) {
   const src = fs.readFileSync(f, 'utf8')
   const importBlocks = []
+
   // export { .. } from '...'（纯转发）不构成「导入后使用」——先剔除，避免误报
   const src0 = src.replace(/export\s*\{[^}]*\}\s*from\s*['"][^'"]+['"];?/g, '')
   const re = /import\s+([\s\S]*?)\s+from\s+['"][^'"]+['"]/g
   let m
   while ((m = re.exec(src0)) !== null) importBlocks.push(m[0])
+
   // 用与源文件等长的空白替换掉 import 语句，避免把导入名本身算进使用次数
   let body = src0
   for (const b of importBlocks) body = body.split(b).join(' '.repeat(b.length))

@@ -1,29 +1,23 @@
-/**
- * 网络传输层 —— 业务请求唯一直接使用运行时 http 模块的地方。
- * 运行时实测结论：
- *   const http = await import('http')            // 内建模块，curl 内核
- *   await http.request({url, method, headers, data, timeout}) -> {status, headers, body}
- *     - 原始 body 用 data 字段（body/params/form/raw 均无效，实测空体）
- *   await http.postFormData({url, data:{...}})   -> 表单（multipart）
- *   await http.download({url, outPath})          -> 文件落盘（实测 149KB 图片成功）
- *
- * 实测边界（S7，2026-10-17）：
- *   - request 的响应体按 C 字符串返回，**遇到第一个 NUL 就截断** → 只用于文本/JSON；
- *     图片/音频/protobuf 用 download 或 curl（`AB\0CD` 只回 `AB`，MP3 只回 `ID3\x03`）
- *   - download 返回时文件可能还剩最后一块未 flush → 读 size 前等 100ms 或轮询到稳定
- *
- * 追加：Cookie 会话。curl 内核未开 cookie 引擎，收发都靠 net/cookies.js
- * 手工维护——发请求前注入 Cookie 头，收响应后吸收 set-cookie。
- */
+
+// 网络传输层 —— 业务请求唯一直接使用运行时 http 模块的地方。运行时实测结论：
+//   const http = await import('http')            // 内建模块，curl 内核
+//   await http.request({url, method, headers, data, timeout}) -> {status, headers, body}
+//     - 原始 body 用 data 字段（body/params/form/raw 均无效，实测空体）
+//   await http.postFormData({url, data:{...}})   -> 表单（multipart）
+//   await http.download({url, outPath})          -> 文件落盘（实测 149KB 图片成功）
+// 实测边界（S7，2026-10-17）：
+//   - request 的响应体按 C 字符串返回，遇到第一个 NUL 就截断 → 只用于文本/JSON；
+//     图片/音频/protobuf 用 download 或 curl（`AB\0CD` 只回 `AB`，MP3 只回 `ID3`）
+//   - download 返回时文件可能还剩最后一块未 flush → 读 size 前等 100ms 或轮询到稳定
+// Cookie：curl 内核未开 cookie 引擎，收发都靠 net/cookies.js 手工维护 ——
+// 发请求前注入 Cookie 头，收响应后吸收 set-cookie
 import { load as loadCookies, header as cookieHeader, absorbHeaders } from './cookies.js'
 import { reportNet } from './status.js'
 
 let httpReady = null
 
-/**
- * http 模块句柄。X3S 没有 http 裸模块 → 回退到原生桥 bridgeHttp()
- * （libcurl + 收响应头，Cookie 会话可维护）；S7 / X5 行为不变。
- */
+// http 模块句柄。X3S 没有 http 裸模块 → 回退到原生桥 bridgeHttp()
+// （libcurl + 收响应头，Cookie 会话可维护）；S7 / X5 行为不变
 function getHttp() {
   if (!httpReady) httpReady = loadHttp()
   return httpReady
@@ -43,7 +37,7 @@ async function loadHttp() {
   }
 }
 
-/** 合并业务 headers 与 Cookie 头 */
+// 合并业务 headers 与 Cookie 头（显式传了 Cookie 就不覆盖）
 async function buildHeaders(extra) {
   await loadCookies()
   const h = Object.assign({}, extra || {})
@@ -52,10 +46,7 @@ async function buildHeaders(extra) {
   return h
 }
 
-/**
- * 通用请求；opts: {url, method, headers, data, timeout, raw}
- * raw=true 时额外返回原始响应对象（排查用）
- */
+// 通用请求；opts: {url, method, headers, data, timeout, raw}。raw=true 时额外返回原始响应对象（排查用）
 export async function request(opts) {
   const h = await getHttp()
   const headers = await buildHeaders(opts.headers)
@@ -69,7 +60,7 @@ export async function request(opts) {
       timeout: opts.timeout || 12000
     })
   } catch (e) {
-    reportNet(false) // 兜底记账：仅当系统 API（global.isOnline）不可用时才生效，见 status.js
+    reportNet(false) // 兜底记账：仅当系统 API（global.isOnline）不可用时才生效
     throw e
   }
   const status = (r && (r.status || r.statusCode)) || 0
@@ -84,11 +75,11 @@ export async function request(opts) {
   }
 }
 
-/** 下载到本地文件；opts: {url, outPath, headers, timeout}
- *  ⚠ 返回时文件可能尚未完全 flush（实测 1KB 首查 0、4KB=0、1MB 少 4096，100ms 后完整）；
- *  调用方读 size/校验前应先等 100ms 或轮询到稳定，别把正常文件误判成失败。
- *  ⚠ 故意**不上报网络状态**：封面下载量大、单个 CDN 节点抽风是常态，
- *  一次抽风不该把全应用翻成离线（记账只由 API 请求驱动，见 status.js） */
+// 下载到本地文件；opts: {url, outPath, headers, timeout}
+// ⚠ 返回时文件可能尚未完全 flush（实测 1KB 首查 0、4KB=0、1MB 少 4096，100ms 后完整）：
+//  调用方读 size/校验前应先等 100ms 或轮询到稳定，别把正常文件误判成失败。
+// ⚠ 故意不上报网络状态：封面下载量大、单个 CDN 节点抽风是常态，一次抽风不该把全应用翻成离线
+//  （记账只由 API 请求驱动，见 status.js）
 export async function download(opts) {
   const h = await getHttp()
   const headers = await buildHeaders(opts.headers)

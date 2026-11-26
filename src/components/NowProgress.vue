@@ -6,18 +6,13 @@
 
 <script>
 /**
- * 「正在播放」卡底部的**只读进度线**（照播放页收起态那条 `.ply-pline` 做的：
- * 一条细线 = 槽 + 主题色填充，无手柄、不显示时间、不可拖动）。
- *
- * 为什么单独做成组件、而不是算进首页的 data：
- *   播放位置每 500ms 变一次，而首页那行是**横向 scroller**，整页重渲染有把用户滑走的
- *   卡片甩回最左边的风险。首页自己的 `onPlayer` 是**故意不认 positionMs** 的
- *   （签名里只有「换歌/暂停」这类肉眼可见的变化），所以进度只能由这个子组件自己订阅、
- *   自己重渲染 —— 与 NowLyric 同一个套路。
+ * 单独成组件的原因：播放位置每 500ms 变一次，而首页那行是**横向 scroller**，整页重渲染有把
+ * 用户滑走的卡片甩回最左边的风险。首页自己的 `onPlayer` 是故意不认 positionMs 的，所以进度
+ * 只能由这个子组件自己订阅、自己重渲染。
  *
  * 判重纪律（平台坑 16：同一个值会被以 500ms 频率反复回调）：
- *   ① 显示/隐藏变了才写；② 百分比量化到 **0.2% 一档**（≈0.8px）再写 —— 4 分钟的歌
- *   也就 ~500 次有效更新，而不是每 500ms 都触发一次重渲染。
+ *   ① 显示/隐藏变了才写；② 百分比量化到 0.2% 一档（≈0.8px）再写 —— 4 分钟的歌也就 ~500 次
+ *   有效更新，而不是每 500ms 都触发重渲染。
  *   而且**始终不改结构**（用高度 0 收起，不上 v-if）：首页卡片里的兄弟节点结构是敏感的
  *   （实测 v-if 换结构会让 slot 插错位）。
  */
@@ -27,7 +22,8 @@ import { bindPageVis } from '../ui/vis.js'
 
 export default {
   name: 'NowProgress',
-  mixins: [accentMixin], // 填充色 = 当前主题色（与同卡的主控键、播放页那条线一致）
+  /* accentMixin：填充色 = 当前主题色（与同卡的主控键、播放页那条线一致） */
+  mixins: [accentMixin], 
   data() {
     return { pct: 0, vis: false }
   },
@@ -48,7 +44,7 @@ export default {
     }
     player.on(this._handler)
     // 主页被上层页盖住时这条线看不见：不落 data（省掉卡片的重渲染）。
-    // 重新露出时补一次 —— onPlayer 自带判重（0.2% 一档），重复调无副作用。
+    // 重新露出时补一次 —— onPlayer 自带判重（0.2% 一档），重复调无副作用
     this._visOff = bindPageVis(this, function (on) {
       const was = self._vis
       self._vis = on
@@ -73,7 +69,8 @@ export default {
       let pct = 0
       if (vis) {
         const p = Math.min(1, Math.max(0, ((s && s.positionMs) || 0) / dur))
-        pct = Math.round(p * 500) / 5 // 0.2% 一档
+        // 0.2% 一档
+        pct = Math.round(p * 500) / 5 
       }
       if (vis === this.vis && pct === this.pct) return
       this.vis = vis
@@ -88,9 +85,9 @@ export default {
 
 .np-groove {
   position: absolute;
-  /* ⚠ 真机实测：`left: 5vh; right: 5vh` **两个都被忽略**，线是通栏铺满卡宽的。
-     所以这里老老实实写 `left: 0 + width: 100%`（= 卡片 padding box 宽），别指望内缩。
-     通栏也正好和播放页那条一致；圆角 6px 只让线的左右两端在最底那一行探出 ~1.5px，看不出来。 */
+  /* ⚠ 真机实测：`left: 5vh; right: 5vh` 两个都被忽略，线是通栏铺满卡宽的。所以老实写
+     `left: 0 + width: 100%`（= 卡片 padding box 宽），别指望内缩。通栏也正好和播放页那条一致；
+     圆角只作用在线的两端、在最底那一行探出很少，看不出来 */
   left: 0;
   width: 100%;
   bottom: 0;

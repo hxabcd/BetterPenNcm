@@ -1,26 +1,14 @@
 #!/bin/bash
-# 构建探针版：独立 appid，**不复用正式应用的 appid / 数据 / 安装**。
+# 构建探针版：独立 appid，不复用正式应用的 appid / 数据 / 安装。
+# 用正式 appid 装探针会 uninstall 正式应用（清 data）并打断使用，所以探针有自己的 data 目录。
 #
-# 为什么要独立 appid：探针会频繁装卸、可能播测试音频、甚至改入口页；
-# 用正式 appid 装探针会 uninstall 正式应用（清 data，虽可备份恢复）并打断使用。
-# 探针应用有自己的 data 目录，与正式应用互不影响。
+# ⚠ 改源码发生在「取锁之后、构建之前」，两步必须在同一把锁里：否则之间另一个构建
+#   可能读到探针 appid，把正式版构建成探针版。所以真正干活的是下面那段 Python。
 #
-# 做法：临时把 package.json 的 appid 换成探针 appid、把 src/app.json 的 index 指向
-# pages/probe/probe.vue，然后照常构建；退出时（无论成败）还原两个文件。
-#
-# ⚠ **改源码发生在"取锁之后、构建之前"**，两步必须在同一把锁里：否则在这两步
-#   之间另一个构建可能读到探针 appid，把正式版构建成探针版。
-#   所以真正干活的是一段 Python（见下面 heredoc）：它在同一个进程里
-#   `lock.acquire(...)` → 改源码 → `builder.build(lock_held=True)` → 还原。
-#
-# 用法：
-#   bash scripts/build_probe.sh                    # 默认探针 appid 8002026100500004
-#   PROBE_APPID=8002026100500005 bash scripts/build_probe.sh
-#   BPNCM_LOG_SRV=auto bash scripts/build_probe.sh   # 透传给 gen-buildinfo.py
-#   bash scripts/build_probe.sh --force            # 清掉残留构建锁
-#
-# 产物：build/<探针appid>.<x_y_z>.amr。装机/启动：
-#   bash scripts/install.sh --appid <探针appid> --no-build
+# 用法: bash scripts/build_probe.sh [--force]
+#   PROBE_APPID=<appid>  覆盖探针 appid（默认 8002026100500004）
+#   BPNCM_LOG_SRV=auto   透传给 gen-buildinfo.py
+#   装机: bash scripts/install.sh --appid <探针appid> --no-build
 set -e
 export MSYS_NO_PATHCONV=1
 
@@ -58,7 +46,6 @@ export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
 export PROBE_APPID
 export DPD_PROBE_FORCE="$FORCE"
 
-# 交给 Python：持锁 → 改源码 → 构建 → 还原。argv 传 Windows 形式路径。
 exec "$PY" - "$(dpd_winpath_py "$PROJ")" "$(dpd_winpath_py "$WS")" <<'PYEOF'
 import json
 import os
@@ -78,7 +65,6 @@ pkg = proj / "package.json"
 app_json = proj / "src" / "app.json"
 originals = {pkg: pkg.read_bytes(), app_json: app_json.read_bytes()}
 
-
 def restore() -> None:
     for path, data in originals.items():
         try:
@@ -86,9 +72,6 @@ def restore() -> None:
         except OSError as exc:
             print(f"⚠ 还原 {path} 失败：{exc}", file=sys.stderr)
 
-
-# 项目配置里的构建设置（required / pre_steps 等）照常生效：探针版与正式版
-# 用同一套构建规则，只换 appid 与入口页。
 target = config.resolve(proj)
 b = target.build
 

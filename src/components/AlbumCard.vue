@@ -13,18 +13,12 @@
 </template>
 
 <script>
+
 /**
- * 本地下载-专辑的卡：封面 + 专辑名(L1) + 专辑艺术家(L2) + 歌曲数量/年份(L3)。
- *
- * 列数 2/3/4 由父页面通过 `cols` 传入，卡片宽度用三个独立完整类名切换
- * （平台只认单类名，不能写 .alb.alb-2 这种复合选择器）。
- * ⚠ 宽度：默认三个百分比（2 列 47% / 3 列 31% / 4 列 23%）只是 S7 兜底；
- * 窄屏（X3S/X5 800 宽）上由父页面按内容区宽度实算后走 widthPx 内联覆盖 ——
- * 百分比基准是列表内容宽，机型一变就会让末列溢出被裁。
- * 也不能用 >100vh 的 vh 宽度（平台会静默截到 100vh，见 AGENTS 坑 18）。
- *
- * 封面取专辑内歌曲的封面（localmeta.localAlbumList 的 cover），
- * 行内自己走 cover.js 队列，离线命中磁盘缓存。
+ * 列数 2/3/4 由父页面 `cols` 传入，卡片宽度用三个独立完整类名切换。
+ * ⚠ 默认百分比只是 S7 兜底，窄屏（X3S/X5 800 宽）由父页面按内容区宽度实算后走 widthPx 覆盖：
+ * 百分比基准是列表内容宽，机型一变末列就溢出被裁；也不能用 >100vh 的 vh 宽度（平台静默截到 100vh）。
+ * 封面取自专辑内歌曲的封面（localmeta.localAlbumList 的 cover），自己走 cover.js 队列，离线命中磁盘缓存。
  */
 import { ensureCover, coverKey } from '../services/cover/cover.js'
 import { ICON } from '../assets/icons.js'
@@ -32,12 +26,14 @@ import { ICON } from '../assets/icons.js'
 export default {
   name: 'AlbumCard',
   props: {
+
     /** {id, name, artist, count, year, cover, coverId} */
+
     item: { type: Object, required: true },
     cols: { type: Number, default: 4 },
-    /** 定宽（px）；0 = 用 LESS 里的百分比默认值。
-     *  网格按列数自适应时由父页面给（见 core/platform/viewport.js 的 fitColumns）——
-     *  百分比在 X3S 800 宽下会让末列溢出被裁。 */
+
+    /** 定宽（px）；0 = 用 LESS 里的百分比默认值。网格按列数自适应时由父页面给（fitColumns） */
+
     widthPx: { type: Number, default: 0 }
   },
   data() {
@@ -78,7 +74,6 @@ export default {
 <style lang="less" scoped>
 @import '../styles/common.less';
 
-/* 列数切换的三个完整类名。宽高按 4 列基准，2/3 列只加宽不改高。 */
 .alb-card {
   height: 40vh;
   background-color: @panel;
@@ -92,6 +87,7 @@ export default {
   padding-right: 3vh;
   margin-right: 5vh;
 }
+/* 列数的三个完整类名：平台只认单类名，.alb.alb-2 这种复合选择器不生效 */
 .alb-4 {
   width: 23%;
 }

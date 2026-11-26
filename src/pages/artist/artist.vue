@@ -1,7 +1,6 @@
 <template>
   <page-shell :rail="rail" @rail="onRail">
-    <!-- 顶栏：标题固定「歌手详情」，副题灰色显示歌手名；
-         专辑数/歌曲数在下面的头部已经给了，不重复 -->
+    <!-- 顶栏：标题固定「歌手详情」，副题灰色显示歌手名；专辑数/歌曲数在下面的头部已经给了，不重复 -->
     <page-topbar title="歌手详情" :sub="barSub" />
     <scroller class="ar-scroll">
       <!-- 头部：大圆头像 + 名字 + 别名 + 统计 -->
@@ -16,11 +15,10 @@
         </div>
       </div>
 
-      <!-- 热门曲目（10 首，更多 → 完整列表，那里可按热度/时间切）；离线 = 本地索引里该歌手的全部曲目 -->
       <div class="ar-sect">
         <text class="ar-st">{{ offline ? '本地曲目' : '热门曲目' }}</text>
         <div class="ar-fill"></div>
-        <!-- 「更多 ›」胶囊：底色走 LESS 的 @panel-2、文字色由内层 text 内联主题色。 -->
+        <!-- 「更多 ›」胶囊：底色走 LESS 的 @panel-2、文字色由内层 text 内联主题色 -->
         <div class="ar-more" @click="moreSongs">
           <text class="ar-more-t" :style="{ color: accent.light }">{{ offline ? '' : '更多 ›' }}</text>
         </div>
@@ -40,7 +38,6 @@
           moreLabel(hotSongs.length - songList.length, '首')
         }}</text>
       </div>
-
       <!-- 专辑（横向滑动，更多 → 完整专辑列表）；离线 = 本地索引里该歌手的专辑 -->
       <div class="ar-sect">
         <text class="ar-st">专辑</text>
@@ -68,15 +65,10 @@
 
 <script>
 /**
- * 歌手页（从歌曲信息页的「歌手」进入）
- *
- * 内容：大圆头像 + 名字 + 别名 + 专辑数/歌曲数；热门曲目 10 首（更多 → 完整列表）；
- * 专辑横向滑动卡片（更多 → 完整专辑列表，复用歌单列表页 source=artist）。
- *
  * 接口（PC 端实测）：
- *   /api/artist/{id}                      歌手信息（hotSongs 固定 50，offset 无效，故不用它取曲目）
+ *   /api/artist/{id}  歌手信息（hotSongs 固定 50，offset 无效，故不用它取曲目）
  *   /api/v1/artist/songs?order=hot&limit=10  热门曲目（服务端排序，分页有效）
- *   /api/artist/albums/{id}?limit=10       专辑（分页有效）
+ *   /api/artist/albums/{id}?limit=10  专辑（分页有效）
  */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
@@ -129,9 +121,7 @@ export default {
       localOnly: false, // 从本地下载-歌手进入：在线也强制本地视图
       hint: '加载中...',
       albumHint: '加载中...',
-      /* ---- 关注（CSV「歌手详情」行的唯一上下文键）----
-         followed：true/false；null = 不知道（未登录或接口没下发 followed 字段），按未关注显示。
-         followBusy：防连点（一次请求在飞时忽略再次点击）。 */
+      // followed：true/false；null = 不知道（未登录 / 接口没下发 followed 字段），按未关注显示
       followed: null,
       followBusy: false
     }
@@ -159,18 +149,14 @@ export default {
       }
       return out
     },
-    /** 顶栏副题：常态是灰色歌手名（名字在下面的大头像旁已有，但顶栏滚动后是唯一标识，留着） */
+
     barSub() {
       return clipText(this.name || '歌手', 22) + (this.offline ? '（本地）' : '')
     },
     /**
-     * 左栏（CSV「歌手详情」行）：返回 + 关注。
-     * 逐首操作（下载等）不在这页 —— 热门曲目只有 10 首，要批量处理走「更多 →」进完整曲目列表。
-     * 离线 / 没拿到 id 时只留返回（关注是联网动作，离线点了必然失败）。
-     *
-     * 关注键是**双态**：未关注 user-round-plus、已关注 user-round-minus（同时高亮）。
-     * 两态换图标而不是只换高亮：高亮只说明「键被按下过」，读不出当前状态；
-     * 已关注态取减号而不是对勾 —— 这是开关不是状态灯，图标该说「点了会怎样」（取关）。
+     * 左栏（CSV「歌手详情」行）：返回 + 关注（离线 / 没 id 时只留返回 —— 关注是联网动作）。
+     * 关注键双态换图标：未关注 user-round-plus、已关注 user-round-minus（同时高亮）；
+     * 已关注取减号而非对勾 —— 开关图标要说「点了会怎样」（取关）。
      */
     rail() {
       if (this.offline || !this.id) return [railBack()]
@@ -189,7 +175,7 @@ export default {
     this._dead = true
   },
   methods: {
-    /** 按导航参数加载歌手；同一歌手（页面挂两遍）直接跳过，保证挂载幂等。 */
+    /** 按导航参数加载歌手；同一歌手（页面挂两遍）直接跳过，保证挂载幂等 */
     openArtist(p) {
       const id = Number(p && p.id) || 0
       const local = !!(p && p.local)
@@ -221,6 +207,7 @@ export default {
         this.hint = '缺少歌手 id'
         return
       }
+
       // 数据源二选一：有网 = 纯云端（不闪本地视图）；
       // 离线（系统 API global.isOnline()，见 net/status.js）= 直接本地索引，不发请求。
       // localOnly（从本地下载-歌手进入）= 在线也强制本地视图，只显示已下载曲目。
@@ -346,7 +333,7 @@ export default {
       if (lv) this.applyFallbackCover(lv.cover, lv.coverAlbumId, id, seq)
     },
     play(i) {
-      // 渲染从 0 开始切片，行下标与 hotSongs 一致；队列仍用**全量**（离线 = 全部本地曲目）
+      // 渲染从 0 开始切片，行下标与 hotSongs 一致；队列仍用全量（离线 = 全部本地曲目）
       player.playList(this.hotSongs, i)
       go('player', {})
     },
@@ -358,7 +345,6 @@ export default {
       if (!this.hasMoreSongs) return
       this.shown = Math.min(this.shown + PAGE_SONG, this.hotSongs.length)
     },
-    /* ---- 行 / 热曲 ---- */
     onRow(i) {
       this.play(i)
     },
@@ -381,7 +367,6 @@ export default {
       // 本地视图里的专辑也强制本地专辑页，避免在线时跳回远端全量
       go('album', { id: card.albumId, name: card.name, local: this.offline ? 1 : 0 })
     },
-    /* ---- 左栏（分派骨架见 ui/frame.js）---- */
     onBack() {
       this.$page.finish()
     },
@@ -390,7 +375,7 @@ export default {
     },
     /**
      * 关注 / 取消关注（两次点击才切换，不是二次确认 —— 关注是可逆的轻操作）：
-     * 乐观更新按钮高亮，服务端非 200 就回滚并提示；请求期间 followBusy 禁用键（防连点）。
+     * 乐观更新按钮高亮，服务端失败就回滚并提示；请求期间 followBusy 禁用键（防连点）。
      */
     async toggleFollow() {
       if (this.followBusy || !this.id) return
@@ -463,7 +448,7 @@ export default {
   color: @text-2;
   margin-top: 1.2vh;
 }
-/* 区块标题行 */
+
 .ar-sect {
   flex-direction: row;
   align-items: center;
@@ -489,6 +474,7 @@ export default {
   font-size: @fs-mute;
   color: @accent-2; /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
 }
+
 /* 离线本地曲目的「加载更多」行（18vh 居中，与其它列表页一致） */
 .ar-more2 {
   height: 18vh;
@@ -499,6 +485,7 @@ export default {
   font-size: @fs-dim;
   color: @accent-2;
 }
+
 /* 专辑横向滑动：高度 = 卡片高 36vh + 余量 */
 .ar-albums {
   height: 40vh;

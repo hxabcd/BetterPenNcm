@@ -1,20 +1,11 @@
-/**
- * 歌手资料缓存：只存头像 URL（以及名字、抓取时间），供本地页面离线判断。
- *
- * 为什么单独一张表：本地曲目索引（local_index.db 的 track 行）只带歌手 id/名字，
- * 不存歌手头像；而 /api/artist/head/info/get 每次都要发请求。把头像 URL 落盘后，
- * 封面缓存键 arp<id>@<size> 才能在清过封面缓存/重启后按同一来源重新下载，
- * 列表页也不必为已知歌手反复打接口。
- *
- * 落点：索引库 `local_index.db` 的 `artist` 表两列 avatar / av_at（结构见 docs/存储重构.md §1.3），
- * 与曲目索引共用同一张 artist 表 —— `name` 列由 localmeta 写曲目时顺带维护（只写 name），
- * 本模块只写 avatar / av_at，两边互不擦除对方写的列。
- *
- * 记录形状对外不变：{n 名字, p 头像 URL, t 抓取时间}
- * - p 非空 = 真头像来源；
- * - p 为空且 t 在负缓存期内 = 查过没有头像，别反复请求（负缓存期见 artistavatar.js）。
- * 写入按批防抖（SAVE_DELAY），避免批量预热时逐条 fork。
- */
+
+// 歌手资料缓存：只存头像 URL（名字、抓取时间），供本地页面离线判断 —— /api/artist/head/info/get
+// 每次都要发请求，URL 落盘后封面缓存键 arp<id>@<size> 才能在清过封面缓存/重启后按同一来源重新下载。
+// 落点：索引库 local_index.db 的 artist 表两列 avatar / av_at（结构见 docs/存储重构.md §1.3）。
+// ⚠ 这张表与曲目索引共用：name 列由 localmeta 写曲目时顺带维护（只写 name），本模块只写 avatar / av_at，
+//   两边互不擦除对方写的列
+// 记录形状：{n 名字, p 头像 URL, t 抓取时间}；p 为空且 t 在负缓存期内 = 查过没有头像，别反复请求
+// 写入按批防抖（SAVE_DELAY），避免批量预热时逐条 fork
 import { open as dbOpen, data as dbData, exec as dbExec, upsertSql } from '../../core/platform/db.js'
 import { log } from '../../core/infra/log.js'
 
@@ -27,7 +18,7 @@ let saveTimer = 0
 let dirty = false
 const pending = {} // id → true（待写库的歌手 id）
 
-/** 图片 URL 统一 https（网易云部分接口回 http:// 或 //） */
+// 图片 URL 统一 https（网易云部分接口回 http:// 或 //）
 export function normalizePic(u) {
   const s = String(u || '')
   if (!s) return ''
@@ -36,10 +27,8 @@ export function normalizePic(u) {
   return s
 }
 
-/**
- * DB 内存态（artist 表）→ 本模块的记录形状。
- * 只收有头像信息的行：name 由曲目索引维护，单独一个名字不构成「歌手资料」。
- */
+// DB 内存态（artist 表）→ 本模块的记录形状。
+// 只收有头像信息的行：name 由曲目索引维护，单独一个名字不构成「歌手资料」
 function buildMem() {
   const d = dbData()
   const out = {}
@@ -51,7 +40,8 @@ function buildMem() {
     if (!row) continue
     const p = row.avatar || ''
     const t = Number(row.av_at) || 0
-    if (!p && !t) continue // 只有名字的行：不是「资料」，别让它变成假记录
+    // 只有名字的行：不是「资料」，别让它变成假记录
+    if (!p && !t) continue 
     out[keys[i]] = { n: row.name || '', p: p, t: t }
   }
   return out
@@ -71,12 +61,12 @@ export async function loadArtistMeta() {
   return loading
 }
 
-/** 同步取（须先 await loadArtistMeta）；没有记录返回 null */
+// 同步取（须先 await loadArtistMeta）；没有记录返回 null
 export function artistMetaSync(id) {
   return (mem && mem[String(id)]) || null
 }
 
-/** 写入/更新一位歌手的资料（cover 为空 = 负缓存）。返回记录。 */
+// 写入/更新一位歌手的资料（cover 为空 = 负缓存）。返回记录
 export async function rememberArtist(id, name, cover) {
   const k = String(id)
   if (!k || k === 'undefined' || k === '0') return null
@@ -91,6 +81,7 @@ export async function rememberArtist(id, name, cover) {
       t: Date.now()
     }
     mem[k] = rec
+
     // 内存行同时更新（artist 表是共享的：曲目索引也读它）
     const d = dbData()
     if (d) {
@@ -121,7 +112,7 @@ function scheduleSave() {
   }, SAVE_DELAY)
 }
 
-/** 把待写的歌手资料拼成一批 upsert（一次 fork）。失败只记日志，内存态仍是真相。 */
+// 把待写的歌手资料拼成一批 upsert（一次 fork）。失败只记日志，内存态仍是真相
 function flushPending() {
   const keys = Object.keys(pending)
   if (!keys.length) return

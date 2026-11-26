@@ -1,16 +1,17 @@
 /**
- * 歌词排版：固定基础行高 + 长行换行 + 逐字行的视觉行预排。
+ * 歌词排版：固定基础行高 + 长行换行 + 逐字行的视觉行预排
  *
- * 为什么自己排，而不是把 text 交给平台自动换行：
- *   歌词轨道的位移数学必须知道每行高度（行盒要参与前缀和）。平台没有可用的文字测量 API，
- *   自动换行后的真实高度拿不到；这里用保守的字宽估算把原文/译文/逐字段预排成视觉行，
- *   行盒高度由「视觉行数 × 行高」直接算出。估算宁可多折一行，也不能让文字溢出行盒。
+ * 为什么自己排而不用平台 text 自动换行：歌词轨道的位移数学必须知道每行高度（行盒要参与前缀和），
+ * 而平台没有可用的文字测量 API，自动换行后的真实高度拿不到。这里用保守的字宽估算把原文/译文/逐字段预排成视觉行，
+ * 行盒高度由「视觉行数 × 行高」直接算出。估算宁可多折一行，也不能让文字溢出行盒。
  *
  * 行高规则（活动/非活动行同一行盒，字号差异在行盒内过渡）：
- *   - 基础行高 60px（单行原文、或「单行原文 + 单行译文」都按 60 起算）；
- *   - 长行按活动态字号估算视觉行数，行高 = max(60, 原文行高合计 + 译文行高合计 + 2px 间距)；
- *   - 行间 margin/gap = 0；行内容在行盒内垂直居中，文本左对齐。
+ *   - 基础行高 60px（单行原文、或「单行原文 + 单行译文」都按 60 起算）
+ *   - 长行按活动态字号估算视觉行数，行高 = max(60, 原文行高合计 + 译文行高合计 + 2px 间距)
+ *   - 行间 margin/gap = 0；行内容在行盒内垂直居中，文本左对齐
  */
+
+
 export const LYRIC_GEO = {
   PANEL_W: 480,
   PAD_X: 10, // 面板左右 padding（根节点 inset）
@@ -25,12 +26,12 @@ export const LYRIC_GEO = {
   TRANS_GAP: 2
 }
 
-/** 文本列可用宽（px）：480 − 面板 20 − 行 8 − 文本列 12 − 指示条空间 7 */
+// 文本列可用宽（px）：480 − 面板 20 − 行 8 − 文本列 12 − 指示条空间 7
 export const LYRIC_TEXT_W =
   LYRIC_GEO.PANEL_W - LYRIC_GEO.PAD_X * 2 - LYRIC_GEO.ROW_PAD_X * 2 -
   LYRIC_GEO.TEXT_PAD_X * 2 - LYRIC_GEO.MARK_SPACE
 
-/** 单个字符的保守宽度倍率（乘字号）。CJK 按 1em；拉丁/数字按 0.62em 防止实测更宽时溢出 */
+// 单个字符的保守宽度倍率（乘字号）。CJK 按 1em；拉丁/数字按 0.62em 防止实测更宽时溢出
 function charRate(code) {
   if (
     (code >= 0x2e80 && code <= 0x9fff) ||
@@ -51,7 +52,7 @@ function textWidth(text, fontSize) {
   return w * 1.04 // 粗体略加余量
 }
 
-/** 把文本切成「CJK 单字 / 拉丁词 / 空白 / 其他符号」四种 token */
+// 把文本切成「CJK 单字 / 拉丁词 / 空白 / 其他符号」四种 token
 function tokenize(text) {
   const out = []
   let buf = ''
@@ -97,7 +98,7 @@ function pushLine(lines, value) {
   if (value) lines.push(value)
 }
 
-/** 普通文本 → 视觉行数组（纯字符串）。超宽 token 逐字符硬拆 */
+// 普通文本 → 视觉行数组（纯字符串）。超宽 token 逐字符硬拆
 export function wrapText(text, fontSize, width) {
   const out = []
   if (!text) return out
@@ -128,7 +129,7 @@ export function wrapText(text, fontSize, width) {
       continue
     }
     if (w + tw > width && cur) {
-      // 行尾空白不带走，避免下一行凭空缩进
+
       pushLine(out, cur.replace(/\s+$/, ''))
       if (toks[i].k === 'space') {
         cur = ''
@@ -146,11 +147,6 @@ export function wrapText(text, fontSize, width) {
   return out
 }
 
-/**
- * 逐字段 → 视觉行。每行是 { words: [{ text, w, part }] }：
- *   w = 原始 words 下标（同一个逐字段折到两行时两段共用 w，逐字状态照常按 w 判断）；
- *   part = 该字段内的段序，作 v-for key 用。
- */
 export function wrapWords(words, fontSize, width) {
   const out = []
   if (!words || !words.length) return out
@@ -164,7 +160,7 @@ export function wrapWords(words, fontSize, width) {
   for (let i = 0; i < words.length; i++) {
     const text = words[i].text || ''
     if (!text) continue
-    // 逐字段先按字符保守测量；整段能放下就整段放，放不下再逐字拆段
+
     const tw = textWidth(text, fontSize)
     if (tw <= width && w + tw <= width) {
       cur.push({ text: text, w: i, part: 0 })
@@ -177,7 +173,7 @@ export function wrapWords(words, fontSize, width) {
       w = tw
       continue
     }
-    // 单段超一行：按字符拆；行尾空白不单独成段
+
     let part = 0
     let buf = ''
     let bw = 0
@@ -200,7 +196,6 @@ export function wrapWords(words, fontSize, width) {
   return out
 }
 
-/** 歌词数据 → 排版行（含前缀和；只跟歌词/翻译/逐字开关有关，不依赖播放进度） */
 export function buildLyricRows(lines, showTrans, wordOn) {
   const out = []
   const n = lines ? lines.length : 0

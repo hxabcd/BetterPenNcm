@@ -1,18 +1,11 @@
 #!/bin/sh
 # 提交前检查：单个文件超过 5000 token（按 字节数 ÷ 4 估，约 20KB）就拒绝提交。
-#
-# 为什么：agent 每次要读的东西越少越准。文件一大，它就开始跳读、改东忘西；
-# 而"一个文件干三件事"正是膨胀的根因。被拒了就按功能拆成几个文件再提交，
-# 不要靠拆注释/压行数糊过去。
-#
-# 跳过不查（agent 不会去读的）：二进制与图片、三方源码/头文件/SDK、
-# 生成物、lockfile、构建产物。
-#
+# 跳过不查（agent 不会去读的）：二进制与图片、三方源码/头文件/SDK、生成物、lockfile、构建产物。
 # 启用方式：git config core.hooksPath scripts/githooks
 
-LIMIT_BYTES=20000 # 5000 token × 4
+# 20000 字节 = 5000 token × 4
+LIMIT_BYTES=20000
 
-# 生成物 / 三方 / 非文本：按路径跳过
 skip_path() {
   case "$1" in
   src/vendor/*) return 0 ;;
@@ -27,7 +20,6 @@ skip_path() {
   LICENSE | */LICENSE) return 0 ;;
   package-lock.json | pnpm-lock.yaml | yarn.lock) return 0 ;;
   esac
-  # 二进制后缀
   case "$1" in
   *.png | *.jpg | *.jpeg | *.webp | *.gif | *.ico | *.amr) return 0 ;;
   *.so | *.so.* | *.a | *.bin | *.zip | *.gz | *.pyc) return 0 ;;

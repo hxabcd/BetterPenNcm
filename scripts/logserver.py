@@ -5,7 +5,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'device_log.txt')
 
-
 class H(BaseHTTPRequestHandler):
     def _log(self):
         n = int(self.headers.get('Content-Length', 0))
@@ -31,7 +30,6 @@ class H(BaseHTTPRequestHandler):
 
     def log_message(self, *a):
         pass
-
 
 if __name__ == '__main__':
     print('log server on 0.0.0.0:8888, writing to', os.path.abspath(OUT), flush=True)

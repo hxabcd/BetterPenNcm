@@ -1,6 +1,6 @@
 <template>
   <div class="tm">
-    <!-- 顶栏 h48（底边 1px 分割线，左右 12px）：左「返回」；右侧「播完整首」复选框 -->
+    <!-- 顶栏 h48：左「返回」；右侧「播完整首」复选框 -->
     <div class="tm-top">
       <div class="tm-back" @click="onBack">
         <image class="tm-back-ico" :src="ICON.arrowleft" />
@@ -81,20 +81,13 @@
 
 <script>
 /**
- * 定时播放子页（三态合一：选时长 / 倒计时 / 自定义键盘；几何与设计稿编号见 docs/播放页.md）。
+ * 三态以 sleeptimer 模块为准（本组件不自己算到期）：running 态里看到 active 变 false = 定时到点
+ * → 自动回 presets 并 toast；取消要先切回 presets 再 cancel，否则订阅回调会把 cancel 当成「到点」
+ * 再弹一次（双 toast）。
  *
- * 它是「进度控制」（SeekPanel）内部的子页：由进度控制右上「定时播放」进入，顶栏「返回」
- * 在自定义键盘里回选时长、在选时长/倒计时里抛 `back` 回进度控制面板。整个子面板的开合
- * 由播放页负责（本组件只 emit `back`/`toast`）。铺满父级给的 480×240 底、**自己不上底色**。
- *
- * 三态以 sleeptimer 模块为准（本组件不自己算到期）：running 态里看到 active 变 false = 定时
- * 到点 → 自动回 presets 并 toast 结果；取消要先切回 presets 再 cancel，否则订阅回调会把
- * cancel 当成「到点」再弹一次（双 toast）。
- *
- * 平台注意（详见 docs/平台约束与自检.md）：
- *   - fgIcon 是 accentMixin 的方法，只能包进 computed 再绑（裸绑定拿到的是函数）；
- *   - border-radius:50% 不生效 → 圆角全写 px；间距用 margin（不认 gap）；
- *   - 页面会挂两遍 → mounted 订阅自带判重（this._sub），beforeDestroy 里注销。
+ * 平台注意：fgIcon 是 accentMixin 的方法，只能包进 computed 再绑（裸绑定拿到的是函数）；
+ * border-radius:50% 不生效 → 圆角全写 px；间距用 margin（不认 gap）；页面会挂两遍 →
+ * mounted 订阅自带判重（this._sub），beforeDestroy 里注销。
  */
 import { sleepTimer } from '../../services/player/sleeptimer.js'
 import { bindPageVis } from '../../ui/vis.js'
@@ -102,15 +95,16 @@ import { TOK } from '../../ui/tokens.js'
 import { ICON } from '../../assets/icons.js'
 import { accentMixin } from '../../ui/mixins/accent.js'
 
-const MAX_DIGITS = 3 // 自定义分钟数最多 3 位（1~999）
-const INPUT_INIT = '90' // 设计稿自定义态的初值
+// 自定义分钟数最多 3 位（1~999）
+const MAX_DIGITS = 3 
+// 设计稿自定义态的初值
+const INPUT_INIT = '90' 
 const CUSTOM_PRESET_MS = 60000
 
 function pad2(n) {
   return n < 10 ? '0' + n : '' + n
 }
 
-/** 本地墙钟 HH:MM（自定义态的「播放至」预览：按输入分钟数从现在算） */
 function clockText(ms) {
   const d = new Date(ms)
   return pad2(d.getHours()) + ':' + pad2(d.getMinutes())
@@ -124,12 +118,17 @@ export default {
       ICON: ICON,
       // 当前态：presets（选时长）/ running（倒计时）/ custom（自定义键盘）
       pane: 'presets',
-      timerActive: false, // sleepTimer.state().active 的镜像（用来判「active 变 false」）
-      keepTrack: false, // 「播完整首」开关的镜像（模块是唯一真值）
-      remainMs: 0, // 定时剩余毫秒（模块每秒广播）
-      until: '', // 运行态的「播放至 HH:MM」（模块按 endsAt 算好下发）
-      input: INPUT_INIT, // 自定义分钟数（空串显示为 0）
-      // 数字键盘前三行（第 9 键后是退格/0/确认，单独写在模板里，结构更直白）
+      // sleepTimer.state().active 的镜像（用来判「active 变 false」）
+      timerActive: false, 
+      // 「播完整首」开关的镜像（模块是唯一真值）
+      keepTrack: false, 
+      // 定时剩余毫秒（模块每秒广播）
+      remainMs: 0, 
+      // 运行态的「播放至 HH:MM」（模块按 endsAt 算好下发）
+      until: '', 
+      // 自定义分钟数（空串显示为 0）
+      input: INPUT_INIT, 
+      // 数字键盘前三行（第 9 键后是退格/0/确认，单独写在模板里）
       keyRows: [
         ['1', '2', '3'],
         ['4', '5', '6'],
@@ -142,7 +141,7 @@ export default {
     chkStyle() {
       return { backgroundColor: this.keepTrack ? this.accent.c : TOK.cardBg }
     },
-    /** 勾选图标：压在实心主题色上 → 亮色主题自动换深色版 PNG（平台不能给 image 染色） */
+    /** 勾选图标：压在实心主题色上 → 亮色主题要换深色版 PNG（平台不能给 image 染色） */
     checkIcon() {
       return this.fgIcon('check')
     },
@@ -155,7 +154,7 @@ export default {
       const s = sec - m * 60
       return h + ':' + pad2(m) + ':' + pad2(s)
     },
-    /** 自定义态的大数字：输入为空时显示 0（设计稿没给空态，但空着更奇怪） */
+    /** 自定义态的大数字：输入为空时显示 0 */
     inputText() {
       return this.input ? this.input : '0'
     },
@@ -178,7 +177,7 @@ export default {
     this.input = INPUT_INIT
     const self = this
     /* 定时模块每秒广播一次（倒计时文本）。面板不可见时（播放页被盖住、或定时子页没开）
-       这些 tick 只是白写 data 触发一次重渲染，直接丢；重新可见时用 state() 补一次最新值，
+       tick 只是白写 data 触发重渲染，直接丢；重新可见时用 state() 补一次最新值，
        所以倒计时不会停在旧数字。 */
     this._visible = true
     this._sub = function (s) {
@@ -214,9 +213,8 @@ export default {
         this.$emit('toast', wasKeep ? '已播完整首，定时结束' : '定时已到，已暂停播放')
       }
     },
-    /* ---- 顶栏 ---- */
     /**
-     * 返回：自定义键盘 → 回选时长；选时长/倒计时 → 抛出给页面（回到进度控制面板）。
+     * 返回：自定义键盘 → 回选时长；选时长/倒计时 → 抛出给页面（回进度控制面板）。
      * 本面板是进度控制（TimeShiftPanel）的子页，不负责关闭整个子面板。
      */
     onBack() {
@@ -226,11 +224,12 @@ export default {
       }
       this.$emit('back')
     },
+
     /** 切「播完整首」：模块是唯一真值，它广播回来后 this.keepTrack 才更新 */
     onKeep() {
       sleepTimer.setKeepTrack(!this.keepTrack)
     },
-    /* ---- 选时长 ---- */
+
     pickMin(m) {
       if (!sleepTimer.start(m)) {
         this.$emit('toast', '请输入分钟数')
@@ -242,7 +241,7 @@ export default {
       this.input = INPUT_INIT
       this.pane = 'custom'
     },
-    /* ---- 倒计时 ---- */
+
     onCancel() {
       // 先切态再 cancel：cancel 会同步广播 active=false，面板若还停在 running 会被
       // onTimer 当成「到点」再弹一次提示（双 toast）
@@ -250,7 +249,7 @@ export default {
       sleepTimer.cancel()
       this.$emit('toast', '已取消定时')
     },
-    /* ---- 自定义键盘 ---- */
+
     onDigit(d) {
       if (this.input.length >= MAX_DIGITS) return
       this.input = this.input + d
@@ -267,6 +266,7 @@ export default {
       }
       this.pane = 'running'
     },
+
     /** 键盘键间距：行内第 3 键不留右边距（平台不支持 :last-child，用列号算） */
     keyStyle(ki) {
       return { marginRight: ki === 2 ? '0px' : '4px' }
@@ -278,15 +278,16 @@ export default {
 <style lang="less" scoped>
 @import '../../styles/common.less';
 
-/* 面板根：铺满父级的 480×240（父级给 TOK.subBg 底 + 左侧圆角），自己不上底色。
-   overflow:hidden 兜住子元素的 1px 渲染误差，不让它溢到隔壁控制区。 */
+/* 铺满父级的 480×240（底色与左侧圆角由父级给，这里不上底）。
+   overflow:hidden 兜住子元素的 1px 渲染误差，不让它溢到隔壁控制区 */
 .tm {
   width: 100%;
   height: 100%;
   flex-direction: column;
   overflow: hidden;
 }
-/* ---- 顶栏 48px ---- */
+
+/* 顶栏 48px */
 .tm-top {
   height: 48px;
   flex: none;
@@ -299,7 +300,7 @@ export default {
   border-bottom-style: solid;
   border-bottom-color: @line;
 }
-/* 返回键：图标 24 + 文字 20，padding 6（设计稿 IconButton） */
+
 .tm-back {
   flex-direction: row;
   align-items: center;
@@ -314,7 +315,7 @@ export default {
   font-size: 20px;
   color: @text;
 }
-/* 「播完整首」：24×24 圆角 8px 复选框 + 文字 20，padding 6 */
+
 .tm-keep {
   flex-direction: row;
   align-items: center;
@@ -336,14 +337,16 @@ export default {
   color: @text;
   margin-left: 4px;
 }
-/* ---- 内容区：顶栏之外 192px；三态各自摆一块 456×168 的内容盒（四边 margin 12） ---- */
+
+/* 内容区：顶栏之外 192px；三态各自摆一块 456×168 的内容盒（四边 margin 12） */
 .tm-body {
   flex: 1;
   flex-direction: column;
 }
+
 /* 一、选时长：两行 78 + 行距 12，列上用 margin-right 12（平台不认 gap） */
 .tm-presets {
-  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
+  width: 95%; 
   height: 168px;
   margin-top: 12px;
   margin-left: 12px;
@@ -367,6 +370,7 @@ export default {
   justify-content: center;
   margin-right: 12px;
 }
+
 /* 行尾键独立类名（末尾不留 margin，否则整行左偏；平台不支持 :last-child） */
 .tm-pbtn-end {
   width: 144px;
@@ -380,16 +384,17 @@ export default {
   font-size: 24px;
   color: @text;
 }
-/* 二、倒计时：状态区 132（文字组 77 垂直居中）+ 操作区 36 */
+
+/* 二、倒计时：状态区 132（文字组垂直居中）+ 操作区 36 */
 .tm-timer {
-  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
+  width: 95%; 
   height: 168px;
   margin-top: 12px;
   margin-left: 12px;
   flex-direction: column;
 }
 .tm-status {
-  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
+  width: 95%; 
   height: 132px;
   flex: none;
   align-items: center;
@@ -408,7 +413,7 @@ export default {
   line-height: 19px;
 }
 .tm-ctl {
-  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
+  width: 95%; 
   height: 36px;
   flex: none;
   flex-direction: row;
@@ -427,9 +432,10 @@ export default {
   width: 24px;
   height: 24px;
 }
-/* 三、自定义：左状态 201×168（Time 137 + 播放至 19，整体垂直居中）+ 右键盘 245×168，间距 10 */
+
+/* 三、自定义：左状态 201×168 + 右键盘 245×168，间距 10 */
 .tm-custom {
-  width: 95%; /* 原 456px / 480 = 95%，随面板宽自适应 */
+  width: 95%; 
   height: 168px;
   margin-top: 12px;
   margin-left: 12px;
@@ -472,6 +478,7 @@ export default {
   margin-left: 10px;
   flex-direction: column;
 }
+
 /* 前 3 行各留 4px 行距；最后一行（退格/0/确认）用不带 margin 的类 */
 .tm-krow {
   height: 39px;
@@ -484,6 +491,7 @@ export default {
   flex: none;
   flex-direction: row;
 }
+
 /* 键 79×39；行内间距由模板的 keyStyle 给 margin-right（4px） */
 .tm-key {
   width: 79px;

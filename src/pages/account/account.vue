@@ -3,7 +3,7 @@
     <page-topbar title="个人中心" :sub="status" />
 
     <div class="ac-body">
-      <!-- 账号卡：头像 + 昵称 + UID -->
+
       <div class="ac-card">
         <div class="ac-avbox">
           <image v-if="avatar" class="ac-av" :src="avatar" resize="cover" />
@@ -15,14 +15,12 @@
         </div>
       </div>
 
-      <!-- 统计（登录后才有意义） -->
       <div class="ac-stats" v-if="logged">
         <text class="ac-stat">我喜欢 {{ likedCount }} 首</text>
         <text class="ac-stat">我创建 {{ createdCount }} 个歌单</text>
         <text class="ac-stat">我收藏 {{ subCount }} 个歌单</text>
       </div>
 
-      <!-- 操作 -->
       <div class="ac-ops">
         <text class="ac-btnmain" :style="{ backgroundColor: accent.c }" v-if="!logged" @click="doLogin">登录</text>
         <text class="ac-btn" v-if="logged" @click="refresh">刷新资料</text>
@@ -34,14 +32,8 @@
 
 <script>
 /**
- * 个人中心（「重做，完善信息显示及操作」）
- *
- * 原来左栏「账户」直接跳的就是扫码登录页 —— 现在拆成两件事：
- *   个人中心（本页）= 信息显示（头像/昵称/UID/歌单统计）+ 操作（扫码登录 / 刷新资料 / 退出登录）
- *   扫码登录 = pages/login（二维码那套逻辑一行没动，是踩坑跑通的代码）
- *
- * 退出登录是**按钮内二次确认**（文案先变「双击确认退出登录」3 秒，模板与计时在 ui/arm.js）—— 本平台没有对话框基础设施，
- * 不为它引入浮层；误触代价是重新扫码，值得这一步。
+ * 退出登录是**按钮内二次确认**（文案先变「双击确认退出登录」3 秒，模板与计时在 ui/arm.js）——
+ * 本平台没有对话框基础设施，不为它引入浮层；误触代价是重新扫码，值得这一步。
  * logout() 会清 cookie.txt（否则重启后 boot 的 importFromFile 会把会话灌回来，等于没退）。
  */
 import PageShell from '../../components/PageShell.vue'
@@ -106,6 +98,7 @@ export default {
         this.status = '未登录'
         return
       }
+
       // boot() 是幂等的：启动链已经取过 profile 就直接拿那次结果，不重复打接口
       const p = await boot()
       if (this._dead) return
@@ -258,7 +251,7 @@ export default {
   margin-left: 4vh;
 }
 /* 按钮做成 text + 内边距（对齐登录页 .btn/.btnmain 的写法）。
-   主/次按钮各自是完整单类名 —— 平台不支持 .a.b 复合选择器。 */
+   主/次按钮各自是完整单类名 —— 平台不支持 .a.b 复合选择器 */
 .ac-btn {
   font-size: @fs-dim;
   color: @text;

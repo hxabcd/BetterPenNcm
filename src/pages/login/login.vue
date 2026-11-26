@@ -1,20 +1,19 @@
 <template>
   <page-shell :rail="rail" @rail="onRail">
     <div class="lv" :style="bgStyle">
-      <!-- 左侧边栏：三个入口竖直排列（节点常驻，选中态走内联样式） -->
+      <!-- 左侧边栏：三个入口竖直排列（节点常驻，选中态走内联样式 —— 该运行时同父下增删兄弟节点会让渲染错位） -->
       <div class="sidebar">
         <text class="sbtn" :style="tabStyle('qr')" @click="setMode('qr')">二维码</text>
         <text class="sbtn" :style="tabStyle('sms')" @click="setMode('sms')">验证码</text>
         <text class="sbtn" :style="tabStyle('pwd')" @click="setMode('pwd')">密码</text>
       </div>
 
-      <!-- 右半边：登录控件（左＝控件本身，右＝状态与操作） -->
       <div class="main">
         <!-- ⚠ 控件区用 v-if 切换而非内联 display：实测内联 display 在这个运行时不生效
-             （会渲染出 console.error 且两个面板同时显示）。登录页没有 slot，
-             同父下增删兄弟节点是安全的（qr-box/qph 一直这么用）。 -->
+             （会渲染出 console.error 且两个面板同时显示）。 -->
         <div class="cwrap">
-          <!-- 控件一：二维码（行 div + 同色连续段 div，PenBili 在 S7 上验证过的做法） -->
+          <!-- 控件一：二维码（行 div + 同色连续段 div，PenBili 在 S7 上验证过的做法）。
+               canvas 与子组件两条路在这个运行时都不通。 -->
           <div class="pane" v-if="mode === 'qr'">
             <div class="qr-box" v-if="qrRows.length">
               <div class="qr-row" v-for="(row, ri) in qrRows" :key="ri">
@@ -30,7 +29,6 @@
             </div>
           </div>
 
-          <!-- 控件二：表单（点行才唤输入法，内容回填到行上，可先看再提交） -->
           <div class="pane" v-else>
             <div class="form">
               <div class="frow" @click="editPhone">
@@ -48,16 +46,13 @@
         <div class="pinfo">
           <text class="st" :style="{ color: accent.c }">{{ status }}</text>
           <text class="who">{{ whoText }}</text>
-          <!-- 两个常驻按钮：主按钮（刷新/登录/完成）+ 次按钮（只在验证码模式显示「获取验证码」）。
-               节点常驻、靠**文本为空**隐形（该运行时同父下增删兄弟节点会让渲染错位），
-               空文本时背景同步透明，避免留下一个可点的空白块。 -->
+          <!-- 两个常驻按钮：节点常驻、靠**文本为空**隐形（该运行时同父下增删兄弟节点会让渲染错位），
+               空文本时背景同步透明，避免留下一个可点的空白块 -->
           <div class="btns">
             <text class="btnmain" :style="{ backgroundColor: accent.c }" @click="onMain">{{ mainText }}</text>
             <text class="btn2" :style="btn2Style" @click="onSecond">{{ secondText }}</text>
           </div>
-          <!-- 两行提示常驻（文本为空即隐形）：二维码是「怎么用 + 风控兜底」两行，
-               密码只有风控兜底一行，验证码**不显示步骤提示**。
-               位置在按钮**下面**。 -->
+
           <text class="tip">{{ tipText }}</text>
           <text class="tip">{{ tip2Text }}</text>
         </div>
@@ -69,18 +64,9 @@
 
 <script>
 /**
- * 登录页：三个入口（二维码 / 验证码 / 密码）
- *
- * 为什么不再用扫码作为唯一入口：双端实测（笔 + PC，同一套 weapi）
- * 扫码「确认授权」一律被环境风控拦 8821，换号也一样 —— 属于通道级拦截。
- * 短信验证码是唯一实测能自助走通的方式，密码登录作为兜底（有云盾，成功率较低）。
- *
- * 输入方式：验证码/密码两种**都在页面内填**，
- * 即「点输入框 → 唤系统输入法 → 内容回填到该行 → 自己点按钮提交」，
- * 而不是点一下就直接弹输入法、输入完直接提交（那样没法核对/修改）。
- *
- * 二维码渲染：行 div + 同色连续段 div + 静态 class（PenBili 在 S7 上验证过的做法），
- * canvas 与子组件两条路在这个运行时都不通。
+ * 三个入口（二维码 / 验证码 / 密码）：双端实测（笔 + PC，同一套 weapi）扫码「确认授权」
+ * 一律被环境风控拦 8821，换号也一样 —— 属于通道级拦截。短信验证码是唯一实测能自助走通的
+ * 方式，密码登录作为兜底（有云盾，成功率较低）。
  */
 import QRCode from '../../vendor/qrcode.js'
 import PageShell from '../../components/PageShell.vue'
@@ -119,7 +105,7 @@ export default {
     return {
       mode: 'qr', // qr | sms | pwd
       state: 'init', // init | qr | scanned | ok | expired | error
-      // 顶部红字常态显示「XXX登录」；流程中由进度/报错临时覆盖
+
       status: '二维码登录',
       unikey: '',
       qrRows: [],
@@ -135,18 +121,17 @@ export default {
     bgStyle() {
       return { backgroundColor: this.bg }
     },
-    /** 左栏：登录页只需要返回（唯一的返回入口，去掉了右侧那个重复的） */
+
     rail() {
       return [railBack()]
     },
-    /* 控件区由模板的 v-if/v-else 切换（内联 display 在这个运行时不生效，见模板注释） */
-    /** 主按钮：只管「提交」这一步（刷新二维码 / 登录 / 完成） */
+
     mainText() {
       if (this.state === 'ok') return '完成'
       if (this.mode === 'qr') return '刷新二维码'
       return '登录'
     },
-    /** 次按钮：只有验证码模式有（发码与登录是两个独立动作） */
+
     secondText() {
       if (this.state === 'ok') return ''
       if (this.mode !== 'sms') return ''
@@ -163,28 +148,28 @@ export default {
     phoneText() {
       return this.phone || '点击输入'
     },
-    /** 密码一律显示为圆点，不回显明文 */
+
     secretText() {
       if (!this.code) return '点击输入'
       if (this.mode === 'pwd') return '●●●●●●●●'
       return this.code
     },
-    /** 二维码占位区文字（二维码没出来时） */
+
     qrHint() {
       return this.state === 'ok' ? '已登录' : '二维码生成中...'
     },
-    /** 登录成功后显示昵称（未登录为空串，节点常驻靠文本隐形） */
+
     whoText() {
       return this.state === 'ok' && this.profile.nickname ? '已登录：' + this.profile.nickname : ''
     },
-    /** 右侧提示第 1 行（节点常驻，按模式换文本；验证码模式为空） */
+
     tipText() {
       if (this.state === 'ok') return ''
       if (this.mode === 'qr') return '使用手机客户端扫码登录。'
       if (this.mode === 'pwd') return '若遇风控，可尝试验证码登录'
-      return '' // 验证码：不显示步骤提示
+      return '' 
     },
-    /** 右侧提示第 2 行：只有二维码模式多一行风控兜底 */
+
     tip2Text() {
       if (this.state === 'ok') return ''
       return this.mode === 'qr' ? '若遇风控，可尝试验证码登录' : ''
@@ -218,7 +203,7 @@ export default {
     this.stopTimer()
   },
   methods: {
-    /* ---- 页签 ---- */
+
     tabStyle(m) {
       if (m === this.mode) {
         return { backgroundColor: this.accent.c, color: this.accent.on }
@@ -244,7 +229,6 @@ export default {
       }
     },
 
-    /* ---- 二维码：把矩阵转成「行 → 同色段」---- */
     buildQr(url) {
       const C = QRCode.CorrectLevel || { L: 1, M: 0, Q: 3, H: 2 }
       const t = QRCode.getTypeNumber(url, C.L)
@@ -265,7 +249,6 @@ export default {
         segs.push({ dark: dark, len: len, cls: 'qr-l-' + len })
       }
 
-      // 上静区：QUIET 行整宽空白（少了手机扫不稳）
       for (let i = 0; i < QUIET; i++) {
         const top = []
         push(top, false, total)
@@ -287,7 +270,6 @@ export default {
         rows.push(segs)
       }
 
-      // 下静区
       for (let i = 0; i < QUIET; i++) {
         const bottom = []
         push(bottom, false, total)
@@ -362,7 +344,7 @@ export default {
     async tick() {
       if (this._dead || this._busy) return
       if (ACTIVE && ACTIVE !== this) {
-        this.stopTimer() // 另一个实例在跑，本实例退让
+        this.stopTimer() 
         return
       }
       if (this.mode !== 'qr') {
@@ -388,7 +370,6 @@ export default {
       this._busy = false
       if (this._dead || !r) return
 
-      // 只在状态变化时记日志，避免每 2 秒刷屏
       if (r.code !== this._lastCode) {
         this._lastCode = r.code
         log('login', '轮询状态 ' + r.code + (r.message ? ' ' + r.message : ''))
@@ -423,8 +404,6 @@ export default {
       }
     },
 
-    /* ---- 表单输入：点行 → 唤输入法 → 回填（不自动提交） ---- */
-
     async editPhone() {
       if (this.state === 'ok' || this.mode === 'qr') return
       const v = await openTextEdit({
@@ -434,7 +413,7 @@ export default {
         enterButtonText: '完成',
         text: this.phone
       })
-      if (v === null) return // 取消
+      if (v === null) return 
       this.phone = String(v).replace(/[^0-9]/g, '')
     },
 
@@ -457,8 +436,6 @@ export default {
       return p.length > 7 ? p.slice(0, 3) + '****' + p.slice(-4) : '****'
     },
 
-    /* ---- 提交 ---- */
-
     onMain() {
       if (this.state === 'ok') return this.close()
       if (this.mode === 'qr') return this.restart()
@@ -466,14 +443,12 @@ export default {
       return this.pwdSubmit()
     },
 
-    /** 次按钮：只在验证码模式下发码（与「登录」是两个独立动作，可重发） */
     onSecond() {
       if (this.state === 'ok') return
       if (this.mode !== 'sms') return
       return this.smsSend()
     },
 
-    /** 校验手机号（两个按钮共用），通过返回 11 位号码，不通过返回 '' 并提示 */
     checkPhone() {
       const p = String(this.phone || '').replace(/[^0-9]/g, '')
       if (p.length !== 11) {
@@ -484,7 +459,6 @@ export default {
       return p
     },
 
-    /** 第 1 步（次按钮）：发送短信验证码 */
     async smsSend() {
       if (this._sms) return
       const p = this.checkPhone()
@@ -497,7 +471,7 @@ export default {
         if (s.code !== 200) {
           this.state = 'error'
           this.status = '验证码发送失败（' + s.code + '）'
-          // 灰字行已去掉，失败原因只进日志
+
           log('login', '验证码发送失败 ' + s.code + ' ' + (s.message || ''))
           return
         }
@@ -513,7 +487,6 @@ export default {
       }
     },
 
-    /** 第 2 步（主按钮）：用验证码登录 */
     async smsLogin() {
       if (this._sms) return
       const p = this.checkPhone()
@@ -606,8 +579,7 @@ export default {
       this.$page.finish()
     },
 
-    /** 左栏分派（返回只在这里，右侧控件区不再放第二个返回按钮） */
-    /* ---- 左栏（分派骨架见 ui/frame.js）：本页返回 = 自定义 close（先 stopTimer 再 finish）---- */
+    // 返回走自定义 close：必须先 stopTimer 再 finish（轮询不能等 beforeDestroy）
     onBack() {
       this.close()
     }
@@ -616,7 +588,7 @@ export default {
 </script>
 
 <style lang="less" scoped>
-/* 本页使用全局 LESS 令牌与主题色；尺寸仍按登录流程单独排版。 */
+
 @import '../../styles/common.less';
 
 .lv {
@@ -626,9 +598,9 @@ export default {
   align-items: flex-start;
   justify-content: flex-start;
   padding: 12px;
-  /* 底色由内联 :style 给（主题可换，见 ui/theme.js）；本页其余仍是硬编码 px/色值 */
+
 }
-/* 左侧边栏：三个入口竖直排列 */
+
 .sidebar {
   width: 104px;
   flex-direction: column;
@@ -647,7 +619,7 @@ export default {
   border-radius: 8px;
   margin-bottom: 10px;
 }
-/* 右半边：控件在左，状态与操作在右 */
+
 .main {
   flex: 1;
   flex-direction: row;
@@ -694,6 +666,7 @@ export default {
   font-size: 16px;
   color: @text-2;
 }
+
 /* 同色连续段宽度：qr-l-N = N 个单元格。LESS 循环生成，笔上不能用内联样式以外的方式算宽度 */
 .gen-len(@n) when (@n > 0) {
   .qr-l-@{n} {
@@ -708,9 +681,9 @@ export default {
   align-items: flex-start;
   justify-content: flex-start;
   padding-left: 18px;
-  padding-top: 2px; /* 屏高只有 240，纵向间距收紧（灰字行已删，底部不再有内容被裁） */
+  padding-top: 2px; 
 }
-/* 表单：两行输入，点行唤系统输入法后回填（不直接提交） */
+
 .form {
   flex-direction: column;
 }
@@ -737,7 +710,7 @@ export default {
 }
 .st {
   font-size: 19px;
-  color: @accent; /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
+  color: @accent; 
   margin-bottom: 6px;
 }
 .who {
@@ -745,9 +718,7 @@ export default {
   color: @ok;
   margin-bottom: 8px;
 }
-/* 提示语（按模式换文案），位置在按钮**下方**，所以这里用 margin-top 与按钮间隔。
-   ⚠ 这个类漏过一次：没有 color 时文字取运行时默认色（纯黑），压在深色背景上完全读不出
-   —— 右边「有个黑色文本看不清」就是它。别再删。 */
+
 .tip {
   font-size: 15px;
   color: @text-2;
@@ -757,22 +728,22 @@ export default {
   flex-direction: row;
   margin-top: 2px;
 }
-/* 次按钮（验证码模式才有）：独立单类名；文本为空时由内联 style 置为透明而隐形 */
+
 .btn2 {
   font-size: 17px;
   color: @text;
-  background-color: @panel-2; /* 书面值，实际由模板内联 style 给（含隐形态的 transparent） */
+  background-color: @panel-2; 
   padding-left: 18px;
   padding-right: 18px;
   padding-top: 10px;
   padding-bottom: 10px;
   border-radius: 8px;
 }
-/* 主按钮：独立单类名（平台不支持 .btn.main 复合选择器）；底色走主题色（模板内联 style） */
+
 .btnmain {
   font-size: 17px;
   color: @text;
-  background-color: @accent; /* 默认（红）的书面值 */
+  background-color: @accent; 
   padding-left: 18px;
   padding-right: 18px;
   padding-top: 10px;

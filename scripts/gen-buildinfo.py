@@ -52,18 +52,16 @@ from pathlib import Path
 # 必须在本文件里做，不能指望调用方：config.toml 的 pre_steps 直接以
 # `["python", "scripts/gen-buildinfo.py"]` 执行，那条路径不经过 build.sh，
 # 没有 PYTHONIOENCODING 兜底；手跑这个脚本的概率也很高。
-# 写法与 tools/dictpen-dev/devctl.py 一致（失败就放过，不让编码问题反而弄崩脚本）。
+# 失败就放过，不让编码问题反而弄崩脚本。
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
 
-# 生成物相对项目根的位置。两个都在 src/core/infra/ 下（源码从这里 import）。
 BUILD_INFO_REL = Path("src/core/infra/buildInfo.js")
 LOG_CONFIG_REL = Path("src/core/infra/logconfig.generated.js")
 
-# 与历史输出逐字节一致：这一行注释 + 一个 export const + 结尾换行。
 HEADER = "/* 由 scripts/build.sh 自动生成，勿手改 */"
 
 DEFAULT_LOG_PORT = 8888
@@ -72,23 +70,18 @@ DEFAULT_LOG_PORT = 8888
 # 不会与真实 URL 撞上。
 CLEAR = "\0clear"
 
-
 class GenError(Exception):
     """生成失败（探测不到地址、写不进文件）。要打印给人看并退出非零。"""
-
 
 def build_tag(now: _datetime.datetime | None = None) -> str:
     """构建号：`YYYYmmdd-HHMMSS`（与旧 `date +%Y%m%d-%H%M%S` 一致，本地时间）。"""
     return (now or _datetime.datetime.now()).strftime("%Y%m%d-%H%M%S")
 
-
 def render_build_info(tag: str) -> str:
     return f"{HEADER}\nexport const BUILD_TAG = '{tag}'\n"
 
-
 def render_log_config(srv: str) -> str:
     return f"{HEADER}\nexport const LOG_SRV = '{srv}'\n"
-
 
 def _usable_lan_ip(ip: str) -> bool:
     """这个地址能不能当"设备要访问的 PC 地址"。
@@ -107,7 +100,6 @@ def _usable_lan_ip(ip: str) -> bool:
         return False
     return all(p.isdigit() and 0 <= int(p) <= 255 for p in parts)
 
-
 def _probe_via_udp() -> str:
     """问内核：去公网方向的源地址是什么。
 
@@ -121,7 +113,6 @@ def _probe_via_udp() -> str:
     finally:
         s.close()
 
-
 def _probe_via_hostname() -> str:
     """兜底：本机名解析。多网卡时可能拿到任意一个，所以只在 UDP 失败后用。"""
     try:
@@ -132,7 +123,6 @@ def _probe_via_hostname() -> str:
     except (OSError, socket.gaierror):
         pass
     return ""
-
 
 def detect_lan_ip() -> str:
     """探测本机局域网 IPv4。探不到抛 GenError（绝不静默返回空串）。"""
@@ -151,7 +141,6 @@ def detect_lan_ip() -> str:
         "    python scripts/gen-buildinfo.py --log-srv http://192.168.1.5:8888/log"
     )
 
-
 def resolve_log_srv(arg: str | None, env_value: str | None) -> str:
     """把各种来源合成最终要写进文件的 LOG_SRV。
 
@@ -167,7 +156,6 @@ def resolve_log_srv(arg: str | None, env_value: str | None) -> str:
     if raw == "auto":
         return f"http://{detect_lan_ip()}:{DEFAULT_LOG_PORT}/log"
     return raw
-
 
 def _write(path: Path, text: str) -> None:
     """写文件（先写临时文件再 replace，避免构建途中被读到半截）。
@@ -185,7 +173,6 @@ def _write(path: Path, text: str) -> None:
     except OSError as exc:
         raise GenError(f"写不进 {path}：{exc}") from exc
 
-
 def generate(project: Path, log_srv: str, tag: str) -> tuple[Path, Path]:
     """写出两个生成物，返回它们的路径。重复执行只会覆盖，不会追加。"""
     bi = project / BUILD_INFO_REL
@@ -193,7 +180,6 @@ def generate(project: Path, log_srv: str, tag: str) -> tuple[Path, Path]:
     _write(bi, render_build_info(tag))
     _write(lc, render_log_config(log_srv))
     return bi, lc
-
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -210,8 +196,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                    help="项目根（缺省按脚本位置推：scripts/ 的上一层）")
     return p.parse_args(argv)
 
-
 def main(argv: list[str] | None = None) -> int:
+
     # 手工处理 `--log-srv --`：argparse 会把它当成「选项结束」分隔符而拒绝取值。
     argv = list(sys.argv[1:] if argv is None else argv)
     force_clear = False
@@ -237,7 +223,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"✗ {exc}", file=sys.stderr)
         return 1
 
-    # 输出口径与旧 build.sh 一致（构建号与日志地址各一行），便于肉眼核对。
     print(f"构建号: {tag}")
     if srv:
         print(f"日志服务器: {srv}")
@@ -246,7 +231,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  {bi.relative_to(project).as_posix()}")
     print(f"  {lc.relative_to(project).as_posix()}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

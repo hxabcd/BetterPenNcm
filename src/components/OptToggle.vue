@@ -6,13 +6,12 @@
 </template>
 
 <script>
+
 /**
  * 「开 / 关」两枚胶囊。
  *
  * 各页的 `.xx-chips` 容器样式（flex 行 + 居中）由本组件的 .otog 承接，
- * 所以页面里连容器一起换成它。
- *
- * 用法：<opt-toggle :on="x" @change="setX" />   // setX(true | false)
+ * 所以页面里要连容器一起换成它。
  */
 import OptChip from './OptChip.vue'
 

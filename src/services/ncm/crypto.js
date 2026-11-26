@@ -1,27 +1,15 @@
-/**
- * 网易云 weapi 加密（纯 JS，词典笔可用）
- *
- * 为什么必须自己写：旧版明文 /api/ 登录接口已被服务端封禁（扫码头一次实测回
- * code=8821「请切换其他登录方式或升级新版本再试」），扫码/登录必须走 /weapi/ 加密。
- *
- * 算法与 Binaryify/NeteaseCloudMusicApi 完全一致，本文件的移植基准是用户自己
- * MusicVault 项目里的纯 stdlib 实现（src/musicvault/adapters/providers/
- * netease_client.py），并已用固定随机 key 与 Python 版逐字节对拍通过。
- *
- *   text      = JSON.stringify(payload)
- *   key2      = 随机 16 位字母数字串
- *   params    = base64(AES128CBC(base64(AES128CBC(text, key1)), key2))
- *   message   = int(reversed(key2) 的 ASCII 字节的 hex, 16)   // 128 位
- *   encSecKey = hex(pow(message, 65537, N)).padStart(256,'0') // 1024 位 RSA
- *
- * 约束：QuickJS 配的是 bigNum=false —— **没有 BigInt**，所以 RSA 用 16 位 limb 的
- * 手写大数 + 倍加模乘实现（只用到加/减/比较/移位，~17 次模乘，登录只跑一次）。
- */
 
-/* ------------------------------------------------------------------ *
- * AES-128-CBC（移植自 pyaes 的精简版，语义与 Python 版逐行对应）
- * ------------------------------------------------------------------ */
 
+// 网易云 weapi 加密（纯 JS，词典笔可用）
+//
+// 旧版明文 /api/ 登录接口已被服务端封禁（扫码首请求实测回 code=8821），扫码/登录必须走 /weapi/ 加密。
+// 算法与 Binaryify/NeteaseCloudMusicApi 一致，并已用固定随机 key 与 Python 版逐字节对拍：
+//   text      = JSON.stringify(payload)
+//   key2      = 随机 16 位字母数字串
+//   params    = base64(AES128CBC(base64(AES128CBC(text, key1)), key2))
+//   message   = int(reversed(key2) 的 ASCII 字节的 hex, 16)   // 128 位
+//   encSecKey = hex(pow(message, 65537, N)).padStart(256,'0') // 1024 位 RSA
+// 约束：QuickJS 配的是 bigNum=false，没有 BigInt → RSA 用手写 16 位 limb 大数实现。
 const SBOX = [
   0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
   0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -50,7 +38,7 @@ function bytes2matrix(text) {
 }
 
 function expandKey(key) {
-  // 44 个 4 字节字
+
   const w = []
   for (let i = 0; i < 4; i++) w.push([key[i * 4], key[i * 4 + 1], key[i * 4 + 2], key[i * 4 + 3]])
   let rci = 1
@@ -64,6 +52,7 @@ function expandKey(key) {
     const p = w[i - 4]
     w.push([p[0] ^ t[0], p[1] ^ t[1], p[2] ^ t[2], p[3] ^ t[3]])
   }
+
   // 11 组轮密钥，每组 16 字节（列主序展开，与 Python 版一致）
   const rk = []
   for (let r = 0; r < 11; r++) {
@@ -138,7 +127,6 @@ function encryptBlock(plain, rk) {
   return out
 }
 
-/** PKCS7 填充 + AES-128-CBC，返回密文字节数组 */
 function aesCbcEncrypt(plainBytes, keyBytes, ivBytes) {
   const rk = expandKey(keyBytes)
   const pad = 16 - (plainBytes.length % 16)
@@ -156,11 +144,7 @@ function aesCbcEncrypt(plainBytes, keyBytes, ivBytes) {
   return out
 }
 
-/* ------------------------------------------------------------------ *
- * 工具：UTF-8 / base64
- * ------------------------------------------------------------------ */
-
-/** 字符串 -> UTF-8 字节数组（不用 TextEncoder，自己算，避免运行时差异） */
+// 字符串 -> UTF-8 字节数组（不用 TextEncoder，自己算，避免运行时差异）
 export function utf8Bytes(str) {
   const out = []
   for (let i = 0; i < str.length; i++) {
@@ -196,10 +180,6 @@ export function base64Encode(bytes) {
   return out
 }
 
-/* ------------------------------------------------------------------ *
- * 大数（16 位 limb，低位在前）：只要加/减/比较/移位，够 RSA 用
- * ------------------------------------------------------------------ */
-
 function trim(a) {
   let n = a.length
   while (n > 1 && a[n - 1] === 0) n--
@@ -225,14 +205,14 @@ function bnToHex(a) {
   return out
 }
 
-/* 下面这组是模幂的热路径：全部**原地运算 + 预分配缓冲**，不计长度、不返回新数组。
-   QuickJS 是解释器，之前的写法每步都 slice/push 新数组，笔上实测 RSA 要 6 秒；
-   改成定长原地后主要开销只剩纯循环。（数值一律 little-endian 16 位 limb） */
-
-/** a += b，返回新的长度；a 必须预分配到 n 长 */
+// 大数用 16 位 limb、低位在前：只要加/减/比较/移位，够 RSA 用。
+// 下面这组是模幂热路径：全部原地运算 + 预分配缓冲，不计长度、不返回新数组。
+// QuickJS 是解释器，按每步 slice/push 新数组的写法实测笔上 RSA 要 6 秒；
+// 改成定长原地后主要开销只剩纯循环。
 function addInto(a, alen, b, blen, n) {
   const m = alen > blen ? alen : blen
-  // 缓冲是复用的：a 超出当前长度的高位可能残留上次的值，先清零
+
+  // 缓冲复用：a 超出当前长度的高位可能残留上次的值，先清零
   for (let i = alen; i < m; i++) a[i] = 0
   let carry = 0
   for (let i = 0; i < m; i++) {
@@ -247,7 +227,6 @@ function addInto(a, alen, b, blen, n) {
   return m
 }
 
-/** a -= b（要求 a >= b），返回新的长度 */
 function subFrom(a, alen, b, blen) {
   let borrow = 0
   for (let i = 0; i < alen; i++) {
@@ -265,7 +244,6 @@ function subFrom(a, alen, b, blen) {
   return L
 }
 
-/** a 与 b（长度 blen）比较 */
 function cmpLen(a, alen, b, blen) {
   if (alen !== blen) return alen > blen ? 1 : -1
   for (let i = alen - 1; i >= 0; i--) {
@@ -274,7 +252,6 @@ function cmpLen(a, alen, b, blen) {
   return 0
 }
 
-/** 位长（a 的有效位数） */
 function bitLenOf(a, alen) {
   let bits = (alen - 1) * 16
   let t = a[alen - 1]
@@ -285,21 +262,19 @@ function bitLenOf(a, alen) {
   return bits
 }
 
-/**
- * out = (a * b) mod m —— 倍加（俄罗斯农民乘法），扫 b 的每一位做「翻倍 + 条件加」。
- * 全程只有加/减/比较，无除法；out 必须与 a/b/m 都是不同缓冲。返回 out 的长度。
- */
+// out = (a * b) mod m —— 倍加（俄罗斯农民乘法），扫 b 的每一位做「翻倍 + 条件加」。
+// 全程只有加/减/比较，无除法；out 必须与 a/b/m 是不同缓冲。返回 out 的长度。
 function mulMod(a, alen, b, blen, m, mlen, n, out) {
   for (let i = 0; i < n; i++) out[i] = 0
   let olen = 1
   const bits = bitLenOf(b, blen)
   for (let i = bits - 1; i >= 0; i--) {
-    // out = 2*out mod m
+
     olen = addInto(out, olen, out, olen, n)
     if (olen > mlen || (olen === mlen && cmpLen(out, olen, m, mlen) >= 0)) {
       olen = subFrom(out, olen, m, mlen)
     }
-    // b 的第 i 位为 1 则 out += a
+
     if ((b[i >> 4] >> (i & 15)) & 1) {
       olen = addInto(out, olen, a, alen, n)
       if (olen > mlen || (olen === mlen && cmpLen(out, olen, m, mlen) >= 0)) {
@@ -310,26 +285,23 @@ function mulMod(a, alen, b, blen, m, mlen, n, out) {
   return olen
 }
 
-/**
- * r = (base^exp) mod m（exp 为普通 JS number）
- * 平方乘 + 倍加模乘，全程无除法、无分配（缓冲复用）。
- * exp=65537 时共 17 次模乘。
- */
+// r = (base^exp) mod m（exp 为普通 JS number）：平方乘 + 倍加模乘，全程无除法、无分配
+// （缓冲复用）。exp=65537 时共 17 次模乘。
 function bnModPow(base, exp, m) {
   const mlen = m.length
-  const n = mlen + 2 // 缓冲区（加法可能多出一个 limb）
+  const n = mlen + 2 
   const z = function (n2) {
     const a = new Array(n2)
     for (let i = 0; i < n2; i++) a[i] = 0
     return a
   }
-  const bx = z(n) // 底数
-  const rx = z(n) // 结果
-  const mx = z(n) // mulMod 输出（必须与输入不同缓冲）
+  const bx = z(n) 
+  const rx = z(n) 
+  const mx = z(n) 
 
   for (let i = 0; i < n; i++) bx[i] = i < base.length ? base[i] : 0
   let blen = base.length
-  // base 可能 >= m（本用例不会，稳妥起见归一化一次）
+
   if (cmpLen(bx, blen, m, mlen) >= 0) blen = subFrom(bx, blen, m, mlen)
 
   rx[0] = 1
@@ -358,10 +330,6 @@ function bnModPow(base, exp, m) {
   return out
 }
 
-/* ------------------------------------------------------------------ *
- * weapi
- * ------------------------------------------------------------------ */
-
 const AES_KEY1 = utf8Bytes('0CoJUm6Qyw8W8jud')
 const AES_IV = utf8Bytes('0102030405060708')
 const RSA_N_HEX =
@@ -372,29 +340,21 @@ const RSA_N_HEX =
 const RSA_N = bnFromHex(RSA_N_HEX.replace(/^0+/, ''))
 const RSA_E = 65537
 
-const RAND_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' // 备生成密钥池用
+const RAND_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' 
 
 // 导出底层实现供 PC 对拍测试使用
 export { bnFromHex, bnToHex, bnModPow, RSA_N }
 
-/** AES-128-CBC(PKCS7) -> base64 */
 export function cbcB64(text, keyStr) {
   return base64Encode(aesCbcEncrypt(utf8Bytes(text), utf8Bytes(keyStr), AES_IV))
 }
 
-/**
- * 预计算密钥池（key2, encSecKey）
- *
- * 为什么要这么做：笔上 QuickJS 跑一次 1024 位 RSA 模幂实测要 ~3 秒，而 weapi 每个请求
- * 都需要一个 encSecKey。但 encSecKey **只取决于二级密钥 key2、与 payload 无关**，
- * 所以可以预先在 PC 上算好一批常数对，运行时随机挑一对：
- *   每次请求只剩两级 AES（实测 ~0.2ms），比现算 RSA 快约 1.5 万倍。
- *
- * 重新生成的姿势（PC 上，用本文件自己的实现，保证与设备端一致）：
- *   node -e "... 循环随机 key -> weapiEncryptWithRsa(payload, key) 取 encSecKey ..."
- * 服务端 RSA 公钥（RSA_N / RSA_E）是公开固定值，与 MusicVault / NeteaseCloudMusicApi
- * 用的完全一样；只有它变化时才需要重新生成密钥池。
- */
+// 预计算密钥池（key2, encSecKey）：笔上 QuickJS 跑一次 1024 位 RSA 模幂实测 ~3 秒，
+// 而每个 weapi 请求都要一个 encSecKey；但 encSecKey 只取决于二级密钥 key2、与 payload
+// 无关，所以在 PC 上预先算好一批常数对、运行时随机挑一对 —— 每次请求只剩两级 AES
+// （实测 ~0.2ms），比现算 RSA 快约 1.5 万倍。
+// RSA_N/RSA_E 是服务端公开固定公钥（与 NeteaseCloudMusicApi 一致），只有它变时才需重新生成：
+// 用本文件自己的实现（weapiEncryptWithRsa + 随机 16 位 key2）在 PC 上重算，保证与设备端一致。
 const KEY_POOL = [
   ['xdQaXoNiz0V1nye1', '5ee3bfeaef9f41cac0eea342752a45dcf7c9ec0f21e0d7ef0c388429d8084affa270920bc5e551f1accb68fe93559c987ceaaed4729e58a253a30241339774ee68a6db4af19b221f8acbae3d2f2eb5824737bd557baa34735dfa9b39893902fe23493b042f9875806f3ee6e8d73caee90368b3102bc3036ebe29aef772191ebe'],
   ['M7B7qt1SVtukbzY6', '9b3c6803ecd085be1ba947288f41c0840c6d8e68aa2a945d6bac884fcbea471186b5e794494ab62e02eec3bab87b44d53dd5acb5b3baec2796c5920eb27bc00144c6f2dad6a1fb9d787d47220bb785c79261124b3450a52032b9f43c205abdd5f45227c2256d6c2d45cd61f4b3402854327a27cd3831ae3d5d526b6c12df7d68'],
@@ -406,10 +366,10 @@ const KEY_POOL = [
   ['kSHCQY8UQDwYBnxS', '2f1704e70aa0385df59dc4cc5023154c9422af9e11fb37efa85f31b583844304eeacde8cfc3e5f42383972a9494b03679e8ef3e867820e2dcbeca45f95138991dc56190199e2b1fdf56e90b47a8b45ff012a1ef4f2f8c2bd08f30dd8baa31c15c5d505af2dc7e2d5aadf354ddb797ac80cd906b5adad084ca40b3ea2c7a3d19c']
 ]
 
-/** 走真实 RSA 的那条路（生成密钥池 / 对拍测试用） */
+// 走真实 RSA 的那条路（生成密钥池 / 对拍测试用）
 function weapiEncryptWithRsa(text, key2) {
   const params = cbcB64(cbcB64(text, '0CoJUm6Qyw8W8jud'), key2)
-  // reversed(key2) 的 ASCII 字节 -> hex -> 大数
+
   const rev = key2.split('').reverse().join('')
   const hexBytes = []
   for (let i = 0; i < rev.length; i++) {
@@ -422,12 +382,8 @@ function weapiEncryptWithRsa(text, key2) {
   return { params: params, encSecKey: enc, key2: key2 }
 }
 
-/**
- * 生成 weapi 表单参数
- * @param {object} payload 业务参数（csrf_token 请自行放进去）
- * @param {string} [fixedKey] 固定二级密钥 -> 走真实 RSA（仅对拍测试用）
- * @returns {{params:string, encSecKey:string, key2:string}}
- */
+// 生成 weapi 表单参数，返回 {params, encSecKey, key2}
+// payload 为业务参数（csrf_token 请自行放进去）；fixedKey 传入二级密钥则走真实 RSA（仅对拍测试用）
 export function weapiEncrypt(payload, fixedKey) {
   const text = JSON.stringify(payload)
   if (fixedKey) return weapiEncryptWithRsa(text, fixedKey)
@@ -439,23 +395,14 @@ export function weapiEncrypt(payload, fixedKey) {
   }
 }
 
-/** weapi 表单 body：params=..&encSecKey=.. */
 export function weapiBody(payload, fixedKey) {
   const r = weapiEncrypt(payload, fixedKey)
   return 'params=' + encodeURIComponent(r.params) + '&encSecKey=' + encodeURIComponent(r.encSecKey)
 }
 
-/* ------------------------------------------------------------------ *
- * MD5（密码登录用）
- *
- * /api/login/cellphone 的 password 字段要的是 **md5 后的值**（社区通行做法，
- * 与 NeteaseCloudMusicApi 一致）。设备裸模块 str_utils 有 md5Hex，但登录是
- * 关键路径，不依赖未实测的原生模块 —— 自己写一份纯 JS 的（无 BigInt，
- * 与上面的 RSA 同样只用 32 位整数运算）。
- *
- * 已用 md5('') / md5('abc') / md5('中文') 与标准值对拍通过。
- * ------------------------------------------------------------------ */
-
+// MD5（密码登录用）：/api/login/cellphone 的 password 字段要的是 md5 后的值（与 NeteaseCloudMusicApi 一致）。
+// 设备裸模块 str_utils 有 md5Hex，但登录是关键路径，不依赖未实测的原生模块，故自己写一份纯 JS 的
+// （无 BigInt，同样只用 32 位整数运算，已与标准值对拍）。
 const MD5_S = [
   7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
   5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
@@ -474,7 +421,6 @@ const MD5_K = [
   0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391
 ]
 
-// 名字避开 AES 段已有的 utf8Bytes
 function md5Utf8Bytes(s) {
   const out = []
   for (let i = 0; i < s.length; i++) {
@@ -490,7 +436,6 @@ function md5Utf8Bytes(s) {
   return out
 }
 
-/** 字符串 → md5 小写 hex（32 位） */
 export function md5Hex(str) {
   const bytes = md5Utf8Bytes(String(str === undefined || str === null ? '' : str))
   const bitLen = bytes.length * 8

@@ -4,7 +4,7 @@
       <image v-if="shownCover" class="srow-cvi" :src="shownCover" resize="cover" />
       <!-- 无封面（缓存没记封面 url / 封面没下过）时给灰音符占位，行高不塌 -->
       <image v-else class="srow-cvi-note" :src="ICON.note" />
-      <!-- 多选态的勾选标记：叠在封面上（圈的大小等于圈本身的 vh，两态走内联 style）。
+      <!-- 多选态的勾选标记：叠在封面上（圈的大小按 vh，两态走内联 style）。
            「进出多选态零位移」靠它 —— 不新增 flex 子节点，行高列宽全不变 -->
       <div class="srow-mask" v-if="selectable">
         <div class="srow-mark" :style="markStyle">
@@ -14,7 +14,7 @@
       </div>
     </div>
     <!-- 歌名 + 灰色别名(括号) + VIP 并排一个容器：VIP 紧跟歌名、共享同一块最大宽度。
-         不用嵌套 <text> 富文本——实测该结构会导致渲染器崩溃（打开列表即崩） -->
+         不用嵌套 <text> 富文本 —— 实测该结构会导致渲染器崩溃（打开列表即崩） -->
     <div class="srow-main">
       <text class="srow-nm" :style="titleStyle">{{ song.name || ('歌曲 ' + song.id) }}</text>
       <text class="srow-alias" :style="toneStyle" v-if="aliasText">{{ aliasText }}</text>
@@ -42,20 +42,16 @@ import { HOLD_SWALLOW_MS } from '../ui/mixins/arm.js'
 import { TOK } from '../ui/tokens.js'
 
 /**
- * 歌曲行：封面（含无封面占位）/ 歌名(+别名+VIP) / 歌手 / [档位·体积] / 时长
- *   `showQuality` 打开时多一列「档位 · 体积」，本地下载页用它。
- *   queue 页的行仍是自绘（序号列 + 当前播放高亮 + 点击跳播），行度量与本组件对齐。
- *
  * 封面由行组件自己在 mounted 时按需取（cover.js 异步队列）——回调里给组件自己的
  * localCover 赋值（普通属性 = 必然响应式），绕开页面级动态 key 的问题；
  * cover url 可能后补（下载页补元数据时）→ watch 兜底，`_coverSrc` 判重。
  *
  * 事件：@select（点整行）、@hold（长按整行 → 歌曲详情页 songinfo，与播放页点歌名等效）。
- *   - @hold = **原生 `@longpress`（按住 500ms 派发）+ $emit('hold')**。事件名避开
- *     `tap`/`longpress`/`swipe` 这类手势名：预编译器（falcon-vue-precompiler 的
- *     bindEvents）会给绑了手势事件的节点无条件写 `data-evt-<名>` 属性，自定义组件上就多出
- *     一条「原生手势 + 组件 $emit」双通道，可能一次触发两次（见 PageTopbar.vue 注释）。
- *   - 长按进详情页这改掉了「按住一会儿再松手仍会起播」的旧行为 —— greenui 的长按触发后
+ *   - @hold = 原生 `@longpress`（按住 500ms 派发）+ $emit('hold')。事件名避开
+ *     `tap`/`longpress`/`swipe` 这类手势名：预编译器（falcon-vue-precompiler 的 bindEvents）
+ *     会给绑了手势事件的节点无条件写 `data-evt-<名>` 属性，自定义组件上就多出一条
+ *     「原生手势 + 组件 $emit」双通道，可能一次触发两次（见 PageTopbar.vue 注释）。
+ *   - 长按进详情页改掉了「按住一会儿再松手仍会起播」的旧行为 —— greenui 的长按触发后
  *     不再走 click；list/album/artist/downloads 四处语义一致（下载页同样对齐）。
  *   - 长按余波按 `ui/mixins/arm.js` 的 `HOLD_SWALLOW_MS` 吞掉（与播放页收藏同一口径）。
  */
@@ -65,9 +61,12 @@ export default {
   props: {
     song: { type: Object, required: true },
     index: { type: Number, default: 0 },
-    selectable: { type: Boolean, default: false }, // 多选模式：显示勾选标记
-    sel: { type: Boolean, default: false }, // 当前行是否已勾选
-    showQuality: { type: Boolean, default: false }, // 本地下载页：多一列「档位 · 体积」
+    // 多选模式：显示勾选标记
+    selectable: { type: Boolean, default: false }, 
+    // 当前行是否已勾选
+    sel: { type: Boolean, default: false }, 
+    // 本地下载页：多一列「档位 · 体积」
+    showQuality: { type: Boolean, default: false }, 
     /** 远端差异标记：'' | 'A'（远端有、本地没下）| 'D'（本地有、远端已移除） */
     flag: { type: String, default: '' },
     /** 始终保留 A/D 标记列的宽度（本地歌单曲目列表用）；避免标记出现/消失让整行左右挪动 */
@@ -94,7 +93,6 @@ export default {
      * 歌名（标题）列的色调：A = 灰（远端有、本地还没下载），
      * D = 白色 + 删除线（远端已移除、文件仍在）。**删除线只打在标题上**，
      * 其余列交给 toneStyle 保持原样式。
-     * tone 显式传入时优先（留给以后别的列表用）；否则由 flag 推导。
      */
     titleStyle() {
       const t = this.tone || this.flag
@@ -115,7 +113,7 @@ export default {
     flagStyle() {
       return { color: this.flag === 'D' ? TOK.dangerSoft : TOK.ok }
     },
-    /** 圈的两态：未选 = 透明底 + 白描边；已选 = 主题色实心底 + 白边（勾用 check 图标，不用 ✓ 字形，见坑 14） */
+    /** 圈的两态：未选 = 透明底 + 白描边；已选 = 主题色实心底 + 白边（勾用 check 图标，不用 ✓ 字形） */
     markStyle() {
       return this.sel
         ? { backgroundColor: this.accent.c, borderColor: TOK.text }
@@ -164,6 +162,7 @@ export default {
         if (path) self.localCover = path
       })
     },
+
     /** 点整行：抛 select（页面决定是起播还是勾选）。长按余波（见 HOLD_SWALLOW_MS）吞掉 */
     onClick() {
       const gap = Date.now() - (this._holdAt || 0)
@@ -216,6 +215,7 @@ export default {
   width: 8vh;
   height: 8vh;
 }
+
 /* 勾选叠加层：四边给 0 → 尺寸自动跟 .srow-cv（不重复写 17vh，改封面尺寸时不用同步这里） */
 .srow-mask {
   position: absolute;
@@ -227,7 +227,8 @@ export default {
   align-items: center;
   justify-content: center;
 }
-/* 勾选圈：直径 9vh → 圆角写半值 4.5vh（平台不认 50%，AGENTS 坑 10）。
+
+/* 勾选圈：直径 9vh → 圆角写半值 4.5vh（平台不认 50%）。
    圈径、圆角、勾图尺寸三个常量成对维护：勾 ≈ 圈的 0.6 */
 .srow-mark {
   width: 9vh;
@@ -242,6 +243,7 @@ export default {
   width: 5.4vh;
   height: 5.4vh;
 }
+
 /* 歌名区（flex 吸收原 VIP 列宽），行内三个 text 并排 */
 .srow-main {
   flex: 1;
@@ -276,6 +278,7 @@ export default {
   text-overflow: ellipsis;
   padding-right: 2.5vh;
 }
+
 /* 带「档位 · 体积」列时歌名列让位（84 + 74 ≈ 原 104 + 间距）——两个完整单类名切换，
    不用复合/覆盖写法（平台只认单类名；:class 三元的先例见 login.vue 的 qr-seg） */
 .srow-ar-q {
@@ -287,6 +290,7 @@ export default {
   text-overflow: ellipsis;
   padding-right: 2.5vh;
 }
+
 /* 档位 · 体积（下载页）：FLAC · 24.1 MB */
 .srow-q {
   width: 74vh;
@@ -304,6 +308,7 @@ export default {
   color: @text-3;
   text-align: right;
 }
+
 /* A/D 标记列：列表最右侧的独立固定列；flagCol 打开时无标记也占位，
    保证 A/D 行与普通行的左右边界一致（标记色由内联 style 给） */
 .srow-flag {

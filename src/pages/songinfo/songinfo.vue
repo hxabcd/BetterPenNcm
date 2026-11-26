@@ -11,6 +11,7 @@
           <text class="si-alias" v-if="aliasText">{{ aliasText }}</text>
           <text class="si-vip" v-if="isVip">VIP</text>
         </div>
+
         <!-- 歌手：一人一个 chip，点谁进谁（无论几个歌手都统一 chip） -->
         <div class="si-line">
           <text class="si-k">歌手</text>
@@ -55,13 +56,10 @@
 </template>
 
 <script>
-/**
- * 歌曲详细信息页（点播放页顶部「歌名·歌手」进入）
- *
- * 数据来自 /api/v3/song/detail（见 services/ncm/api.js 的 fetchSongInfo，PC 端已实测）。
- * 歌手行统一铺 chip：**一个歌手一个可点区，点谁进谁**。
- * 专辑行是整行链接，跳专辑页。
- */
+
+// 歌曲详细信息页（点播放页顶部「歌名·歌手」进入）。数据来自 /api/v3/song/detail
+// （见 services/ncm/api.js 的 fetchSongInfo，PC 端已实测）。歌手行统一铺 chip：一个歌手
+// 一个可点区，点谁进谁；专辑行是整行链接，跳专辑页。
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import ContextSheet from '../../components/ContextSheet.vue'
@@ -95,7 +93,7 @@ export default {
       ICON: ICON,
       id: 0,
       sub: '',
-      panel: '', // '' | 'more'
+      panel: '', 
       busy: false,
       info: {
         song: { name: '', durationMs: 0, fee: 0, aliases: [] },
@@ -132,23 +130,22 @@ export default {
       const p = this.info.popularity
       return p ? String(Math.round(p)) : '—'
     },
-    /** 本页曲目对象（已归一化，可直接喂播放器 / 下载 / 加歌单）；没加载完时 id 为 0 */
+
+    // 本页曲目对象（已归一化，可直接喂播放器 / 下载 / 加歌单）；没加载完时 id 为 0
     song() {
       const s = this.info.song || {}
       return s.id ? s : null
     },
-    /** 「更多」面板：CSV 的「歌曲详情」行只有这两项 */
+
     moreOptions() {
       return [
         { key: 'topl', label: '收藏到歌单', icon: ICON.plplus },
         { key: 'next', label: '下一首播放', icon: ICON.listplus }
       ]
     },
-    /**
-     * 左栏（CSV「歌曲详情」行）：返回 + 更多（收藏到歌单、下一首播放）+ 播放 + 下载。
-     * 数组顺序 = 栏底组自上而下，所以 下载 贴底（76.67~96.67vh）、播放 在它上面、更多 最高。
-     * 没有曲目（id 还没到）时三颗键置灰。
-     */
+
+    // 左栏（CSV「歌曲详情」行）：返回 + 更多 + 播放 + 下载。数组顺序 = 栏底组自上而下，
+    // 所以「下载」贴底（76.67~96.67vh）、「播放」在它上面、「更多」最高。没有曲目时三颗键置灰。
     rail() {
       const has = !!this.song
       return [
@@ -161,6 +158,7 @@ export default {
   },
   mounted() {
     this._dead = false
+
     // 参数通道按实例槽位 key 记账，取参必须用真实页名（写死逻辑页名只在兜底时命中）
     const p = paramsFor((this.$page && this.$page.$pageName) || 'songinfo', this.$page ? this.$page.options : null)
     this.openSong(p)
@@ -169,7 +167,8 @@ export default {
     this._dead = true
   },
   methods: {
-    /** 加载目标歌曲；同一首（页面挂两遍）直接跳过，保证挂载幂等。 */
+
+    // 加载目标歌曲；同一首（页面挂两遍）直接跳过，保证挂载幂等。
     openSong(p) {
       const id = Number(p && p.id) || 0
       if (id === this.id && this._loadSeq) return
@@ -197,8 +196,9 @@ export default {
         this.sub = '缺少歌曲 id'
         return
       }
-      // 数据源二选一：有网 = 纯云端（不闪本地视图）；
-      // 离线（系统 API global.isOnline()，见 net/status.js）= 直接本地索引，不发请求
+
+      // 数据源二选一：有网 = 纯云端（不闪本地视图）；离线（global.isOnline，见 net/status.js）
+      // = 直接本地索引，不发请求
       if (await isOffline()) {
         if (this._dead || seq !== this._loadSeq) return
         await this.loadLocal(id, seq)
@@ -215,12 +215,14 @@ export default {
         log('songinfo', '就绪 ' + r.song.name + ' 歌手数=' + r.artists.length)
       } catch (e) {
         if (self._dead || seq !== self._loadSeq) return
+
         // 请求失败（系统说在线也没拿到）→ 直接落本地
         await this.loadLocal(id, seq)
         log('songinfo', '网络失败，落本地索引：' + ((e && e.message) || e))
       }
     },
-    /** 本地索引视图：已下载的歌详情照出（歌手 chip / 专辑链接带 id，可继续跳转） */
+
+    // 本地索引视图：已下载的歌详情照出（歌手 chip / 专辑链接带 id，可继续跳转）
     async loadLocal(id, seq) {
       const self = this
       let loc = null
@@ -240,7 +242,7 @@ export default {
         log('songinfo', '本地索引无记录 id=' + id)
       }
     },
-    /** 打开指定歌手页（chip 直接把这一个歌手传进来） */
+
     openArtistAt(ar) {
       if (!ar || !ar.id) return
       go('artist', { id: ar.id, name: ar.name })
@@ -250,9 +252,10 @@ export default {
       if (!al || !al.id) return
       go('album', { id: al.id, name: al.name })
     },
-    /* ---- 左栏（分派骨架见 ui/frame.js：onBack / onRailKey 两个钩子）---- */
+
+    // 浮窗开着先收浮窗（同歌单详情页），别让一次返回跳过两层
     onBack() {
-      // 浮窗开着先收浮窗（同歌单详情页），别让一次返回跳过两层
+
       if (this.panel) {
         this.panel = ''
         return
@@ -288,10 +291,9 @@ export default {
         this.showToast(playNextText(r))
       }
     },
-    /**
-     * 播放：把这一首设为播放队列并起播（队列只有它一首 —— 与「点列表里的某一首」不同，
-     * 这里没有所属列表的上下文，给个单曲队列最不容易误导）。
-     */
+
+    // 播放：把这一首设为播放队列并起播。队列只有它一首 —— 与「点列表里的某一首」不同，
+    // 这里没有所属列表的上下文，给个单曲队列最不容易误导。
     doPlay() {
       const s = this.song
       if (!s) {
@@ -302,7 +304,8 @@ export default {
       log('songinfo', '播放 ' + s.id + ' ' + (s.name || ''))
       go('player', {})
     },
-    /** 下载：按设置里的下载音质下到本地（用户下载通道，与列表页多选下载同一实现） */
+
+    // 下载：按设置里的下载音质下到本地（用户下载通道，与列表页多选下载同一实现）
     async doDownload() {
       const s = this.song
       if (!s) {
@@ -397,6 +400,7 @@ export default {
   lines: 1;
   text-overflow: ellipsis;
 }
+
 /* 歌手 chip 行：一人一个可点区（尺寸对齐播放选项页 po-chip，屏幕物理高仅 2.5cm，点击区给大） */
 .si-ars {
   flex-direction: row;

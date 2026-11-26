@@ -20,27 +20,15 @@
 </template>
 
 <script>
-/**
- * 歌词面板（播放页右侧 480×240 子面板；2026-10-31 重构时间系统与行盒）。
- *
- * 行盒：活动/非活动同一行高（单行 60px、长行按预排视觉行数增高）、行间无间距、
- * 行内容垂直居中、文本左对齐；字号/颜色过渡都在固定行盒内完成，不再动画 height。
- *
- * 时间系统：面板自己订阅 player（500ms 快照只做锚定/纠偏），用
- * positionMs + 墙钟 × 倍速 推算连续位置；rAF 只在播放中跑，驱动：
- *   1. 当前行下标（只在换行时写 data）；
- *   2. 局部时钟 ticker → LyricWordLine 内部做逐字扫亮（高频状态不进本组件）。
- * 播放页整页 500ms 重渲染不会带动本组件（props 不含 position/active）。
- *
- * 滚动：touchmove 只记录最新坐标，rAF 合并成每帧一次；松手短惯性；
- * 自动跟歌与回位共用同一套 rAF。窗口化两条不变量：
- *   1. 换窗口必须与瞬时位移同帧（trackStyle 的 T = topOff + prefix(winStart)）；
- *   2. 平滑滑动期间窗口不动，滑完收回；覆盖不了扫过范围就瞬时对齐。
- *
- * 交互：拖动跟手、高亮始终跟播放进度、双击行 seek、60s 看门狗兜底 touchend 缺失。
- * 平台硬约束：单类名；状态/动态色内联；text 不嵌套；data 先声明；
- * 模板裸绑定只来自 props/computed/data；颜色走 TOK / accent。
- */
+
+// 时间系统：面板自己订阅 player（500ms 快照只做锚定/纠偏），用 positionMs + 墙钟 × 倍速 推算连续位置；
+// props 不含 position/active → 播放页整页 500ms 重渲染不会带动本组件
+// 窗口化两条不变量：1) 换窗口必须与瞬时位移同帧（trackStyle 的 T = topOff + prefix(winStart)）；
+// 2) 平滑滑动期间窗口不动、滑完收回，覆盖不了扫过范围就瞬时对齐
+// 行盒：活动/非活动同一行高（单行 60px、长行按预排视觉行数增高）、行间无间距、垂直居中、文本左对齐；
+// 字号/颜色过渡都在固定行盒内完成，不靠动画 height
+// 平台硬约束：单类名选择器、状态/动态色内联、text 不嵌套、data 先声明
+
 import LyricTrack from './LyricTrack.vue'
 import { touchAxis } from '../../core/platform/touch.js'
 import { log } from '../../core/infra/log.js'
@@ -56,28 +44,27 @@ const CENTER_Y = PANEL_H / 2
 const WATCHDOG_MS = 60000
 const SNAP_MS = 260
 const INSTANT_MS = 1
-const CLOCK_MS = 33 // 歌词时钟（换行判断 + 逐字推送）的推进间隔，约 30fps，够用且比 16ms 省电
-const INERTIA_MIN = 0.04 // px/ms；低于它直接停
-const INERTIA_FRICTION = 0.94 // 每 16ms 的速度保留率
+// 歌词时钟（换行判断 + 逐字推送）的推进间隔：约 30fps，够用且比 16ms 省电
+const CLOCK_MS = 33 
+const INERTIA_MIN = 0.04 
+const INERTIA_FRICTION = 0.94 
 const TAP_SLOP = 6
 const TAP_MAX_MS = 400
 const DBL_MS = 600
 const DBL_SLOP = 12
 const BUF_PX = 240
-const ANCHOR_TOL_MS = 80 // 快照与墙钟推算的容差；以内不重锚，避免逐字动画周期性抖动
-const FRAME_MS = 16 // 帧间隔（拖动合并 / 惯性 / 时钟都走这个定时器）
+// 快照与墙钟推算的容差：以内不重锚，避免逐字动画周期性抖动
+const ANCHOR_TOL_MS = 80 
+const FRAME_MS = 16 
 
 const FS_MAIN = { on: '10.83vh', off: '9.17vh' }
 const FS_TRANS = { on: '8.33vh', off: '6.67vh' }
 const LH_MAIN = { on: 31.2, off: 26.4 }
 const LH_TRANS = { on: 24, off: 19.2 }
 
-/**
- * 帧调度：**不用 rAF**。
- * 实测（2026-11-01，构建 1101-001456）：这个面板里 rAF 基本不调度 —— 拖动时画面完全不动、
- * 松手瞬间才跳到位；活动行也不随进度更新。两者都只依赖 rAF，所以一起停。
- * 定时器虽然不跟屏幕刷新同步，但每帧 16ms 稳定可达，且面板静止时也不会被停掉。
- */
+// 帧调度**不用 rAF**：实测（2026-11-01，构建 1101-001456）这个面板里 rAF 基本不调度 ——
+// 拖动时画面完全不动、松手瞬间才跳到位，活动行也不随进度更新；setTimeout 每帧 16ms 稳定可达，
+// 面板静止时也不会被停掉
 function scheduleFrame(fn) {
   return setTimeout(fn, FRAME_MS)
 }
@@ -86,11 +73,8 @@ function cancelFrame(id) {
   clearTimeout(id)
 }
 
-/**
- * 行内文字样式。**故意不带 transition**：本平台对 `font-size` / `color` 不插值
- * （写 class 里也不行、`transition: all` 也不管，见 docs/平台约束与自检.md 的动画能力表），
- * 写了只会让人误以为有过渡 —— 高亮就是硬切。真想做渐变只能 JS 逐帧改内联值。
- */
+// 行内文字样式：**故意不带 transition** —— 本平台对 font-size / color 不插值
+// （写 class 里不行、transition: all 也不管），写了只会让人以为有过渡；高亮就是硬切
 function textStyle(fontSize, lineHeight, color) {
   return {
     fontSize: fontSize,
@@ -104,34 +88,40 @@ export default {
   components: { 'lyric-track': LyricTrack },
   mixins: [accentMixin],
   props: {
-    /** [{time, end, text, trans, words}]，按时间升序（services/player/lyric.js 产出） */
+
+    // [{time, end, text, trans, words}]，按时间升序（services/player/lyric.js 产出）
     lines: { type: Array, default: function () { return [] } },
-    /** 是否显示译文 */
+
     showTrans: { type: Boolean, default: true },
-    /** true = 可拖动翻看；false = 省性能（禁拖动，位置恒跟当前行） */
+
+    // true = 可拖动翻看；false = 省性能（禁拖动，位置恒跟当前行）
     full: { type: Boolean, default: true },
-    /** 活动行更新时是否平滑滚动（false = 只换高亮） */
+
     follow: { type: Boolean, default: true },
-    /** 是否允许双击歌词跳转 */
+
     dblTap: { type: Boolean, default: true },
-    /** 是否启用逐字歌词（活动行才拆字节点；无 YRC 自动等价逐行） */
+
+    // 逐字歌词：活动行才拆字节点；无 YRC 自动等价逐行
     wordOn: { type: Boolean, default: true },
-    /** 是否启用歌词动画（false = 定位/高亮/逐字全部瞬时） */
+
     anim: { type: Boolean, default: true },
     emptyText: { type: String, default: '暂无歌词' }
   },
   data() {
     return {
-      /** 当前行下标（-1 = 还没到第一行；由局部时钟驱动，不再由播放页传入） */
+
+      // 当前行下标（-1 = 还没到第一行；由局部时钟驱动，不由播放页传入）
       active: -1,
-      /** 轨道位移（px）：第 0 行顶边相对面板顶边的 y（补间每帧改它） */
+
+      // 轨道位移（px）：第 0 行顶边相对面板顶边的 y（补间每帧改它）
       topOff: 0,
-      /** 手指按住中（按着时不自动滚，高亮照常更新） */
+
       dragging: false,
-      /** 渲染窗口 [winStart, winEnd) */
+
       winStart: 0,
       winEnd: 0,
-      /** 局部时钟对象（created 里赋值；传给逐字行订阅，不作为响应式状态） */
+
+      // 局部时钟对象（created 里赋值；传给逐字行订阅，刻意不作为响应式状态）
       ticker: null
     }
   },
@@ -139,18 +129,16 @@ export default {
     locked() {
       return !this.full
     },
-    /** 排版用的当前行（不能是 -1；越界夹回来） */
+
     layoutActive() {
       const a = this.active
       const n = this.lines.length
       const last = n > 0 ? n - 1 : 0
       return a < 0 ? 0 : a > last ? last : a
     },
-    /**
-     * 排版行 + 预算样式（只跟歌词/翻译/逐字/动画/主题色有关，不依赖播放进度）。
-     * 行高由 lyriclayout.js 预排给出；换行时数组引用不变 → LyricTrack 不重渲染，
-     * 只有 hl 变化时它才重渲染窗口内行。
-     */
+
+    // 排版行 + 预算样式（只跟歌词/翻译/逐字/动画/主题色有关，不依赖播放进度）；
+    // 换行时数组引用不变 → LyricTrack 不重渲染，只有 hl 变化时才重渲染窗口内的行
     rowsAll() {
       const rows = buildLyricRows(this.lines, this.showTrans, this.wordOn)
       const accentC = this.accent.c
@@ -178,7 +166,8 @@ export default {
       if (e > n) e = n
       return rows.slice(s, e)
     },
-    /** 自动跟随目标与拖动边界（px，内容坐标；前缀和 O(1)） */
+
+    // 自动跟随目标与拖动边界（px，内容坐标；前缀和 O(1)）
     geo() {
       const rows = this.rowsAll
       const n = rows.length
@@ -190,11 +179,9 @@ export default {
         min: CENTER_Y - (this.contentH() - rows[n - 1].h / 2)
       }
     },
-    /**
-     * 整条轨道唯一一次 translateY；窗口起点之前的高度要加回来（见 trackStyle 的 T 公式）。
-     * **不用 CSS transition**：本平台对 transform 的过渡插值不可靠（实测硬跳），且过渡期间
-     * 窗口/节点一变就闪。改成 JS 补间（animateTo）逐帧写 transform，所见即所得。
-     */
+
+    // 整条轨道唯一一次 translateY；窗口起点之前的高度要加回来（见 T 公式）
+    // **不用 CSS transition**：平台对 transform 的过渡插值不可靠（实测硬跳），过渡期间窗口/节点一变就闪
     trackStyle() {
       const rows = this.rowsAll
       const n = rows.length
@@ -207,10 +194,11 @@ export default {
       this.resetTouchState()
       this.applyJump(this.geo.auto)
     },
-    /** 换行：滚动看 follow/锁定/手指/惯性；高亮由渲染自动跟上 */
+
     active() {
-      // up 事件丢失（平台偶发）：1s 没有任何 touchmove 就当手指早松开了，
-      // 否则 dragging 会一直挂着，自动跟歌从此不再滚动 —— 表现就是「歌词不跟着走」。
+
+      // up 事件丢失（平台偶发）：1s 内没有 touchmove 就当手指早已松开，否则 dragging 一直挂着，
+      // 自动跟歌从此不再滚动 —— 表现就是「歌词不跟着走」
       if (this.dragging && Date.now() - (this._lastMoveAt || 0) > 1000) {
         log('lyric', '拖动态超时未收到 up，复位')
         this.resetTouchState()
@@ -228,20 +216,20 @@ export default {
     anim() {
       this.relayoutAfterRows()
     },
-    /** 切歌：瞬时归位，不从上一首的位置滑过来 */
+
     lines() {
       this.active = this.activeFromClock()
       this.resetTouchState()
       this.applyJump(this.geo.auto)
     },
-    /** 自动跟歌从关到开：立刻滚回当前行 */
+
     follow(on) {
       if (!on || this.dragging || this._inertia) return
       this.snapToCurrent(this.anim ? SNAP_MS : 0)
     }
   },
   created() {
-    // 局部时钟与订阅表（非响应式；ticker 引用稳定，LyricWordLine 直接挂回调）
+
     this._subs = []
     const self = this
     this._ticker = {
@@ -268,8 +256,8 @@ export default {
     this._speed = 0
     this._lastY = 0
     this._lastMoveAt = 0
-    this._frames = 0 // 时钟实际走了多少拍（诊断用）
-    this._actLogs = 0 // 换行日志条数上限（避免刷屏）
+    this._frames = 0 
+    this._actLogs = 0 
     this._diagT = 0
     this.onState(player.state())
     this.topOff = this.geo.auto
@@ -278,18 +266,18 @@ export default {
   mounted() {
     const self = this
     this._dead = false
-    /* 页内播放器快照也只在**可见**时消费：被上层页盖住（或播放页的歌词子面板没开）时，
-       onState 会写 active / 推送时钟给每个 LyricWordLine，整块歌词随之重渲染 ——
-       看不见的歌词没有任何东西需要刷新。露出时用最新快照重锚（下面 bindPageVis 的 on 分支），
-       所以隐藏期间丢掉的 tick 不会让画面停在旧位置。 */
+
+    // 播放器快照只在**可见**时消费：被上层页盖住时 onState 会写 active、推送时钟给每个 LyricWordLine，
+    // 整块歌词随之重渲染；露出时用最新快照重锚，隐藏期间丢掉的 tick 不会让画面停在旧位置
     this._visible = true
     this._ph = player.on(function (s) {
       if (!self._visible) return
       self.onState(s)
     })
     this.startClock()
-    /* 面板不可见时连**时钟**一起停（33ms 一拍 = 每秒 30 次推进 + 逐字状态推送），
-       重新露出时按快照重锚并拉起时钟。player 订阅本身保留，用来在露出时重锚。 */
+
+    // 不可见时连时钟一起停（33ms 一拍 = 每秒 30 次推进 + 逐字状态推送）；
+    // player 订阅本身保留，用于露出时重锚
     this._visOff = bindPageVis(this, function (on) {
       self._visible = on
       if (on) {
@@ -299,11 +287,13 @@ export default {
         self.stopClock()
       }
     })
-    this.applyJump(this.geo.auto) // 幂等对齐（页面会挂两遍）
+    // 幂等对齐（页面会挂两遍）
+    this.applyJump(this.geo.auto) 
     log('lyric', '歌词面板挂载 行数=' + this.rowsAll.length +
       ' 渲染=' + this.rowsView.length + ' 行（窗口 ' + this.winStart + '..' + this.winEnd + '）')
-    // 挂载 3s 后采一次样：时钟拍数 / 是否在播 / 时钟位置 / 活动行。
-    // 「活动行不跟播放进度」这类问题，看这一条就能分清是时钟没走还是没换行。
+
+    // 挂载 3s 后采一次样（拍数 / 是否在播 / 时钟位置 / 活动行）：
+    // 「活动行不跟播放进度」看这一条就能分清是时钟没走还是没换行
     this._diagT = setTimeout(function () {
       self._diagT = 0
       if (self._dead) return
@@ -325,7 +315,7 @@ export default {
     this.stopAnim()
   },
   methods: {
-    /* ---- 局部时钟 ---- */
+
     clockMs() {
       if (!this._playing || !this._anchorAt) return this._anchorMs
       return this._anchorMs + (Date.now() - this._anchorAt) * this._rate
@@ -339,6 +329,7 @@ export default {
       const playing = !!(s && s.isPlaying && !s.paused)
       const rate = (s && s.rate) || 1
       const wasPlaying = this._playing
+
       // 小误差不重锚（500ms 快照反复重锚会让逐字动画来回抖），但**换行判断仍要走一次**
       if (playing && wasPlaying && this._anchorAt && rate === this._rate) {
         const diff = pos - this.clockMs()
@@ -354,14 +345,15 @@ export default {
       this._anchorAt = playing ? Date.now() : 0
       this.syncActive(pos)
       this.pushClock(pos)
-      // 暂停 → 播放的边沿：rAF 时钟可能在暂停时自己停了，这里重新拉起
+
+      // 暂停 → 播放的边沿：时钟可能在暂停时自己停了，这里重新拉起
       if (playing && this._ph && !this._rafId) this.startClock()
     },
     syncActive(ms) {
       const idx = this.lines.length ? findLyricIndex(this.lines, ms) : -1
       if (idx === this.active) return
       this.active = idx
-      // 换行日志（前几条）：定位「不换行」时最直接的证据 —— 看是时钟没走还是没换行
+
       if (this._actLogs < 6) {
         this._actLogs++
         log('lyric', '活动行 -> ' + idx + ' @' + Math.round(ms) + 'ms ' +
@@ -380,7 +372,8 @@ export default {
       this.stopClock()
       if (!this._playing) return
       const self = this
-      // 定时器驱动（不用 rAF，原因见文件头 scheduleFrame 的注释）
+
+      // 定时器驱动（不用 rAF，原因见 scheduleFrame 的注释）
       const tick = function () {
         if (self._dead || !self._playing) {
           self._rafId = 0
@@ -398,7 +391,7 @@ export default {
       if (this._rafId) clearTimeout(this._rafId)
       this._rafId = 0
     },
-    /* ---- 行几何（无行距：rowTop = prefix，O(1)） ---- */
+
     rowTop(i) {
       const rows = this.rowsAll
       const n = rows.length
@@ -418,7 +411,7 @@ export default {
       if (!n) return 0
       return rows[n - 1].prefix + rows[n - 1].h
     },
-    /* ---- 窗口化（不变量：换窗口必须伴随瞬时帧） ---- */
+
     findWindowRange(from, to) {
       const rows = this.rowsAll
       const n = rows.length
@@ -460,20 +453,16 @@ export default {
       const c1 = -Math.min(a, b) + PANEL_H
       return c0 >= lo - 0.5 && c1 <= hi + 0.5
     },
-    /** 瞬时对齐：停掉在跑的补间，直接落到目标，窗口按端点收拢 */
+
     applyJump(target) {
       this.stopAnim()
       this.topOff = target
       this.syncWindow(target, target)
     },
-    /**
-     * JS 补间滚到 target（ease-out）。
-     *
-     * 为什么不用 CSS transition：实测这个平台对 transform 的过渡不插值（硬跳），
-     * 而且在途过渡遇到窗口/节点变化会闪。补间还有一个好处 —— 窗口可控：
-     * 开始前一次性把窗口扩到能盖住 from→target（不变量 2：滑动期间不换窗口），
-     * 期间只改 topOff，结束时再收窗，滑过的范围内一定有节点。
-     */
+
+    // JS 补间滚到 target（ease-out）：本平台 CSS transition 对 transform 不插值（硬跳），
+    // 在途过渡遇到窗口/节点变化还会闪；补间还能控窗口 —— 开始前一次性扩窗覆盖 from→target，
+    // 期间只改 topOff，结束再收窗
     animateTo(target, ms) {
       this.stopAnim()
       if (ms <= 0 || target === this.topOff) {
@@ -484,21 +473,21 @@ export default {
       const from = this.topOff
       const t0 = Date.now()
       const self = this
-      this.syncWindow(from, target) // 预扩窗：整段滑动都在窗口覆盖内
+      this.syncWindow(from, target) 
       const step = function () {
         if (self._dead) {
           self._animT = 0
           return
         }
         const p = Math.min(1, (Date.now() - t0) / ms)
-        const e = 1 - Math.pow(1 - p, 3) // ease-out cubic
+        const e = 1 - Math.pow(1 - p, 3) 
         self.topOff = from + (target - from) * e
         if (p < 1) {
           self._animT = setTimeout(step, FRAME_MS)
         } else {
           self._animT = 0
           self.topOff = target
-          self.syncWindow(target, target) // 收窗
+          self.syncWindow(target, target) 
         }
       }
       this._animT = setTimeout(step, FRAME_MS)
@@ -526,7 +515,7 @@ export default {
       if (this.follow || this.locked) this.snapToCurrent(this.anim ? SNAP_MS : 0)
       else this.applyJump(this.topOff)
     },
-    /* ---- 拖动 / 惯性（rAF 合并；速度用最近一次 move 的两点差） ---- */
+
     applyDrag(y) {
       const g = this.geo
       let v = this._startOff + (y - this._startY)
@@ -584,13 +573,14 @@ export default {
       this._wd = null
       this.dragging = false
       this._speed = 0
+
       // 注意不清 _lastTap：双击的第二次按下要保留第一次抬起的信息
     },
     onDown(e) {
       const y = touchAxis(e, 'y')
       if (!isFinite(y)) return
       this.logRawOnce(e)
-      this.stopAnim() // 手指一按就接管位置，别让还在跑的补间继续拉（否则 _startOff 会漂）
+      this.stopAnim() 
       this.resetTouchState()
       this._startY = y
       this._lastY = y
@@ -647,7 +637,7 @@ export default {
         this.onTap(e)
         return
       }
-      // 松手惯性：速度方向与 topOff 一致（手指往下拖 = 内容往下移 = topOff 增大）
+
       if (Math.abs(this._speed) > INERTIA_MIN) {
         this._inertia = true
         this._inertiaAt = Date.now()

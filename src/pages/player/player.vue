@@ -1,6 +1,7 @@
 <template>
   <page-shell :rail="rail" @rail="onRail">
     <div class="ply-main">
+
       <!-- 控制区 480×240：封面 / 子面板切换键 / 标题·歌手·专辑 / 进度 / 控制 -->
       <control-panel
         :st="st"
@@ -16,9 +17,9 @@
         @sub="toggleSub"
       />
 
-      <!-- S7：常驻子面板 480×240，底色 #272727 + 左侧 12px 圆角（设计稿 SubPanel 槽位）。
-           默认打开歌词面板；三个切换键各自开合：已打开的面板再点同一个键 → 关闭回到空面板。
-           进度控制（TimeShiftPanel）内含定时播放子页：seek → timer 是同一面板内的两级页面。 -->
+      <!-- S7：常驻子面板 480×240，底色 subBg + 左侧 5vh 圆角（设计稿 SubPanel 槽位）。
+           三个切换键各自开合：已打开的面板再点同一个键 → 关闭回空面板。
+           进度控制（SeekPanel）内含定时播放子页：seek → timer 是同一面板内的两级页面。 -->
       <div v-if="!narrow" class="ply-sub" :style="{ width: panelW + 'px' }">
         <lyric-board
           v-if="sub === 'lyric' && lyricOn"
@@ -45,17 +46,17 @@
           @close="closePanel"
         />
         <timer-panel v-else-if="sub === 'seek'" @back="timerBack" @toast="showToast" />
-        <!-- 其余情况 = 空面板（EmptyExtraPanel）：不渲染任何内容，父级底色即可 -->
+
       </div>
 
       <!-- 窄屏族（X3S/X5，视口 800×254）：辅助面板 = 右侧抽屉浮层（.ply-main 是定位基准，
-           遮罩只盖控制区、不盖左栏）。点任一切换键滑出，点左侧遮罩或再点同一个键收回；
-           sub='' 时不渲染任何浮层。抽屉比 S7 子面板宽（panelW：窄屏 560），
-           面板内部各块用百分比/100% 自适应，同一个组件两处复用。
-           ⚠ 下方面板块与 .ply-sub 内的完全一致，改面板 props/事件两处同步。 -->
+           遮罩只盖控制区、不盖左栏 —— 左栏在 .psh-body 里、本页内容区之外）。sub='' 时不渲染浮层。
+           抽屉比 S7 子面板宽（panelW：窄屏 560），面板内部各块用百分比/100% 自适应。
+           ⚠ 下面的面板块与 .ply-sub 内的完全一致，改面板 props/事件两处同步。 -->
       <div v-if="narrow && sub" class="ply-scrim" @click="closePanel"></div>
+
       <!-- 抽屉左侧露出的窄条上放两个透明图标键：播放/暂停、返回（= 收起抽屉）。
-           它们是 .ply-scrim 的**兄弟**而不是子节点 —— 平台没有 stopPropagation，
+           它们是 .ply-scrim 的兄弟而不是子节点 —— 平台没有 stopPropagation，
            挂在遮罩内部会让点键同时触发「点遮罩收起」。 -->
       <div v-if="narrow && sub" class="ply-scrimkeys" :style="{ right: panelW + 'px' }">
         <div class="ply-sk" @click="onToggle">
@@ -94,23 +95,12 @@
       </div>
     </div>
 
-    <!-- 轻提示（喜欢结果 / 歌单选择页返回后的添加结果 / 子面板的 toast） -->
     <hint-toast :text="toast" />
   </page-shell>
 </template>
 
 <script>
-/**
- * 播放页（设计稿 PlayerPage 14:1570；几何表与交互契约见 docs/播放页.md）。
- *
- * 三列一条横排（1020×240）：左栏（全局 PageShell + NavRail，60px）｜控制区 480px
- * （ControlPanel.vue）｜子面板 480px（480×240、底 #272727、左侧 12px 圆角），内容在
- * lyric / comment / seek（内含定时子页）三种面板间切换，默认**不打开**任何面板；
- * 控制区左列三个键各自开合，「已打开的面板再点同一个键 → 关闭」。
- *
- * 平台约定（详见 docs/平台约束与自检.md）：模板裸绑定只能来自 props/computed/data；
- * watcher 不用值相等去重 → 带副作用的 watcher 入口自己判重；页面会挂两遍 → mounted 初始化幂等。
- */
+
 import PageShell from '../../components/PageShell.vue'
 import ControlPanel from '../../components/player/ControlPanel.vue'
 import LyricBoard from '../../components/player/LyricBoard.vue'
@@ -150,16 +140,15 @@ export default {
   },
   mixins: [toastMixin, pageFrameMixin],
   data() {
+
     // 窄屏族（X3S/X5，800×254）装不下三列：控制区铺满整页，辅助面板改走右侧抽屉
     const narrow = isNarrow()
     return {
       ICON: ICON,
       narrow: narrow,
-      /**
-       * 辅助面板宽度（px）：S7 与子面板同宽 480；窄屏抽屉更宽（内容区 736 里给到 560，
-       * 留出左侧约 176px 露出控制区，点遮罩即可收回）。
-       * 面板内部各块用百分比/100% 自适应，所以只有这一处要改（见三个 panel 组件）。
-       */
+
+      /* 辅助面板宽度（px）：S7 与子面板同宽 480；窄屏抽屉更宽（内容区 736 里给到 560，
+         留出左侧约 176px 露出控制区，点遮罩即可收回）。面板内部各块用百分比/100% 自适应 */
       panelW: narrow ? 560 : 480,
       st: player.state(),
       lines: [],
@@ -168,12 +157,12 @@ export default {
       lyricOn: true,
       showTrans: true,
       lyricFull: true, // 歌词可拖动翻看（false = 省性能：禁用拖动、位置恒跟当前行）
-      lyricFollow: true, // 歌词自动跟歌（活动行更新时平滑滚动；false = 只换高亮，见 LyricBoard 的 follow）
+      lyricFollow: true, // 歌词自动跟歌（false = 只换高亮，见 LyricBoard 的 follow）
       lyricDbl: true, // 双击歌词跳转到该行
       lyricWord: true, // 逐字歌词（无 YRC 自动回退逐行）
-      lyricAnim: true, // 歌词动画（滚动/高亮/逐字过渡；关闭 = 全部瞬时）
+      lyricAnim: true, // 歌词动画（关闭 = 全部瞬时）
       likeOn: false, // 当前曲目是否已喜欢（收藏到「我喜欢的音乐」）
-      sub: narrow ? '' : 'lyric', // 子面板：S7 默认开歌词；窄屏默认焦点态（'' = 抽屉收起）/ lyric / comment / seek
+      sub: narrow ? '' : 'lyric', // 子面板：S7 默认开歌词；窄屏默认收起（'' = 抽屉关闭）
       seekView: 'seek', // seek 面板内部页面：seek（进度控制）/ timer（定时播放三态）
       timerOn: false // 定时播放是否在跑（只用于到点提示的边沿判定）
     }
@@ -182,21 +171,19 @@ export default {
     curId() {
       return (this.st.cur && this.st.cur.id) || 0
     },
-    /** 曲目 id + 封面 url：搜索结果的封面是详情接口后补的，两个都要跟 */
+
+    // 曲目 id + 封面 url：搜索结果的封面是详情接口后补的，两个都要跟
     coverKey() {
       return this.curId + '|' + ((this.st.cur && this.st.cur.cover) || '')
     },
-    /**
-     * 抽屉左侧遮罩窄条上的播放/暂停图标：与主控键同一套判定
-     * （播放中 = ⏸，暂停/未播 = ▶）。图标是**白色** PNG（垫透明底，不是主题色实心）→ 走 ICON 而不是 fgIcon。
-     */
+
+    // 遮罩窄条上的播放/暂停图标：图标是白色 PNG（垫透明底，不是主题色实心）→ 走 ICON 而不是 fgIcon
     scrimPlayIcon() {
       return this.st.isPlaying && !this.st.paused ? ICON.pause : ICON.play
     },
-    /**
-     * 左栏槽位（全局 NavRail）：返回固定第一，其余贴底。
-     * 「歌曲详情」没有在播曲时禁用（那页要 id）。下载不占槽位（在歌曲详情/列表页）。
-     */
+
+    /* 左栏槽位（全局 NavRail）：返回固定第一，其余贴底。
+       「歌曲详情」没有在播曲时禁用（那页要 id）；下载不占槽位（在歌曲详情/列表页）。 */
     rail() {
       const out = [railBack()]
       out.push(railBtn('info', ICON.info, false, '', false, !this.curId))
@@ -206,10 +193,9 @@ export default {
     }
   },
   watch: {
-    /**
-     * ⚠ 平台坑（实测）：watcher 会被以播放器 tick 的频率用同一个值反复回调
-     * （不像标准 Vue 2 用 value !== this.value 去重）——所以带副作用的 watcher 必须入口判重。
-     */
+
+    /* ⚠ 平台坑（实测）：watcher 会被以播放器 tick 的频率用同一个值反复回调
+       （不像标准 Vue 2 用 value !== this.value 去重）——所以带副作用的 watcher 必须入口判重 */
     curId(id) {
       if (String(id || 0) === this._lyricKey) return
       this.loadLyric(id)
@@ -223,27 +209,28 @@ export default {
   mounted() {
     const self = this
     this._dead = false
-    // 播放状态订阅：每 tick（约 500ms）推一次快照 —— 整页依赖它更新。
-    // 两层门控（都是「省渲染」而不是「省数据」，重新可见/数值真变了时一定会追平）：
-    //   ① 页面被上层页盖住时不赋 data（平台不会卸载被压住的页，订阅一直在跑）；
-    //   ② 赋 data 前按 viewSig 判重 —— 500ms 快照里时间文本与进度条经常与上一帧完全相同
-    //      （时间按秒显示、进度按 0.1% 量化），那种 tick 不需要整页重渲染。
-    //      ⚠ 签名包含 status / 已播时间 / 总时长 / 进度百分比，所以不会有「停在旧值」。
+
+    /* 播放状态订阅：每 tick（约 500ms）推一次快照，整页依赖它更新。
+       两层门控（省渲染而不是省数据，重新可见/数值真变了时一定会追平）：
+         ① 页面被上层页盖住时不赋 data（平台不会卸载被压住的页，订阅一直在跑）；
+         ② 赋 data 前按 viewSig 判重 —— 时间按秒显示、进度按 0.1% 量化，那种 tick 不需要重渲染。
+       ⚠ 页面会挂两遍：每个实例各订各退（模块单例的 subs 是数组，只挂一次会漏掉后来显示的实例）。 */
     this._feed = sigFeed(viewSig)
     this._visible = true
     this._off = player.on(function (s) {
       self.onTick(s)
     })
-    // 可见性跟随页面：重新露出时补一次快照（隐藏期间的 tick 被丢掉了，数据已过期）
+
     this._visOff = bindPageVis(this, function (on) {
       const was = self._visible
       self._visible = on
       if (on && !was) self.onTick(player.state())
     })
     this.readOpts()
-    // 定时播放状态（模块级单例，跨页面存活）：每秒广播一次，页面只关心 active。
-    // 到点提示：定时面板开着时由 TimerPanel 自己 emit（避免双 toast），
-    // 其余情况（空面板/评论/歌词/进度控制）由页面补一条。
+
+    /* 定时播放状态（模块级单例，跨页面存活）：每秒广播一次，页面只关心 active。
+       到点提示：定时面板开着时由 TimerPanel 自己 emit（避免双 toast），
+       其余情况（空面板/评论/歌词/进度控制）由页面补一条。 */
     this._timerFn = function (s) {
       const on = !!(s && s.active)
       const timerPanelOpen = self.sub === 'seek' && self.seekView === 'timer'
@@ -254,6 +241,7 @@ export default {
     }
     sleepTimer.on(this._timerFn)
     this.timerOn = !!sleepTimer.state().active
+
     // 从「播放设置」页返回时刷新开关（那边改完 trigger 这个事件）
     this._evt = function () {
       self.readOpts()
@@ -262,9 +250,9 @@ export default {
       /* global $falcon */
       $falcon.on('bpncm:playeropts', this._evt)
     } catch (e) {}
-    // 歌单选择页添加成功后 trigger('bpncm:toast', 文案)，返回本页就能看到结果。
-    // ⚠ 回调参数是框架包过的 {type,timestamp,data}，必须 evtData 解包 —— 否则显示 [object Object]
+
     this._toastEvt = function (evt) {
+      // ⚠ 回调参数是框架包过的 {type,timestamp,data}，必须 evtData 解包 —— 否则显示 [object Object]
       const text = evtData(evt)
       if (text) self.showToast(String(text))
     }
@@ -298,10 +286,9 @@ export default {
     this._toastEvt = null
   },
   methods: {
-    /**
-     * 播放器 tick 的落点：**隐藏时直接丢、可见时先判重**再赋 data（见 mounted 的注释）。
-     * 判重键覆盖了模板会用到的一切：换歌 / 播放态 / 循环模式 / 状态文案 / 时间 / 进度。
-     */
+
+    /* 播放器 tick 的落点：隐藏时直接丢、可见时先判重再赋 data（见 mounted 的注释）。
+       判重键覆盖模板会用到的一切：换歌 / 播放态 / 循环模式 / 状态文案 / 时间 / 进度 */
     onTick(s) {
       if (!this._visible) return
       if (!this._feed(s)) return
@@ -316,7 +303,7 @@ export default {
       this.lyricWord = config.get('lyricWord') !== false
       this.lyricAnim = config.get('lyricAnim') !== false
     },
-    /* ---- 歌词 ---- */
+
     async loadLyric(id) {
       const key = String(id || 0)
       this._lyricKey = key
@@ -329,7 +316,8 @@ export default {
       this.lyricHint = r.pureMusic ? '纯音乐，请欣赏' : r.empty ? '暂无歌词' : ''
       log('player', '歌词就绪 id=' + id + ' 行数=' + r.lines.length)
     },
-    /* ---- 封面（播放页封面 152px，BIG_COVER=200 缩略图足够） ---- */
+
+    /* 封面（播放页封面 152px，BIG_COVER=200 缩略图足够） */
     loadCover() {
       const self = this
       const s = this.st.cur || {}
@@ -345,14 +333,15 @@ export default {
         BIG_COVER
       )
     },
-    /* ---- 歌词双击 seek（LyricBoard 抛上行下标） ---- */
+
+    /* 歌词双击 seek（LyricBoard 抛上行下标） */
     onSeekLine(idx) {
       const ln = this.lines[idx]
       if (!ln || !isFinite(ln.time)) return
       log('player', '歌词双击跳转 idx=' + idx + '/' + this.lines.length + ' t=' + ln.time + 'ms')
       player.seekTo(ln.time)
     },
-    /* ---- 控制 ---- */
+
     onToggle() {
       player.toggle()
     },
@@ -365,7 +354,7 @@ export default {
     onLoop() {
       player.cycleLoopMode()
     },
-    /* ---- 喜欢（收藏到「我喜欢的音乐」） ---- */
+
     async loadLike(id) {
       const key = String(id || 0)
       this._likeKey = key
@@ -381,11 +370,10 @@ export default {
       if (v === null) return // 未登录 / 查询失败：保持未知（空心）
       this.likeOn = v
     },
-    /**
-     * 单击 → 收藏 / 取消（乐观更新，失败回滚）。
-     * 长按走渲染器原生手势事件（pressing 态只发 pressend、不发 click），与单击天然互斥；
-     * 仍保留 HOLD_SWALLOW_MS 保险：万一固件长按后仍发 click，不误触发收藏。
-     */
+
+    /* 单击 → 收藏 / 取消（乐观更新，失败回滚）。
+       长按走渲染器原生手势事件（pressing 态只发 pressend、不发 click），与单击天然互斥；
+       HOLD_SWALLOW_MS 是保险：万一固件长按后仍发 click，不误触发收藏。 */
     async toggleLike() {
       const id = this.curId
       if (!id) return
@@ -410,9 +398,10 @@ export default {
       this.likeOn = !want
       this.showToast(r.needLogin ? '未登录，无法收藏' : '操作失败，请重试')
     },
-    /** 长按 → 歌单选择页（选一个歌单把当前曲目加进去）。
-     *  选择态 = `playlists` 的第二层实例：由 core/infra/nav.js 分配不在栈里的槽位 key，
-     *  不会复用栈里已有的浏览态实例，也不会弹掉本页。 */
+
+    /* 长按 → 歌单选择页（选一个歌单把当前曲目加进去）。
+       选择态 = playlists 的第二层实例：由 core/infra/nav.js 分配不在栈里的槽位 key，
+       不会复用栈里已有的浏览态实例，也不会弹掉本页。 */
     openPick() {
       const id = this.curId
       if (!id) return
@@ -429,11 +418,9 @@ export default {
     onPick() {
       this.openPick()
     },
-    /* ---- 子面板开合 ---- */
-    /**
-     * 三个切换键共用：点开某个面板；**已经打开的那个再点一次就是关闭**（回空面板）。
-     * 进度控制（seek）每次打开都从 TimeShiftPanel 首页开始（定时子页不保留）。
-     */
+
+    /* 三个切换键共用：点开某个面板；已经打开的那个再点一次就是关闭（回空面板）。
+       进度控制（seek）每次打开都从 SeekPanel 首页开始（定时子页不保留） */
     toggleSub(key) {
       if (this.sub === key) {
         this.sub = ''
@@ -445,33 +432,35 @@ export default {
       if (key === 'seek') this.seekView = 'seek'
       log('player', '子面板 -> ' + key)
     },
-    /** 关闭子面板（进度控制面板顶栏点标题时用） */
+
     closePanel() {
       this.sub = ''
       this.seekView = 'seek'
       log('player', '子面板关闭 -> 空面板')
     },
-    /* ---- 进度控制面板 ---- */
+
     onSeekTo(ms) {
       player.seekTo(ms)
     },
-    /** 进度控制面板右上「定时播放」→ 定时子页（SetTimer / SetCustomTimer / Timer 都在这里） */
+
+    /* 进度控制面板右上「定时播放」→ 定时子页 */
     openTimer() {
       if (this.sub !== 'seek') return
       this.seekView = 'timer'
       log('player', '进度控制 -> 定时播放')
     },
-    /** 定时子页顶栏「返回」→ 回到进度控制首页（不是在页面之间跳转） */
+
+    // 定时子页「返回」→ 回到进度控制首页（不是在页面之间跳转）
     timerBack() {
       if (this.sub !== 'seek') return
       this.seekView = 'seek'
     },
-    /* ---- 导航 ---- */
+
     openInfo() {
       if (!this.curId) return
       go('songinfo', { id: this.curId })
     },
-    /* ---- 左栏上下文键（pageFrameMixin 的 onRailKey；返回由 mixin 的 onBack 处理） ---- */
+
     onRailKey(key) {
       if (key === 'info') {
         this.openInfo()
@@ -490,20 +479,19 @@ export default {
 <style lang="less" scoped>
 @import '../../styles/common.less';
 
-/* 三列横排铺满 PageShell 的内容区（.psh-body 是 column + flex:1，所以这里必须 flex:1 + row）。
-   底色由 PageShell 按主题给（本页不再自己上底色）。 */
+/* 三列横排铺满 PageShell 的内容区（.psh-body 是 column + flex:1，所以这里必须 flex:1 + row）。 */
 .ply-main {
   flex: 1;
   width: 100%;
   flex-direction: row;
+
   /* 窄屏抽屉/遮罩的定位基准（S7 无绝对子元素，无影响） */
   position: relative;
 }
-/* 子面板 480×240：底 #272727、左上/左下 12px 圆角（设计稿 SubPanel 槽位），
-   右侧两角是直角 —— 所以只给左边两个角，overflow 裁掉子内容的直角。
-   空面板（EmptyExtraPanel）时它就只是一块纯色面。 */
+
+/* 子面板 480×240：左两个角 5vh 圆角（设计稿 SubPanel 槽位），右侧直角，overflow 裁掉子内容直角 */
 .ply-sub {
-  /* 宽度由模板内联给（panelW：S7 480 / 窄屏 560）—— 面板内部用百分比自适应 */
+
   height: 100vh;
   flex: none;
   background-color: @sub-bg;
@@ -511,8 +499,8 @@ export default {
   border-bottom-left-radius: 5vh;
   overflow: hidden;
 }
-/* 窄屏族：遮罩 + 右侧抽屉（遮罩盖控制区、不盖左栏 —— 左栏在 .psh-body 里、本页内容区之外）。
-   抽屉样式 = S7 子面板原样（480 宽、subBg、左圆角）：三个面板内部全是 480/456 定宽，零改动复用。 */
+
+/* 窄屏族：遮罩盖控制区、不盖左栏（左栏在 .psh-body 里、本页内容区之外） */
 .ply-scrim {
   position: absolute;
   left: 0;
@@ -521,18 +509,17 @@ export default {
   bottom: 0;
   background-color: @scrim-deep;
 }
-/* 遮罩左侧窄条上的两个透明图标键（播放/暂停、返回）：上下排列、无底色、不抢抽屉视线。
-   定位：right 由模板内联给（= 抽屉宽），即「露出的那条遮罩」整体；
-   两个键在**整条遮罩内水平居中 + 垂直居中**。
-   ⚠ 不挂 background —— 用户要求「透明，仅图标」。 */
+
+/* 遮罩左侧窄条上的两个透明图标键：上下排列、无底色。right 由模板内联给（= 抽屉宽），
+   两个键在整条遮罩内水平居中 + 垂直居中 */
 .ply-scrimkeys {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  /* right 由模板内联给（panelW） */
+
   flex-direction: column;
-  /* 遮罩条内水平居中 + 垂直居中 */
+
   align-items: center;
   justify-content: center;
 }
@@ -541,6 +528,7 @@ export default {
   height: 28vh;
   align-items: center;
   justify-content: center;
+
   /* 两键间距：上下各 7vh 相加 = 14vh ≈ 36px（flex column 里 margin 不合并） */
   margin-top: 7vh;
   margin-bottom: 7vh;
@@ -553,6 +541,7 @@ export default {
   position: absolute;
   top: 0;
   right: 0;
+
   /* 宽度由模板内联给（panelW） */
   height: 100vh;
   background-color: @sub-bg;
@@ -560,7 +549,7 @@ export default {
   border-bottom-left-radius: 5vh;
   overflow: hidden;
 }
-/* 歌词关闭态（保留与旧页面一致的提示） */
+
 .ply-off {
   flex: 1;
   align-items: center;

@@ -1,25 +1,14 @@
-/**
- * 本地音乐库：已下载歌曲的**完整元数据索引**（SQLite 索引库）与**歌词**（track_lyric 表）
- *
- * 索引落 `local_index.db` 的四张表（结构见 docs/存储重构.md §1.3）：track / track_artist /
- * album / artist。读写模型见 core/platform/db.js：boot 时整库灌内存，此后查询都在内存里（不分叉），
- * 写走单条 upsert（代价与库规模无关 —— 旧实现把整张表塞进 `store/local_index.json`，
- * 一条改动就重写 62KB）。
- *
- * 歌词落状态库 `state.db` 的 track_lyric 表（`{v, lrc, tlyric, yrc, pureMusic}`，
- * 读写走 services/player/media.js），对外按形状 `{l, t, pm, y}` 给调用方（player/lyric.js 依赖这个形状）。
- * cache 通道的歌**不存歌词**：它们会被 LRU 滚掉，留下就是孤儿数据。
- *
- * 覆盖时机：
- *   - 用户下载完成（download.js 的 downloadOne 挂点，只挂 download 通道）
- *   - 本功能之前的老下载：downloads 页 enrich 在线时逐首 backfill
- *   - 播放在线下载曲、网络歌词到手而库里还没有时（lyric.js 的自愈落盘）
- * 清理随文件走：deleteCached → dropLocalSong；clearSongs → clearLocalLibrary。
- *
- * **「已索引」判据**：track 表里 name 非空的行才算本地库的曲目。
- * 下载归属（dlorigin.js）会给「没有索引记录的老文件」单独补写 track.dl_origin，
- * 那种行的 name 是空的 —— 不能把它们当成「有详情可用的曲目」。
- */
+// 本地音乐库：已下载歌曲的完整元数据索引 + 歌词。
+//
+// 索引落 local_index.db 的 track / track_artist / album / artist 四张表；读写模型见 core/platform/db.js：
+// boot 时整库灌内存、查询都在内存里（不分叉），写走单条 upsert（代价与库规模无关；旧实现整张表塞进
+// store/local_index.json，一条改动就重写 62KB）。
+// 歌词落状态库 state.db 的 track_lyric 表（{v, lrc, tlyric, yrc, pureMusic}，读写走 media.js），
+// 对外按形状 {l, t, pm, y} 给调用方（player/lyric.js 依赖这个形状）。cache 通道的歌**不存歌词**：
+// 它们会被 LRU 滚掉，留下就是孤儿数据。
+//
+// **「已索引」判据**：track 表里 name 非空的行才算本地库的曲目。下载归属（dlorigin.js）会给
+// 「没有索引记录的老文件」单独补写 track.dl_origin，那种行 name 是空的 —— 不能当成「有详情可用」
 import { open as dbOpen, data as dbData, exec as dbExec, upsertSql, deleteSql, num } from '../../core/platform/db.js'
 import { readLyrics, writeLyrics, dropLyrics } from '../../services/player/media.js'
 import { fetchSongInfo, fetchLyric } from '../ncm/api.js'
@@ -35,15 +24,13 @@ const T_TA = 'track_artist'
 const T_ALBUM = 'album'
 const T_ARTIST = 'artist'
 
-/* ---------------- 类型归一 ---------------- */
-
-/** 数字列：非有限数一律 0（避免把 NaN 写进 SQL 造成语法错误） */
+// 数字列：非有限数一律 0（避免把 NaN 写进 SQL 造成语法错误）
 function int(v) {
   const n = Number(v)
   return isFinite(n) ? Math.round(n) : 0
 }
 
-/** alias 列存的是 JSON 数组文本；坏了按空数组处理 */
+// alias 列存的是 JSON 数组文本；坏了按空数组处理
 function parseArr(s) {
   if (!s) return []
   try {
@@ -54,30 +41,24 @@ function parseArr(s) {
   }
 }
 
-/**
- * 曲目 id 归一：数字优先，非数字 id 原样保留（索引键是字符串，行对象要数字 id）。
- * 索引记录 → 视图对象只走这一处。
- */
+// 曲目 id 归一：数字优先，非数字 id 原样保留（索引键是字符串，行对象要数字 id）。
+// 索引记录 → 视图对象只走这一处
 export function songIdOf(id) {
   const n = Number(id)
   return isNaN(n) ? id : n
 }
 
-/* ---------------- 索引（内存投影，形状与旧 store/local_index.json 一致） ---------------- */
-
 let mem = null
 let loading = null
 
-/**
- * 从 DB 内存态投影出「songId → 记录」表（只读快照，写入后重建）。
- * 记录形状沿用旧 JSON 表：{n, alia, ars:[{i,n}], al:{i,n,c}, d, pub, no, cd, pop, fee}
- * —— 上层视图函数（toSong / localArtistView / localAlbumList ...）一行都不用改。
- */
+// 从 DB 内存态投影出「songId → 记录」表（只读快照，写入后重建）。
+// 记录形状沿用旧 JSON 表：{n, alia, ars:[{i,n}], al:{i,n,c}, d, pub, no, cd, pop, fee}
+// —— 上层视图函数（toSong / localArtistView / localAlbumList ...）一行都不用改
 function buildMem() {
   const d = dbData()
   const out = {}
   if (!d) return out
-  // track_artist 按 track_id 分组，组内按 ord（展示顺序）
+
   const byTrack = {}
   const ta = d.track_artist || []
   for (let i = 0; i < ta.length; i++) {
@@ -97,7 +78,8 @@ function buildMem() {
   const keys = Object.keys(tracks)
   for (let i = 0; i < keys.length; i++) {
     const row = tracks[keys[i]]
-    if (!row || !row.name) continue // 见文件头「已索引判据」
+    // name 为空的行是 dlorigin 给老文件补写的，不是「有详情可用」的曲目（见文件头判据）
+    if (!row || !row.name) continue 
     const alId = int(row.album_id)
     const al = albums[String(alId)] || null
     const rows = byTrack[keys[i]] || []
@@ -141,7 +123,7 @@ export async function loadIndex() {
   return loading
 }
 
-/** 同步取一条（须先 await loadIndex()；各导出视图函数内部已保证） */
+// 同步取一条（须先 await loadIndex()；各导出视图函数内部已保证）
 export function indexOf(id) {
   return (mem && mem[String(id)]) || null
 }
@@ -156,13 +138,10 @@ function mapArtists(list) {
   return out
 }
 
-/**
- * 写入一首歌的索引（与已有条目**合并写**：新快照缺的字段保留旧值）。
- * info = fetchSongInfo 的返回（{song, artists, album, publishTime, trackNo, disc, popularity}）。
- *
- * 两条路径一起更新：先改内存投影（读的真相），再拼一批 SQL 落库（一批一个事务）。
- * 写库失败只记日志 —— 文件系统才是真相，索引丢了能重建，不能让下载链路跟着炸。
- */
+// 写入一首歌的索引（与已有条目**合并写**：新快照缺的字段保留旧值）。
+// info = fetchSongInfo 的返回（{song, artists, album, publishTime, trackNo, disc, popularity}）。
+// 先改内存投影（读的真相），再拼一批 SQL 落库；写库失败只记日志 —— 文件系统才是真相，
+// 索引丢了能重建，不能让下载链路跟着炸
 export async function putIndex(id, info) {
   if (!id || !info) return
   try {
@@ -193,7 +172,6 @@ export async function putIndex(id, info) {
   }
 }
 
-/** 把一条索引记录写进 DB（内存行 + 一批 SQL）。不抛。 */
 async function persistTrack(k, rec) {
   const tid = int(k)
   if (!tid) return
@@ -224,6 +202,7 @@ async function persistTrack(k, rec) {
       row.id = aid
       row.name = (ars[i] && ars[i].n) || row.name || ''
       d.artist[String(aid)] = row
+
       // 只写 name 列：头像/头像时间由 artistmeta.js 管，别互相擦掉
       stmts.push(upsertSql(T_ARTIST, [
         { name: 'id', v: aid, raw: true },
@@ -245,6 +224,7 @@ async function persistTrack(k, rec) {
     if (!trow.added_at) trow.added_at = Date.now()
     if (trow.dl_origin === undefined) trow.dl_origin = 0
     d.track[k] = trow
+
     // 注意：dl_origin 不在这一批里 —— 归属由 dlorigin.js 独立写，这里不能覆盖它
     stmts.push(upsertSql(T_TRACK, [
       { name: 'id', v: tid, raw: true },
@@ -260,6 +240,7 @@ async function persistTrack(k, rec) {
       { name: 'cover', v: trow.cover },
       { name: 'added_at', v: int(trow.added_at), raw: true }
     ], 'id'))
+
     // 多对多：先删该曲目的旧行再插新行（顺序即 ord）
     const keep = []
     const all = d.track_artist || []
@@ -274,18 +255,20 @@ async function persistTrack(k, rec) {
     }
     d.track_artist = keep.concat(rows)
     stmts.push(deleteSql(T_TA, 'track_id = ' + num(tid)))
+
     // 关系行用多行 INSERT（一行 ~20B，逐条 upsert 要 ~90B）
     const tuples = []
     for (let i = 0; i < rows.length; i++) tuples.push([rows[i].track_id, rows[i].artist_id, rows[i].ord])
     taStmts = replaceRowsSql(T_TA, ['track_id', 'artist_id', 'ord'], tuples)
   } else {
-    return // 通道没起来（db.open 失败）：内存投影已是真相，重启后靠文件与网络重建
+    // 通道没起来（db.open 失败）：内存投影已是真相，重启后靠文件与网络重建
+    return 
   }
   await runStmts(stmts)
   await runStmts(taStmts)
 }
 
-/** 该专辑是否还有别的曲目引用（删曲目时决定要不要顺手清掉专辑行） */
+// 该专辑是否还有别的曲目引用（删曲目时决定要不要顺手清掉专辑行）
 function albumInUse(d, alId, skipTrackId) {
   const tracks = d.track || {}
   const keys = Object.keys(tracks)
@@ -317,7 +300,7 @@ export async function dropIndex(id) {
       deleteSql(T_TA, 'track_id = ' + num(tid)),
       deleteSql(T_TRACK, 'id = ' + num(tid))
     ]
-    // 旧实现里专辑信息随曲目记录一起消失；这里保留同样的可观察行为
+
     const alId = row ? int(row.album_id) : 0
     if (alId && !albumInUse(d, alId, k)) {
       delete d.album[String(alId)]
@@ -340,12 +323,8 @@ async function clearIndex() {
   await dbExec(['DELETE FROM ' + T_TA + ';', 'DELETE FROM ' + T_TRACK + ';', 'DELETE FROM ' + T_ALBUM + ';'])
 }
 
-/* ---------------- 歌词（track_lyric 表，经 media.js 读写） ---------------- */
-
-/**
- * 取本地歌词；返回 {l, t, pm, y} 或 null（没有/坏了都算 null；y 是可选 YRC 原文）。
- * 只对 downloads 通道的曲目有歌词 —— cache 通道的歌不存歌词。
- */
+// 取本地歌词；返回 {l, t, pm, y} 或 null（没有/坏了都算 null；y 是可选 YRC 原文）。
+// 只对 downloads 通道的曲目有歌词 —— cache 通道的歌不存歌词
 export async function lyricOf(id) {
   if (!id) return null
   try {
@@ -359,7 +338,8 @@ export async function lyricOf(id) {
 
 export async function putLyric(id, l, t, pm, y) {
   if (!id) return
-  if (!l && !pm) return // 没词又不是纯音乐：没有可存的
+  // 没词又不是纯音乐：没有可存的
+  if (!l && !pm) return 
   try {
     await writeLyrics(id, { lrc: l || '', tlyric: t || '', yrc: y || '', pureMusic: pm ? 1 : 0 })
   } catch (e) {
@@ -373,9 +353,7 @@ export async function dropLyric(id) {
   } catch (e) {}
 }
 
-/* ---------------- 清理挂点（随音频文件走） ---------------- */
-
-/** 删单首：索引 + 歌词（download.js 的 deleteCached 挂点） */
+// 删单首：索引 + 歌词（download.js 的 deleteCached 挂点）
 export async function dropLocalSong(id) {
   try {
     await dropIndex(id)
@@ -383,8 +361,8 @@ export async function dropLocalSong(id) {
   await dropLyric(id)
 }
 
-/** 清空索引（cache.js 的 clearSongs 挂点）。
- *  歌词不必在这里删 —— 它就在 downloads/<id>/ 里面，删下载目录时一起走。 */
+// 清空索引（cache.js 的 clearSongs 挂点）。
+// 歌词不必在这里删 —— 它就在 downloads/<id>/ 里面，删下载目录时一起走
 export async function clearLocalLibrary() {
   await loadIndex()
   const n = Object.keys(mem || {}).length
@@ -392,14 +370,9 @@ export async function clearLocalLibrary() {
   log('local', '本地库已清空（索引 ' + n + ' 首；歌词随下载目录一起删除）')
 }
 
-/* ---------------- 下载完成落盘 ---------------- */
-
-/**
- * 下载完成后把详情 + 歌词落盘（离线详情页/歌词的数据源）。
- * 返回 {info: fetchSongInfo 的结果或 null, lyric: bool}
- * —— 调用方（downloads 页 enrich）要拿 info 补行显示，别只给布尔。
- * 任何一步失败只记日志，绝不抛给下载链路。
- */
+// 下载完成后把详情 + 歌词落盘（离线详情页/歌词的数据源）。
+// 返回 {info: fetchSongInfo 的结果或 null, lyric: bool} —— 调用方（downloads 页 enrich）要拿 info
+// 补行显示，别只给布尔。任何一步失败只记日志，绝不抛给下载链路
 export async function saveSongExtras(songId) {
   const id = String(songId)
   const out = { info: null, lyric: false }
@@ -414,9 +387,10 @@ export async function saveSongExtras(songId) {
     try {
       await raceTimeout(putIndex(id, info), 8000, null)
     } catch (e) {}
+
     // 浏览缩略图预热（封面缓存键的形态不变：<id>@<size> → cache/thumbs/<id>_<size>.jpg）。
     // 四把键各有用处：songId@60 列表行；songId@200 播放页与首页当前播放卡；
-    // al<ID>@60 歌手页专辑卡；al<ID>@200 歌曲/专辑详情页大封面。
+    // al<ID>@60 歌手页专辑卡；al<ID>@200 歌曲/专辑详情页大封面
     if (info.album && info.album.cover) {
       try {
         const noop = function () {}
@@ -443,8 +417,9 @@ export async function saveSongExtras(songId) {
       out.lyric = true
     } catch (e) {}
   }
+
   // 歌手头像旁路预热：只入队、不 await，不拖慢下载完成/不影响下载结果。
-  // 走轻量歌手接口，只取列表尺寸 60（详情 200 由歌手页在线时按需下载）。
+  // 走轻量歌手接口，只取列表尺寸 60（详情 200 由歌手页在线时按需下载）
   try {
     enqueueArtistPortraits((out.info && out.info.artists) || [])
   } catch (e) {}
@@ -452,9 +427,7 @@ export async function saveSongExtras(songId) {
   return out
 }
 
-/* ---------------- 离线视图派生 ---------------- */
-
-/** 索引记录 → 播放器/列表行用的 Song（对齐 ncm/api.js 的 normalizeSong，多带 trackNo/disc 供排序） */
+// 索引记录 → 播放器/列表行用的 Song（对齐 ncm/api.js 的 normalizeSong，多带 trackNo/disc 供排序）
 function toSong(id, rec) {
   const names = []
   const ars = rec.ars || []
@@ -481,20 +454,20 @@ function discNum(s) {
   return isNaN(n) ? 1 : n
 }
 
-/** 网易云时间戳秒/毫秒混用（同 format.js 的 fmtDate）：统一成毫秒 */
+// 网易云时间戳秒/毫秒混用（同 format.js 的 fmtDate）：统一成毫秒
 function pubMs(v) {
   let n = Number(v) || 0
   if (n && n < 100000000000) n *= 1000
   return n
 }
 
-/** 碟号 → 音轨号 排序（专辑内曲目序） */
+// 碟号 → 音轨号 排序（专辑内曲目序）
 function byTrack(a, b) {
   if (discNum(a) !== discNum(b)) return discNum(a) - discNum(b)
   return (a.trackNo || 0) - (b.trackNo || 0)
 }
 
-/** songinfo 页兜底：对齐 fetchSongInfo 的返回形状；索引里没有返回 null */
+// songinfo 页兜底：对齐 fetchSongInfo 的返回形状；索引里没有返回 null
 export async function localSongInfo(id) {
   await loadIndex()
   const rec = indexOf(id)
@@ -515,12 +488,9 @@ export async function localSongInfo(id) {
   }
 }
 
-/**
- * artist 页兜底（离线视图）：**只**给本地索引里该歌手的曲目与专辑。
- * 返回 {name, songs, albums, cover, coverAlbumId}；该歌手一首歌都没有时 songs 为空
- * （调用方据此判「没有本地视图」）。
- * cover = 与 localArtistList 相同的代表专辑封面（发行时间最新且有封面）。
- */
+// artist 页兜底（离线视图）：**只**给本地索引里该歌手的曲目与专辑。
+// 返回 {name, songs, albums, cover, coverAlbumId}；该歌手一首歌都没有时 songs 为空
+// （调用方据此判「没有本地视图」）。cover = 与 localArtistList 相同的代表专辑封面
 export async function localArtistView(artistId) {
   await loadIndex()
   const aid = Number(artistId)
@@ -546,6 +516,7 @@ export async function localArtistView(artistId) {
       if (!albumMap[k]) {
         albumMap[k] = { id: rec.al.i, name: rec.al.n || '', cover: rec.al.c || '', publishTime: 0, size: 0 }
       }
+
       // 同一专辑里第一首可能没有封面/名字：后续曲目补齐，别让代表专辑因此选错
       if (!albumMap[k].cover && rec.al.c) albumMap[k].cover = rec.al.c
       if (!albumMap[k].name && rec.al.n) albumMap[k].name = rec.al.n
@@ -553,6 +524,7 @@ export async function localArtistView(artistId) {
       if (pubMs(rec.pub) > albumMap[k].publishTime) albumMap[k].publishTime = pubMs(rec.pub)
     }
   }
+
   // 曲目按「专辑 → 碟 → 音轨号」排（同一专辑的歌挨在一起且有序）；专辑按发行时间新→旧
   songs.sort(function (a, b) {
     if (a.albumId !== b.albumId) return a.albumId - b.albumId
@@ -564,7 +536,8 @@ export async function localArtistView(artistId) {
   albums.sort(function (a, b) {
     return (b.publishTime || 0) - (a.publishTime || 0)
   })
-  /* 代表专辑：列表页与详情页共用同一张兜底封面（发行时间最新且有封面） */
+
+  // 代表专辑：列表页与详情页共用同一张兜底封面（发行时间最新且有封面）
   let cover = ''
   let coverAlbumId = 0
   for (let i = 0; i < albums.length; i++) {
@@ -577,10 +550,8 @@ export async function localArtistView(artistId) {
   return { name: name, songs: songs, albums: albums, cover: cover, coverAlbumId: coverAlbumId }
 }
 
-/**
- * album 页兜底（离线视图）：**只**给本地索引里该专辑的曲目（按 碟/音轨号 排序）。
- * 返回 {album, artists, songs}；一首都没有返回 null。
- */
+// album 页兜底（离线视图）：**只**给本地索引里该专辑的曲目（按 碟/音轨号 排序）。
+// 一首都没有返回 null
 export async function localAlbumView(albumId) {
   await loadIndex()
   const aid = Number(albumId)
@@ -621,16 +592,11 @@ export async function localAlbumView(albumId) {
   }
 }
 
-/* ---------------- 本地下载的聚合视图（歌手 / 专辑） ---------------- */
-
-/**
- * 本地索引里的全部歌手（本地下载-歌手页）。
- * 返回 [{id, name, count, cover, albumId}]：
- *   - count = 该歌手在当前本地索引里出现的曲目数（一首多歌手时各计一次）
- *   - cover / albumId = 该歌手**发行时间最新的、有封面的本地专辑**（离线兜底图的唯一来源；
- *     列表与歌手详情本地视图都用它，避免两处各挑一张封面）
- * 按名称升序。
- */
+// 本地索引里的全部歌手（本地下载-歌手页）。返回 [{id, name, count, cover, albumId}]：
+//   - count = 该歌手在本地索引里出现的曲目数（一首多歌手时各计一次）
+//   - cover / albumId = 该歌手**发行时间最新的、有封面的本地专辑**（离线兜底图的唯一来源；
+//     列表与歌手详情本地视图都用它，避免两处各挑一张封面）
+// 按名称升序
 export async function localArtistList() {
   await loadIndex()
   const map = {}
@@ -677,13 +643,10 @@ export async function localArtistList() {
   return out
 }
 
-/**
- * 本地索引里的全部专辑（本地下载-专辑页）。
- * 返回 [{id, name, artist, count, cover, publishTime, year}]：
- *   - artist = 专辑内曲目的歌手串（对齐曲目行）
- *   - year = publishTime 的年份（无发行时间给 0）
- * 默认按发行时间新→旧、再按名称；页面可再排序。
- */
+// 本地索引里的全部专辑（本地下载-专辑页）。返回 [{id, name, artist, count, cover, publishTime, year}]：
+//   - artist = 专辑内曲目的歌手串（对齐曲目行）
+//   - year = publishTime 的年份（无发行时间给 0）
+// 默认按发行时间新→旧、再按名称；页面可再排序
 export async function localAlbumList() {
   await loadIndex()
   const map = {}
@@ -732,7 +695,7 @@ export async function localAlbumList() {
   return out
 }
 
-/** 本地索引规模：{songs, artists, albums}（本地下载总览卡用） */
+// 本地索引规模：{songs, artists, albums}（本地下载总览卡用）
 export async function localStats() {
   await loadIndex()
   const songs = Object.keys(mem || {}).length

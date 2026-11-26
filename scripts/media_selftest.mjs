@@ -1,4 +1,4 @@
-// 扩展自检：媒体目录层的真实行为（枚举 / 统计 / 清理 / LRU 记账）
+
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
@@ -31,6 +31,7 @@ const procShim = {
     const a = args || []
     const i = a.indexOf('-c')
     const script = i >= 0 ? a[i + 1] : [cmd].concat(a).join(' ')
+
     // 落到临时脚本再执行：与设备同语义，但不受 PC 命令行转义差异影响
     const file = path.join(globalThis.__shDir, 'c' + (++shSeq) + '.sh')
     fs.writeFileSync(file, script, 'utf8')
@@ -189,6 +190,7 @@ async function main() {
   await fsp.mkdir(globalThis.__shDir, { recursive: true })
 
   const srcDst = await prepareTree(sandbox)
+
   // logconfig.generated.js 是构建生成物（不进仓库、本地也常缺）→ 造一个空的顶上
   const logCfg = path.join(srcDst, 'core/infra/logconfig.generated.js')
   if (!fs.existsSync(logCfg)) await fsp.writeFile(logCfg, "export const LOG_SRV = ''\n")
@@ -198,6 +200,7 @@ async function main() {
   const cache = await load('services/player/cache.js')
 
   console.log('\n1) 枚举只认真实的曲目目录')
+
   // 造两首下载 + 一首缓存 + thumbs 目录（thumbs 不能被当成曲目）
   for (const id of ['101', '102']) {
     await media.ensureTrackDir(id, 'download')

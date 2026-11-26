@@ -1,46 +1,15 @@
 #!/bin/bash
-# 导航层真机自测：验证 utils/nav.js 的「逻辑页 → 实例槽位」是否得到标准 push/pop 语义。
+# 导航层真机自测：验证 src/core/infra/nav.js 的「逻辑页 → 实例槽位」是否得到标准 push/pop 语义。
+# 覆盖五阶段（步骤在 src/pages/probe/probe.vue 的 runNavSelfTest）：基础 push/pop；平台回退弹层后的
+# 槽位释放；深度压力 15 层；连点合并（dup-ignore）；槽位耗尽 degrade（复用最上层同类实例）。
 #
-# 覆盖五阶段（步骤在 src/pages/probe/probe.vue 的 runNavSelfTest）：
-#   1) 基础 push/pop：同一逻辑页两连开 → base / base2 两个槽位；close 只关一层，下层不销毁；
-#      player 是全局目的地页（reuse）；queue 两层。
-#   2) 边界 A：平台「回退到栈内 player」会销毁它上面的 queue2/queue → 槽位必须被生命周期记账释放，
-#      之后 go('queue') 要能重新 push（不能 degrade / 不能复用死实例）。
-#   3) 边界 B：深度压力，把栈推到 15 层（12 层时采一次 miniapp_cli memoryApp + 截图），
-#      再逐个 close 回收到 5 层；断言每步栈快照与页 load/unload 次数，识别平台页栈上限迹象。
-#   4) 边界 C：连点合并 —— 同 tick 同参数连发两次只生效一次（dup-ignore），参数不同则两次都生效。
-#   5) 边界 D：degrade —— artist 6 槽压满后第 7 次 go 复用最上层同类实例（不新增槽位），
-#      释放一个槽位后 go 恢复 push。
-#
-# 用法（在仓库根/worktree 根执行；build_probe.sh 与 logserver.py 都在 scripts/ 下）：
-#   bash scripts/nav_selftest.sh
-#   bash scripts/nav_selftest.sh --ssh pen                   # 走 Wi-Fi SSH（无需 USB）
-#   bash scripts/nav_selftest.sh --device <序列号>           # 指定 ADB 设备；不设时自动取 adb devices 唯一一台
-#   BPNCM_DEVICE=<序列号> bash scripts/nav_selftest.sh       # 同 --device（环境变量形式）
-#   BPNCM_TRANSPORT=ssh bash scripts/nav_selftest.sh         # 全局默认走 SSH（同 --ssh）
-#   PROBE_APPID=<探针appid> bash scripts/nav_selftest.sh     # 覆盖探针 appid（默认 8002026100500004）
-#   BPNCM_TOOLS=<工作区>/tools bash scripts/nav_selftest.sh  # 覆盖工具链目录（worktree 默认用固定路径）
-#   NAVTEST_DONE_WAIT=<秒> bash scripts/nav_selftest.sh      # 等 [navtest] task4-done 的上限（默认 90）
-#
-# 做的五件事：
-#   1) 取本机局域网 IPv4 → BPNCM_LOG_SRV=http://<PC_IP>:8888/log 构建**探针版**
-#      （独立 appid，不动正式应用 8000200708310039；入口 = pages/probe）；
-#   2) 清旧 device_log.txt，后台起 scripts/logserver.py；
-#   3) adb push + miniapp_cli uninstall/install/start 探针 appid（先卸旧实例，保证可重复运行）；
-#   4) 页面内自测串行跑 go/close；PC 侧等 [navtest] task4-done，期间在 12 层锚点采
-#      miniapp_cli memoryApp（→ shots/nav_selftest_memory.txt）并截图（→ shots/nav_selftest.png）；
-#   5) 停 logserver，对 device_log.txt 逐条断言，打印 PASS/FAIL 摘要。
-#
-# 断言依据（日志格式见 src/utils/nav.js；tag=nav 的行由导航层打，tag=navtest 的行由探针页打）：
+# 断言依据（tag=nav 的行由导航层打，tag=navtest 的行由探针页打）：
 #   [nav] go <logical> -> <slot> (push) / (reuse) / (dup-ignore: Nms 内连点) / (degrade: 槽位耗尽 → …)
 #   [nav] page-load|page-unload <slotKey> live=<n> [<stackKeys>]
 #   [navtest] <步骤> begin/ok/FAIL ...、<阶段> stack=[...]
-# 关键锚点：[navtest] done / after fallback / after requeue / deep12 / deep-full / deep-done /
-#           after dedupe-same / after dedupe-diff / after artist6 / after degrade /
-#           after close artist6 / after recover / task4-close <slot> / task4-done stack=[...]
 #
 # 退出码：0 = 全部 PASS（push/pop 语义 + 四类边界成立）；1 = 有 FAIL 或构建/装机/采集失败。
-# 前提：设备已连接；构建/装机锁空闲（build.sh/install.sh 互斥，见 AGENTS.md）；PC 8888 未被占用。
+# 前提：设备已连接；构建/装机锁空闲（build.sh/install.sh 互斥）；PC 8888 未被占用。
 set -u
 export MSYS_NO_PATHCONV=1
 
@@ -63,13 +32,15 @@ while [ $# -gt 0 ]; do
 done
 
 PROBE_APPID="${PROBE_APPID:-8002026100500004}"
-export PROBE_APPID                       # build_probe.sh 也读这个变量，保持构建/装机一致
+# build_probe.sh 也读这个变量，保持构建/装机一致
+export PROBE_APPID
 LOG_FILE="$PROJ/device_log.txt"
 SHOT="$PROJ/shots/nav_selftest.png"
 MEM_FILE="$PROJ/shots/nav_selftest_memory.txt"
-DONE_WAIT="${NAVTEST_DONE_WAIT:-90}"     # 等自测全部跑完的上限（秒；自测总时长约 40s）
+# 等自测全部跑完的上限（秒；自测总时长约 40s）
+DONE_WAIT="${NAVTEST_DONE_WAIT:-90}"
 
-# 工具链解析走公共库（worktree 里用 git common-dir 反查主检出，不再硬编码兜底路径）
+# 工具链解析走公共库（worktree 里用 git common-dir 反查主检出，不硬编码兜底路径）
 resolve_tools
 
 LOGSRV_PID=""
@@ -83,10 +54,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# die / warn / info 由 scripts/lib/common.sh 提供
-
-# 设备连接由传输层解析（lib/device.sh）：默认 ADB 自动选唯一设备，
-# --ssh / BPNCM_TRANSPORT=ssh 走 Wi-Fi。dev_select 自带连通校验。
+# 设备连接由传输层解析（lib/device.sh）：默认 ADB 自动选唯一设备，--ssh / BPNCM_TRANSPORT=ssh 走 Wi-Fi；
+# dev_select 自带连通校验
 SEL_ARGS=()
 [ -n "$SEL_DEVICE" ] && SEL_ARGS+=(--target "$SEL_DEVICE")
 [ -n "$SEL_SSH_TARGET" ] && SEL_ARGS+=(--target "$SEL_SSH_TARGET")
@@ -100,50 +69,50 @@ FAILED_MSGS=()
 ok() { PASS=$((PASS + 1)); echo "PASS  $1"; }
 bad() { FAIL=$((FAIL + 1)); FAILED_MSGS+=("$1"); echo "FAIL  $1"; }
 
-# ---------- 断言工具（日志行形如 [12:34:56][nav] ...） ----------
-assert_has() { # <描述> <固定串> [最少次数]
+# 断言工具（日志行形如 [12:34:56][nav] ...）
+assert_has() {
   local desc="$1" pat="$2" min="${3:-1}" n
   n=$(grep -cF -- "$pat" "$LOG_FILE" 2>/dev/null || true)
   if [ "${n:-0}" -ge "$min" ]; then ok "$desc（$n 次）"; else bad "$desc（${n:-0} 次，期望 ≥$min；pattern: $pat）"; fi
 }
-assert_count() { # <描述> <固定串> <精确次数>
+assert_count() {
   local desc="$1" pat="$2" want="$3" n
   n=$(grep -cF -- "$pat" "$LOG_FILE" 2>/dev/null || true)
   if [ "${n:-0}" -eq "$want" ]; then ok "$desc（$n 次）"; else bad "$desc（${n:-0} 次，期望 $want；pattern: $pat）"; fi
 }
-assert_absent() { # <描述> <固定串>
+assert_absent() {
   local desc="$1" pat="$2" n
   n=$(grep -cF -- "$pat" "$LOG_FILE" 2>/dev/null || true)
   if [ "${n:-0}" -eq 0 ]; then ok "$desc"; else bad "$desc（出现 $n 次；pattern: $pat）"; fi
 }
-assert_absent_regex() { # <描述> <扩展正则>
+assert_absent_regex() {
   local desc="$1" pat="$2" n
   n=$(grep -cE -- "$pat" "$LOG_FILE" 2>/dev/null || true)
   if [ "${n:-0}" -eq 0 ]; then ok "$desc"; else bad "$desc（出现 $n 次；regex: $pat）"; fi
 }
-assert_stack_has() { # <描述> <stack JSON 串> <元素名>
+assert_stack_has() {
   local desc="$1" json="$2" elem="$3"
   case "$json" in
     *"\"$elem\""*) ok "$desc" ;;
     *) bad "$desc（stack=$json）" ;;
   esac
 }
-assert_stack_lacks() { # <描述> <stack JSON 串> <元素名>
+assert_stack_lacks() {
   local desc="$1" json="$2" elem="$3"
   case "$json" in
     *"\"$elem\""*) bad "$desc（stack=$json）" ;;
     *) ok "$desc" ;;
   esac
 }
-assert_stack_eq() { # <描述> <实际 JSON> <期望 JSON>
+assert_stack_eq() {
   local desc="$1" got="$2" want="$3"
   if [ "$got" = "$want" ]; then ok "$desc"; else bad "$desc（实际=$got 期望=$want）"; fi
 }
-assert_num_eq() { # <描述> <实际数值> <期望数值>
+assert_num_eq() {
   local desc="$1" got="$2" want="$3"
   if [ "${got:-x}" = "$want" ]; then ok "$desc（$got）"; else bad "$desc（实际=${got:-空} 期望=$want）"; fi
 }
-stack_line() { # <navtest 锚点标记> → 该行 stack JSON（取最后一条）
+stack_line() {
   grep -F "[navtest] $1 stack=" "$LOG_FILE" 2>/dev/null | tail -1 | sed 's/.* stack=//'
 }
 
@@ -170,7 +139,6 @@ if curl -s --max-time 2 http://127.0.0.1:8888/ 2>/dev/null | grep -q alive; then
   die "127.0.0.1:8888 已有 logserver 在跑（可能是上次残留/别的会话）；先停掉再运行（否则日志不落本仓库）"
 fi
 
-# ---------- 1) 构建探针版 ----------
 echo ""
 echo "--- [1/5] 构建探针版（BPNCM_LOG_SRV=http://$PC_IP:8888/log） ---"
 STAMP="$(mktemp)"
@@ -182,20 +150,22 @@ AMR="$(find build -maxdepth 1 -name "$PROBE_APPID.*.amr" -newer "$STAMP" 2>/dev/
 rm -f "$STAMP"
 [ -n "$AMR" ] || die "构建后 build/ 里没有产物"
 AMRF="$(basename "$AMR")"
-APPID="${AMRF%%.*}"                       # 产物文件名 = <appid>.<x_y_z>.amr
+# 产物文件名 = <appid>.<x_y_z>.amr
+APPID="${AMRF%%.*}"
 [ "$APPID" = "$PROBE_APPID" ] || die "最新产物 appid=$APPID 不是探针 appid=$PROBE_APPID（可能有人同时在构建正式版）"
 echo "产物: $AMRF"
 
-# ---------- 2) 起 logserver ----------
 echo ""
 echo "--- [2/5] 启动 logserver（device_log.txt） ---"
 start_logserver() {
-  : > "$LOG_FILE"                          # 清旧日志；logserver 以追加方式写
+  # 清旧日志；logserver 以追加方式写
+  : > "$LOG_FILE"
   LOGSRV_OUT="$(mktemp)"
   python scripts/logserver.py > "$LOGSRV_OUT" 2>&1 &
   LOGSRV_PID=$!
   local j=0
-  while [ "$j" -lt 20 ]; do                # 最多等 10s：Windows 上 python 启动偶尔偏慢
+  # 最多等 10s：Windows 上 python 启动偶尔偏慢
+  while [ "$j" -lt 20 ]; do
     if curl -s --max-time 1 http://127.0.0.1:8888/ 2>/dev/null | grep -q alive; then
       return 0
     fi
@@ -219,7 +189,6 @@ if ! start_logserver; then
 fi
 echo "logserver pid=$LOGSRV_PID → $LOG_FILE"
 
-# ---------- 3) 装机并启动探针 ----------
 echo ""
 echo "--- [3/5] 装机并启动探针（先卸载旧实例保证可重复运行） ---"
 dev_run "miniapp_cli uninstall $PROBE_APPID" >/dev/null 2>&1 || true
@@ -229,7 +198,6 @@ dev_run "miniapp_cli install /userdisk/Favorite/$AMRF" || die "miniapp_cli insta
 dev_run "hal-screen on" >/dev/null 2>&1 || true
 dev_run "miniapp_cli start $PROBE_APPID" || die "miniapp_cli start 失败"
 
-# ---------- 4) 采日志：12 层采样内存/截图 → 等 task4-done ----------
 echo ""
 echo "--- [4/5] 等待自测日志（最多 ${DONE_WAIT}s） ---"
 mkdir -p shots
@@ -247,9 +215,8 @@ capture() {
 mem_app() {
   local raw pages probe_pages
   raw="$(mktemp)"
-  # ⚠ 不能用外部 timeout 包 dev_run：timeout 是外部 exe，执行不了 shell 函数，
-  #   内存采样会静默失败（被 || true 吞掉）。dev_run 走 SSH 后端自带
-  #   ConnectTimeout=8，连接挂死有兜底；命令执行超时由设备端 miniapp_cli 自行保证。
+  # ⚠ 不能用外部 timeout 包 dev_run：timeout 是外部 exe，执行不了 shell 函数，内存采样会静默失败（被 || true 吞掉）。
+  #   dev_run 走 SSH 后端自带 ConnectTimeout=8，连接挂死有兜底；命令执行超时由设备端 miniapp_cli 自行保证。
   dev_run "miniapp_cli memoryApp" > "$raw" 2>&1 || true
   probe_pages=$(awk -v app="App($PROBE_APPID)" '
     /^App\(/ { inp = ($1 == app) ? 1 : 0 }
@@ -308,7 +275,6 @@ fi
 # 避免退出时的页面卸载事件混进「无非预期 page-unload」断言
 sleep 2
 
-# ---------- 5) 停 logserver + 断言 ----------
 echo ""
 echo "--- [5/5] 停 logserver，断言 device_log.txt ---"
 kill "$LOGSRV_PID" 2>/dev/null || true
@@ -318,7 +284,6 @@ sleep 1
 
 [ -f "$LOG_FILE" ] || die "没有 device_log.txt —— 日志没收到（构建未注入 BPNCM_LOG_SRV / PC IP 设备不可达 / logserver 未监听）"
 
-# ===== 阶段 1：基础 push/pop =====
 assert_has "go list -> list (push)" '[nav] go list -> list (push)'
 assert_has "go list -> list2 (push)" '[nav] go list -> list2 (push)'
 assert_has "go playlists -> playlists (push)" '[nav] go playlists -> playlists (push)'
@@ -349,7 +314,6 @@ STACK_DONE="$(stack_line 'done')"
 assert_stack_has "[navtest] done 栈里含 list（第一层未被销毁）" "$STACK_DONE" "list"
 assert_stack_has "[navtest] done 栈里含 queue2（第二层队列）" "$STACK_DONE" "queue2"
 
-# ===== 阶段 2（A）：平台回退弹层后的槽位释放 =====
 echo "-- A. 平台回退弹层后的槽位释放 --"
 assert_stack_eq "A: 再 go(player) 后平台弹掉 queue2/queue，栈回到 4 页" \
   "$(stack_line 'after fallback')" '["index","list","playlists","player"]'
@@ -360,7 +324,6 @@ assert_count "A: 重开后 page-load queue 共 2 次" '[nav] page-load queue liv
 assert_stack_eq "A: 重新入队后栈含新 queue" \
   "$(stack_line 'after requeue')" '["index","list","playlists","player","queue"]'
 
-# ===== 阶段 3（B）：深度压力 15 层 =====
 echo "-- B. 深度压力（15 层栈） --"
 STACK_DEEP12="$(stack_line 'deep12')"
 assert_stack_eq "B: 12 层栈快照" "$STACK_DEEP12" \
@@ -410,7 +373,6 @@ assert_stack_eq "B: close list2 后栈" "$(stack_line 'deep-close list2')" \
 assert_stack_eq "B: 深度回收完成（deep-done）" "$(stack_line 'deep-done')" \
   '["index","list","playlists","player","queue"]'
 
-# ===== 阶段 4（C）：连点合并（500ms 同逻辑页 + 同参数） =====
 echo "-- C. 连点合并（dup-ignore） --"
 assert_count "C: dup-ignore 恰 1 次（唯一一次同 tick 同参数连点）" '[nav] go list (dup-ignore:' 1
 assert_stack_eq "C: 同参数连点后只多压一层 list2（6 层）" "$(stack_line 'after dedupe-same')" \
@@ -422,7 +384,6 @@ assert_stack_eq "C: 不同参数连发两发都 push（list3 + list4 → 8 层�
 assert_count "C: 不同参数两发都生效：go list -> list3 (push) 共 2 次（深压 + 连点）" '[nav] go list -> list3 (push)' 2
 assert_count "C: 不同参数两发都生效：go list -> list4 (push) 共 2 次（深压 + 连点）" '[nav] go list -> list4 (push)' 2
 
-# ===== 阶段 5（D）：degrade 路径（artist 6 槽耗尽 → 复用最上层同类实例） =====
 echo "-- D. degrade 路径（槽位耗尽） --"
 DEEP14='["index","list","playlists","player","queue","list2","list3","list4","artist","artist2","artist3","artist4","artist5","artist6"]'
 assert_stack_eq "D: artist 压满 6 槽后栈（14 层）" "$(stack_line 'after artist6')" "$DEEP14"
@@ -506,19 +467,18 @@ if grep -qF '[nav] page-unload index live=' "$LOG_FILE" 2>/dev/null; then
   echo "⚠ 日志里出现 probe 页(index)卸载：应用退出发生在停 logserver 之前（采样窗口偏长），已从上面的统计中排除"
 fi
 
-# attach 兜底通道日志（审计新增）：attach-skip 来自 PageShell 等非页面根实例，attach-ok 来自页面根实例
+# attach 兜底通道日志：attach-skip 来自 PageShell 等非页面根实例，attach-ok 来自页面根实例
 ATTACH_OK=$(grep -cF '[nav] attach-ok' "$LOG_FILE" 2>/dev/null || true)
 ATTACH_SKIP=$(grep -cF '[nav] attach-skip' "$LOG_FILE" 2>/dev/null || true)
 assert_has "attach 兜底通道日志出现（attach-ok 或 attach-skip）" '[nav] attach-' 1
 echo "INFO attach-ok=${ATTACH_OK:-0} attach-skip=${ATTACH_SKIP:-0}（skip=PageShell 等子组件被跳过；ok=页面根实例兜底记账生效）"
 
-# ===== 失败路径（全程不允许；degrade 只在 D 阶段预期出现 1 次，已在上方逐条断言） =====
+# 失败路径（全程不允许；degrade 只在 D 阶段预期出现 1 次，已在上方逐条断言）
 assert_absent "无 reserve-timeout（槽位保留超时）" 'reserve-timeout'
 assert_absent "无 onAppError（框架异常）" 'onAppError'
 assert_absent "无 navTo 异常" '[nav] navTo 异常'
 assert_absent_regex "自测步骤无 FAIL" '\[navtest\].*FAIL'
 
-# ===== 总摘要 =====
 echo ""
 echo "=== 结果: PASS=$PASS  FAIL=$FAIL ==="
 if [ "$FAIL" -gt 0 ]; then

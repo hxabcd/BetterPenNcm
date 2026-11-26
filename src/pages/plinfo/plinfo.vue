@@ -3,12 +3,11 @@
     <page-topbar :title="name || '歌单'" :sub="barSub" />
 
     <div class="pi-body">
-      <!-- 左：大封面（歌单封面是方图，不是歌手页那种正圆） -->
+
       <div class="pi-cvbox">
         <image v-if="cover" class="pi-cv" :src="cover" resize="cover" />
       </div>
 
-      <!-- 右：名字（+ 本地索引标记）/ 创建者·曲目数 / 介绍 -->
       <div class="pi-info">
         <div class="pi-namerow">
           <text class="pi-name">{{ name || '加载中...' }}</text>
@@ -16,18 +15,15 @@
         </div>
         <text class="pi-meta" v-if="meta">{{ meta }}</text>
 
-        <!-- 介绍区：**长文本默认就会自动换行**（渲染实验实证：不写 lines 的 <text>
-             会折行，lines:N 才是「最多 N 行 + 省略号」），所以这里只约束宽度、包在 scroller 里滚动 -->
         <scroller class="pi-descbox">
+          <!-- 长文本默认就会自动换行（渲染实验实证：不写 lines 的 <text> 会折行，
+               lines:N 才是「最多 N 行 + 省略号」），所以这里只约束宽度、包在 scroller 里滚动 -->
           <text class="pi-desc" v-if="desc">{{ desc }}</text>
           <text class="pi-desc-empty" v-else>{{ hint || '暂无介绍' }}</text>
         </scroller>
       </div>
     </div>
 
-    <!-- 上下文菜单（左栏「更多」展开）：下载全部 / 添加到本地索引 / 重命名。
-         从「本地下载」进入时底键是「移除/添加到本地索引」，另有两项破坏性项
-         「本地删除 / 删除」放在面板底部（见 script 头注释）。 -->
     <context-sheet
       v-if="panel"
       title="更多"
@@ -44,20 +40,9 @@
 
 <script>
 /**
- * 歌单详情页（从曲目列表页的**顶栏**点进来，见 components/PageTopbar.vue 的 link/tap）
- *
- * 两种入口，左栏上下文菜单不同：
- *   A. 普通入口：返回 / 更多（下载全部、添加到本地索引、重命名、删除）/ 播放全部 ——
- *      「我喜欢」是系统歌单，不能改名/删除；
- *   B. 从「本地下载」进入（dltracks 传 entry:'dl'，歌单必然已在本地索引里）：多一个**移除本地
- *      索引**，「更多」里多本地删除 / 删除：本地删除会把「移出后会变成遗留歌曲」的文件一并删掉
- *      （仍被其它索引歌单引用、或是用户单曲归属的保留）；删除额外调接口删远端歌单（不可逆）。
- *      两个破坏性项都在面板底部，仍是两次点按确认（armMixin）。
- *
  * 「添加到本地索引」只落歌单信息 + 全量 trackIds，不下载文件；再次点击 = 移出索引，
  * **只删记录、不删文件**（策略 A），失去所有索引引用的歌单文件自动归入「遗留歌曲」。
- *
- * 删除成功后的返回：广播 → closePageById(fromPage) → finish，二级兜底是列表页自退。
+ * 「我喜欢」是系统歌单，不能改名/删除。
  */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
@@ -145,13 +130,7 @@ export default {
       if (this.busy === 'del') return '删除中...'
       return this.indexed ? '已在本地索引' : ''
     },
-    /**
-     * 「更多」面板。
-     * 普通入口：下载全部 / 添加(移出)本地索引 / 重命名。
-     * 本地下载入口：下载全部 / 重命名（自己创建）/ 收藏切换（订阅）/
-     *   本地删除（已索引时）/ 删除（仅自己创建，云端也删）。
-     * 破坏性两项放面板底部，两次点按确认（第一次点按后标签变「再点一次确认」）。
-     */
+
     moreOptions() {
       if (!this.dlEntry) {
         const out = [
@@ -193,19 +172,14 @@ export default {
       }
       return out
     },
-    /**
-     * 左栏：返回 + 更多 + 播放全部 +（可写）删除 /（订阅）收藏。
-     * 普通入口：更多 → ContextSheet：下载全部 / 添加到本地索引 / 重命名。
-     * 本地下载入口：底键 = 移除本地索引（索引切换），删除收进「更多」面板
-     *   —— 本语境优先本地动作，云端删除降级为面板项（见 script 头注释）。
-     */
+
     rail() {
       if (this.dlEntry) {
         const out = [railBack()]
         if (!this.role) return out
         out.push(railBtn('more', ICON.more, this.panel === 'more'))
         out.push(railBtn('playall', ICON.play, this.busy === 'playall'))
-        // 底键：已索引 = 移除本地索引（dbminus），未索引 = 添加到本地索引（dbplus）
+
         out.push(railBtn('index', this.indexed ? ICON.dbminus : ICON.dbplus, this.busy === 'index'))
         return out
       }
@@ -230,7 +204,7 @@ export default {
     this.dlEntry = p.entry === 'dl'
     if (p.name) this.name = p.name
     const self = this
-    // 下载活动订阅（可见性门控 + 首帧快照，见 ui/mixins/dlsub.js）
+
     this._dlOff = bindDl(this, dlApi, function (s) {
       self.syncDl(s)
     })
@@ -288,14 +262,14 @@ export default {
       this._dlSig = sig
       this.dl = d
     },
-    /* ---- 更多面板 ---- */
+
     closePanel() {
       this.panel = ''
       this.disarm()
     },
     pickMore(key) {
-      // 破坏性项（本地删除 / 删除）：第一次点按进入待确认，面板不关（标签与高亮变化）；
-      // 第二次点按才执行 —— 与左栏破坏键的两次点按确认一致（armMixin）。
+      // 破坏性项（本地删除 / 删除）：第一次点按进入待确认、面板不关（标签与高亮变化），
+      // 第二次点按才执行 —— 与左栏破坏键的两次点按确认一致（armMixin）
       if (key === 'localdel' || key === 'del') {
         if (this.busy) return
         if (this.isArmed(key)) {
@@ -313,12 +287,10 @@ export default {
       else if (key === 'rename') this.doRename()
       else if (key === 'sub') this.toggleSub()
     },
-    /**
-     * 下载全部：抓整张远端曲目 → downloadSongs。
-     * 已索引时按 playlist 归属写标记（移出索引后会进「遗留歌曲」）；
-     * 未索引时按用户单曲下载（不产生「没有索引却有遗留」的怪状态）。
-     */
+
     async doDownloadAll() {
+      // 已索引时按 playlist 归属写标记（移出索引后会进「遗留歌曲」）；
+      // 未索引时按用户单曲下载（不产生「没有索引却有遗留」的怪状态）
       if (this.busy) return
       this.busy = 'dlall'
       this.showToast('正在载入曲目...', 60000)
@@ -337,6 +309,7 @@ export default {
         ' / 失败 ' + r.failed, 4000)
       this.loadIndexed()
     },
+
     /** 添加 / 移出本地索引：只动索引记录，不下载/不删文件（策略 A） */
     async toggleIndex() {
       if (this.busy) return
@@ -367,17 +340,18 @@ export default {
       this.showToast('已添加至本地索引')
       log('plinfo', '添加本地索引 ' + this.pid + ' 曲目=' + (r.count || 0))
     },
-    /* ---- 本地删除 / 删除（仅「从本地下载进入」时出现在更多面板里） ---- */
-    /** 播放队列里来自本地下载的曲目被删掉后同步移出队列（同 dltracks 的批量删除） */
+
+    /** 播放队列里来自本地下载的曲目被删掉后同步移出队列（只在 queueSrc === 'downloads' 时动） */
     pruneQueue(ids) {
       try {
         if (ids && ids.length && player.state().queueSrc === 'downloads') player.removeFromQueue(ids)
       } catch (e) {}
     },
+
     /**
      * 本地删除：移除本地索引，并把「移出后会变成遗留歌曲」的文件直接删掉（不留孤儿）。
      * 仍被其它索引歌单引用的文件、用户单曲归属的文件保留（见 locallists.removeListLocal）。
-     * 云端歌单不动；页面留在原地（索引状态变「未索引」，底键回到「添加到本地索引」）。
+     * 云端歌单不动；页面留在原地。
      */
     async doLocalDelete() {
       if (this.busy || !this.indexed) return
@@ -397,7 +371,7 @@ export default {
       this.showToast('已本地删除：删掉 ' + n + ' 首 · 释放 ' + fmtSize(r.bytes), 4000)
       log('plinfo', '本地删除 ' + this.pid + ' 删除=' + n + ' 文件=' + r.files + ' 字节=' + r.bytes)
     },
-    /* ---- 播放全部 ---- */
+
     /**
      * 起播首段 300 首（一次 song/detail 请求），剩余曲目由 playqueue.js 在后台逐批
      * 追加到队尾 —— 不再等整张歌单拉完（几千首的索引歌单要几十秒）。
@@ -409,7 +383,7 @@ export default {
       try {
         let ids = this.trackIds
         if (!ids || !ids.length) {
-          // 详情没取到（加载失败/极端回包）：补一次，n:0 只要 trackIds
+
           const info = await fetchPlaylistInfo(this.pid)
           ids = info.trackIds || []
           if (!this._dead) this.trackIds = ids
@@ -434,8 +408,9 @@ export default {
         log('plinfo', '播放全部载入失败 ' + ((e && e.message) || e))
       }
     },
-    /* ---- 重命名（系统输入法，index 搜索同款：先探测可用性，取消返回 null）---- */
+
     async doRename() {
+      // 系统输入法：先探测可用性；取消返回 null
       if (this.busy) return
       this.disarm()
       this.busy = 'rename'
@@ -487,7 +462,7 @@ export default {
       log('plinfo', '改名成功 ' + this.pid + ' -> ' + name)
       this.notify('rename', { name: name })
     },
-    /* ---- 收藏 / 取消收藏（订阅别人的歌单；可逆操作，不做二次确认）---- */
+
     async toggleSub() {
       if (this.busy) return
       this.disarm()
@@ -506,7 +481,7 @@ export default {
       log('plinfo', (on ? '已收藏 ' : '已取消收藏 ') + this.pid)
       this.notify(on ? 'subscribe' : 'unsubscribe')
     },
-    /* ---- 删除（两次点按确认，对齐 account 页退出登录）---- */
+
     askDelete() {
       if (this.busy) return
       if (this.isArmed('del')) {
@@ -516,11 +491,11 @@ export default {
       }
       this.arm('del')
     },
+
     /**
      * 删除：调用 /api/playlist/remove 删远端歌单（不可逆，仅自己创建的歌单）。
      * 从本地下载进入时「本地也删」：**先删远端**，成功后再做本地删除
-     * （移除索引 + 删掉会变成孤儿的文件；见 locallists.removeListLocal），
-     * 然后广播并连带关掉下面的曲目列表页。
+     * （移除索引 + 删掉会变成孤儿的文件），然后广播并连带关掉下面的曲目列表页。
      */
     async doDelete() {
       if (this.busy) return
@@ -559,7 +534,7 @@ export default {
       }
       this.$page.finish()
     },
-    /* ---- 杂项 ---- */
+
     notify(op, extra) {
       const d = { id: this.pid, op: op }
       if (extra) {
@@ -600,10 +575,8 @@ export default {
 <style lang="less" scoped>
 @import '../../styles/common.less';
 
-/* 内容区 = 100vh − 顶栏 15vh = 85vh。
-   横向两栏：左封面 60vh 见方 + 右信息列（吃满剩余宽度）。
-   竖向：名字行 11vh + 小字 6vh + 介绍（flex:1）—— 父级 .pi-body 高度确定，
-   所以介绍区的 flex:1 有高度可用（AGENTS 坑 19：flex:1 只在父容器高度确定时成立）。 */
+/* 内容区 = 100vh − 顶栏 15vh = 85vh；横向两栏：左封面 60vh 见方 + 右信息列。
+   父级 .pi-body 高度确定，所以下面介绍区的 flex:1 才有高度可用（平台坑：flex:1 只在父容器高度确定时成立） */
 .pi-body {
   flex: 1;
   flex-direction: row;
@@ -640,6 +613,7 @@ export default {
   lines: 1;
   text-overflow: ellipsis;
 }
+
 /* 本地索引标记：主题色浅色小字，紧贴歌单名右侧 */
 .pi-idx {
   flex: none;
@@ -654,6 +628,7 @@ export default {
   text-overflow: ellipsis;
   margin-top: 1.2vh;
 }
+
 /* 介绍区：滚动容器（长文本在这里换行，见模板注释）；不写 lines —— 写了就是截断。
    宽度显式写 100%（= .pi-info 的宽度）：换行要按容器宽度折，别指望 scroller 一定被拉伸 */
 .pi-descbox {

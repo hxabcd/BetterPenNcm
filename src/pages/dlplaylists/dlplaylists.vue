@@ -25,24 +25,10 @@
 </template>
 
 <script>
-/**
- * 本地下载-歌单索引页。
- *
- * 列表结构（对齐 2026-10 设计）：
- *   [全部下载]               所有已下载文件的总入口
- *   ...已添加到本地索引的歌单...
- *   --- 其他 ---
- *   [单曲下载]               用户自己的单曲（含升级前的遗留文件）
- *   [遗留歌曲]               歌单批量下载、但已不被任何索引歌单引用的文件（策略 A 保留）
- *
- * 分类见 dlorigin.js / locallists.classify：
- *   referenced            → 歌单内（出现在对应歌单的曲目列表）
- *   !referenced && 歌单归属 → 遗留歌曲
- *   !referenced && 其它     → 单曲下载
- *
- * 没有已索引歌单时，在「其他」上方显示 info 图标 +「暂无本地索引的歌单，在歌单详情页中添加」+ 分割线。
- * 本页只做导航，不提供多选；删除/清理在各具体列表页做。
- */
+/* 分类口径（dlorigin.js / locallists.classify）：
+     referenced              → 歌单内（出现在对应歌单的曲目列表）
+     !referenced && 歌单归属  → 遗留歌曲（策略 A：保留不删）
+     !referenced && 其它      → 单曲下载 */
 import PageShell from '../../components/PageShell.vue'
 import PageTopbar from '../../components/PageTopbar.vue'
 import LibraryRow from '../../components/LibraryRow.vue'
@@ -61,7 +47,8 @@ import { infiniteScrollMixin } from '../../ui/mixins/infinite.js'
 import { listPageMixin } from '../../ui/mixins/listpage.js'
 import { coverKey } from '../../services/cover/cover.js'
 
-const PAGE = PAGE_ROW // 索引歌单一次渲染 40 行（平台 ≤50 行）
+// 索引歌单首屏 40 行（平台 ≤50 行）
+const PAGE = PAGE_ROW 
 
 export default {
   name: 'dlplaylists',
@@ -148,12 +135,12 @@ export default {
     this._onShow = null
   },
   methods: {
-    /** 列表页骨架声明（见 ui/mixins/listpage.js）：切片数组与行高 */
+    /** 列表页骨架声明（ui/mixins/listpage.js）：切片数组字段名与行高 */
     listPageConfig() {
       return { slice: 'visibleRows', rowPx: ROW_PX_LIB }
     },
     async refresh() {
-      /* 返回本页时保留已展开的条数（同 dltracks）：不要因为 onShow 重读就把列表收回首批。 */
+      /* onShow 会重读数据：保留已展开的条数，别把列表收回首批 */
       const keepShown = this.shown
       try {
         const downloaded = await listSongs()
@@ -226,6 +213,7 @@ export default {
   flex: 1;
   padding-top: 2vh;
 }
+
 /* 「其他」分组标题：弱文字、小字，把单曲/遗留和上面的歌单分开 */
 .dlpl-sect {
   font-size: @fs-mute;
@@ -234,8 +222,8 @@ export default {
   margin-left: 6vh;
   margin-bottom: 1vh;
 }
-/* 空态：info 图标 + 提示文字，下面一根通栏分割线。
-   只在没有已索引歌单时出现，位置在「其他」之上。 */
+
+/* 空态：info 图标 + 提示文字，下面一根通栏分割线；只在没有已索引歌单时出现，位置在「其他」之上 */
 .dlpl-empty {
   flex-direction: column;
   margin-top: 4vh;
@@ -270,7 +258,8 @@ export default {
 }
 .dlpl-more-t {
   font-size: @fs-dim;
-  color: @accent-2; /* 默认（红）的书面值；运行时由模板内联 style 给主题色 */
+  /* 书面值是默认（红）主题；运行时由模板内联 style 给当前主题色 */
+  color: @accent-2; 
 }
 .dlpl-hint {
   font-size: @fs-dim;

@@ -1,20 +1,5 @@
-/**
- * 游标加载引擎（列表页「加载更多」三路形态 + 全量装配的收口）。
- *
- * loadMore 的分派顺序（list.vue 等列表页共用）：
- *   1. 渲染分片还有余量（shown < 全量视图长度）→ 纯本地展开，不发请求；
- *   2. 全量已在内存（allLoaded）→ 无事可做；
- *   3. kind 有自己的 loadMore handler → 交给 listkinds 取数（offset / trackIds 两路）。
- *
- * ensureAllSongs / loadAllSongs 是「全量装配」：本地排序与整单全选要求完整列表在
- * 页面状态里。「播放全部」/「点行起播」不走它 —— 那两处只要**能起播的首段**
- * （list.vue 的 queuePlayAll / queueFromRow），剩下的由 playqueue.js 后台补。
- *
- * 并发与生命周期守卫在这里统一做：
- *   - loadingMore / _loadingFull 双闸（全量加载与追页不能并发写 songs/shown）；
- *   - loadToken 对不上 = 期间切了列表，回调丢弃；
- *   - _dead = 页面已销毁，一律停。
- */
+
+
 import { KINDS, PAGE, appendUnique } from './listkinds.js'
 import { fetchArtistSongs } from '../ncm/api.js'
 import { fetchTracksMore, TRACKS_CHUNK } from '../ncm/playlist.js'
@@ -24,10 +9,7 @@ import { log } from '../../core/infra/log.js'
 import { cmpText } from '../../core/infra/format.js'
 import { remove as histRemove } from './history.js'
 
-/**
- * 本地排序（artistsongs 是服务端排序、原样透出）。
- * '默认'（key=''）与其它键一样带方向：降序 = 接口/收藏原顺序，升序 = 整段反转。
- */
+// 'artistsongs' 是服务端排序、原样透出；'默认'（key=''）也带方向：降序 = 接口/收藏原顺序，升序 = 整段反转
 export function sorted(vm, arr) {
   const k = vm.sortKey
   if (vm.kind === 'artistsongs') return arr
@@ -43,16 +25,15 @@ export function sorted(vm, arr) {
   return out
 }
 
-/**
- * 取回整份列表的**全量曲目**（默认序）并返回，**不写页面状态** ——
- * 本地排序与整单全选的前置条件（走 ensureAllSongs）。
- * 只为了起播不需要它：起播只要首段，见 queuePlayAll / queueFromRow。
- */
+// 取回整份列表的全量曲目（默认序）并返回，**不写页面状态**（要写状态走 ensureAllSongs）；
+// 起播只需要首段，别为此调它
 export async function loadAllSongs(vm, token) {
   const want = token != null ? token : vm._loadToken
   if (vm.allLoaded) return vm.songs.slice()
-  if (vm.kind === 'history') return vm.fullSongs.slice() // 本地全量，无需请求
+  // 历史是本地全量，无需请求
+  if (vm.kind === 'history') return vm.fullSongs.slice() 
   if (vm.kind === 'artistsongs') {
+
     // 服务端分页：从 0 按 PAGE 拉到底（off = 已消费的 offset，与 loadMore 同一约定）
     vm.showToast('正在载入全部曲目...', 60000)
     let out = []
@@ -69,9 +50,11 @@ export async function loadAllSongs(vm, token) {
     }
     return out
   }
+
   // liked / playlist：按 trackIds 从 0 整批重拉（fetchTracksMore 内部 300/批）。
-  // 不复用已加载的 songs 续拉：歌单里的下架歌曲会让「songs 是 trackIds 前缀」错位，
-  // 从 0 重拉保证队列顺序与 trackIds 一致、且不重不漏（再用 appendUnique 兜一次重复）。
+  // 不复用已加载的 songs 续拉：歌单里的下架歌曲会让「songs 是 trackIds 前缀」错位；
+  // 从 0 重拉保证顺序与 trackIds 一致、不重不漏（appendUnique 再兜一次重复）
+
   const ids = vm.trackIds
   vm.showToast('正在载入全部曲目...', 60000)
   let out = []
@@ -87,11 +70,8 @@ export async function loadAllSongs(vm, token) {
   return out
 }
 
-/**
- * 确保**全量在页面状态里**（本地排序、整单全选的前置条件）。
- * 只把 songs 换成全量、**不改 shown**：渲染量不变，不会突然铺出几百行；
- * 之后 viewAll 的排序作用在完整列表上，loadMore 只是把 shown 往前推。
- */
+// 确保**全量在页面状态里**（本地排序、整单全选的前置条件）。只换 songs、**不改 shown**：
+// 渲染量不变，不会突然铺出几百行；之后 loadMore 只是把 shown 往前推
 export async function ensureAllSongs(vm) {
   if (vm.allLoaded) return true
   if (vm._loadingFull) return false
@@ -99,6 +79,7 @@ export async function ensureAllSongs(vm) {
   vm._loadingFull = true
   try {
     const all = await loadAllSongs(vm, loadToken)
+
     // 载入期间切了列表（openList/pickCat 改了 token）→ 这份全量不属于当前列表，丢弃
     if (vm._dead || loadToken !== vm._loadToken) return false
     vm.songs = vm.dedupe(vm.attachTimes(all || []))
@@ -118,13 +99,11 @@ export async function ensureAllSongs(vm) {
   }
 }
 
-/**
- * list.vue 的 loadMore 主体。返回 true 表示有推进（供 infinite mixin 判断）。
- *
- * @param {*} vm 页面实例（须有 kind/shown/viewAll/allLoaded/loadingMore/_loadToken/_dead）
- */
+// list.vue 等列表页共用的 loadMore 主体：本地分片展开 → 全量已在内存 → 交给 kind 自带的 handler。
+// 返回 true 表示有推进（供 infinite mixin 判断）
 export async function loadMore(vm) {
   if (vm.loadingMore || vm._loadingFull || !vm.hasMore) return false
+
   // ① 已取回的还有没渲染的：纯本地展开（历史 / 全量排序后的分片），不发请求
   //    步长用页面给的 autoBatch（= ui/paging.js 的 AUTO_BATCH；UI 常量不进 services）
   const batch = vm.autoBatch || 20
@@ -132,10 +111,12 @@ export async function loadMore(vm) {
     vm.shown = Math.min(vm.shown + batch, vm.viewAll.length)
     return true
   }
+
   // ② 全量已在内存：没有更多
   if (vm.allLoaded) return false
   const def = KINDS[vm.kind]
-  if (!def || !def.loadMore) return false // 搜索/历史/推荐不翻页
+  // 搜索/历史/推荐这类端点不翻页：KINDS 里没有 loadMore handler
+  if (!def || !def.loadMore) return false 
   const loadToken = vm._loadToken
   vm.loadingMore = true
   try {
@@ -150,16 +131,15 @@ export async function loadMore(vm) {
   }
 }
 
-/**
- * 歌手曲目队列：最多 ARTIST_QUEUE_MAX 首。点中第 100 首以后的行时从**那一首**起取，
- * 不为「听第 150 首」把前 149 首也拉回来（歌手动辄 500+ 首）。
- * 已加载的前缀直接用，不够再按同一 offset/order 补一次请求。
- */
+// 歌手曲目队列：最多 ARTIST_QUEUE_MAX 首。点中第 100 首以后的行时从**那一首**起取，
+// 不为「听第 150 首」把前 149 首也拉回来（歌手动辄 500+ 首）
 async function artistQueue(vm, i) {
   const total = Number(vm.total) || vm.songs.length
   const from = i < ARTIST_QUEUE_MAX ? 0 : i
   const want = Math.max(0, Math.min(ARTIST_QUEUE_MAX, total - from))
   let songs = want ? vm.songs.slice(from, from + want) : []
+
+  
   // 已加载的前缀不够（首屏只有 50 行）就按同一 offset/order 往后补；
   // 服务端单页可能给不满 want，所以是循环而不是一次请求
   let off = from + songs.length
@@ -171,16 +151,13 @@ async function artistQueue(vm, i) {
     const before = songs.length
     songs = appendUnique(songs, got)
     off += got.length
-    if (songs.length === before) break // 全是被去重过的重复：再取也是白搭
+    if (songs.length === before) break 
   }
   return { songs: songs.slice(0, want), at: Math.max(0, i - from), fill: null }
 }
 
-/**
- * liked/playlist 未全量时的队列：首段 PLAYLIST_QUEUE_HEAD 首立即起播，其余后台补。
- * pickId = 点中的那首：落在首段里就定位到它；落在更后面（多次「加载更多」后点行）
- * 就从它那首起取首段，免得为了点第 400 首把前 399 首先拉下来。
- */
+// liked/playlist 未全量时的队列：首段 PLAYLIST_QUEUE_HEAD 首立即起播，其余由 fill 后台补。
+// pickId = 点中的那首：落在首段里就定位到它；落在更后面就从它那首起取首段，免得为点第 400 首把前 399 首先拉下来
 async function playlistHeadQueue(vm, pickId) {
   const ids = vm.trackIds || []
   const attach = function (list) {
@@ -202,8 +179,8 @@ async function playlistHeadQueue(vm, pickId) {
       }
     }
     if (at < 0) {
-      /* 首段里没有它（下架曲目取不回对象）：本地已渲染的这份有就放队首起播，
-         别让「点了行没反应」；队列顺序从这首往后，缺的那首本来也播不了 */
+
+      // 首段里没有它（下架曲目取不回对象）：本地已渲染的这份有就放队首起播，别让「点了行没反应」
       for (let j = 0; j < vm.songs.length; j++) {
         if (vm.songs[j] && vm.songs[j].id === pickId) {
           q.songs = [vm.songs[j]].concat(q.songs)
@@ -216,12 +193,8 @@ async function playlistHeadQueue(vm, pickId) {
   return { songs: q.songs, at: at < 0 ? 0 : at, fill: q.fill }
 }
 
-/**
- * 「播放全部」的队列：{ songs, at, fill }。
- *   - 已全量（历史/搜索/推荐/排过序/小歌单）：整份视图，跟以前一样
- *   - artistsongs：前 ARTIST_QUEUE_MAX 首
- *   - liked/playlist：前 PLAYLIST_QUEUE_HEAD 首，`fill` 在 playList 之后调用（不 await）
- */
+// 「播放全部」的队列：{ songs, at, fill }。liked/playlist 只取前 PLAYLIST_QUEUE_HEAD 首，
+// fill 要在 playList 之后调用（不 await）
 export async function queuePlayAll(vm) {
   if (vm.allLoaded) return { songs: vm.viewAll, at: 0, fill: null }
   if (vm.kind === 'artistsongs') return artistQueue(vm, 0)
@@ -230,7 +203,7 @@ export async function queuePlayAll(vm) {
   return { songs: sorted(vm, all), at: 0, fill: null }
 }
 
-/** 「点行起播」的队列，口径与 queuePlayAll 相同（下标 i 是当前视图里的行号） */
+// 「点行起播」的队列，口径与 queuePlayAll 相同（下标 i 是当前视图里的行号）
 export async function queueFromRow(vm, i) {
   if (vm.allLoaded) return { songs: vm.viewAll, at: i, fill: null }
   if (vm.kind === 'artistsongs') return artistQueue(vm, i)
@@ -238,7 +211,7 @@ export async function queueFromRow(vm, i) {
     const song = vm.viewSongs[i] || {}
     return playlistHeadQueue(vm, song.id)
   }
-  // 其它 kind 天然全量（走不到这里）：兜底仍拉全量，再按 id 找回点中的那首
+
   const all = await loadAllSongs(vm)
   const list = sorted(vm, all)
   const song = vm.viewSongs[i] || {}
@@ -252,16 +225,14 @@ export async function queueFromRow(vm, i) {
   return { songs: list, at: at, fill: null }
 }
 
-/**
- * 删歌成功后的本地收敛（liked/playlist）。
- * songs / trackIds / cursor **必须一起收敛**：游标记的是「已消费的 trackIds 前缀」，
- * 删掉前缀里的歌后要同步回退，否则下一次 loadMore 会从偏大的下标开始（漏歌）。
- * 整体替换（filter 出新数组）而不是就地 splice：player.playList 拿过 this.songs 的引用当队列，
- * 就地删除会让正在播放的队列索引漂移。
- */
+// 删歌成功后的本地收敛（liked/playlist）。songs / trackIds / cursor **必须一起收敛**：
+// 游标记的是「已消费的 trackIds 前缀」，删掉前缀里的歌后要同步回退，否则下一次 loadMore 会从偏大的下标开始（漏歌）。
+// 整体替换（filter 出新数组）而不是就地 splice：player.playList 拿过 this.songs 的引用当队列，
+// 就地删除会让正在播放的队列索引漂移
 export function applyRemoved(vm, ids) {
   const drop = {}
   for (let i = 0; i < ids.length; i++) drop[ids[i]] = 1
+
   // 选中项里有多少落在已消费前缀内 → 游标要回退多少
   let consumed = 0
   const upto = Math.min(vm.cursor, vm.trackIds.length)
@@ -284,9 +255,11 @@ export function applyRemoved(vm, ids) {
   if (vm.shown > vm.songs.length) vm.shown = vm.songs.length
   if (vm.cursor >= vm.trackIds.length) vm.allLoaded = true
   if (vm.addTimes) {
-    for (let k in drop) delete vm.addTimes[k] // addTimes 只供排序查表，不参与渲染
+    // addTimes 只供排序查表，不参与渲染
+    for (let k in drop) delete vm.addTimes[k] 
   }
-  if (vm.kind === 'liked') markUnliked(ids) // 播放页的心形读的是 like 缓存
+  // 播放页的心形读的是 like 缓存
+  if (vm.kind === 'liked') markUnliked(ids) 
   vm.sub = vm.trackIds.length + ' 首'
   vm.hint = vm.hasMore ? '本页已清空，点下方「加载更多」继续' : '歌单已空'
   vm.showToast((vm.kind === 'liked' ? '已取消喜欢 ' : '已从歌单移除 ') + removed + ' 首')
@@ -294,11 +267,8 @@ export function applyRemoved(vm, ids) {
   vm.exitMulti()
 }
 
-/**
- * 播放历史的「删除选中」本地收敛：history.remove 后把三份数据按同一批 id 过滤 ——
- * songs 恒为 fullSongs/trackIds 前缀的不变量必须保持（否则 loadMore 的下标错位、
- * 会把删掉的条目又 concat 回来）。
- */
+// 播放历史的「删除选中」本地收敛：history.remove 后按同一批 id 过滤三份数据 ——
+// songs 恒为 fullSongs/trackIds 前缀这条不变量必须保持（否则 loadMore 下标错位、会把删掉的条目又 concat 回来）
 export function applyHistoryRemoved(vm, ids) {
   const drop = {}
   for (let i = 0; i < ids.length; i++) drop[String(ids[i])] = 1
@@ -318,7 +288,8 @@ export function applyHistoryRemoved(vm, ids) {
     return out
   }
   vm.fullSongs = keepSongs(vm.fullSongs)
-  vm.trackIds = keepIds(vm.trackIds) // trackIds 是**裸 id 数组**（不是对象），单独过滤
+  // trackIds 是**裸 id 数组**（不是对象），单独过滤
+  vm.trackIds = keepIds(vm.trackIds) 
   vm.songs = keepSongs(vm.songs)
   // 历史是本地全量：游标跟着新总数走，渲染量不因删除而变多
   vm.cursor = vm.trackIds.length

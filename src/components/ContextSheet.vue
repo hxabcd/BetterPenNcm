@@ -15,23 +15,16 @@
 </template>
 
 <script>
+
 /**
  * 上下文面板（左栏按钮展开的浮层）—— 排序 / 更多操作共用。
- *
- * 用法：
- *   <context-sheet v-if="panel" title="排序方式" :options="sortOptions"
- *     :active-key="sortKey" :asc="sortAsc" @pick="pickSort" @close="panel=''" />
- *
- * 带列数选择（专辑页）：
- *   :columns="[2,3,4]" :active-columns="cols" columns-label="列数"
- *   @pick-columns="pickCols"
  *
  * 平台约束：
  *   - 浮层绝对定位基准是 .psh-body（PageShell），所以只盖内容区、不盖左栏；
  *   - 遮罩挂关闭、内层挂空方法挡穿透（平台无 stopPropagation）；
  *   - 面板贴栏底向上生长（bottom:24vh 正对最下面那个左栏按钮的上沿），
  *     与曲目列表页的排序浮窗同一套几何。
- *   - 本组件没有 slot，结构切换（columns 有无）是安全的；仍尽量保持节点简单。
+ *   - 本组件没有 slot，结构切换（columns 有无）是安全的。
  */
 import OptChip from './OptChip.vue'
 import { accentMixin } from '../ui/mixins/accent.js'
@@ -43,24 +36,27 @@ export default {
   components: { 'opt-chip': OptChip },
   props: {
     title: { type: String, default: '' },
+
     /** [{key, label, icon?}] */
     options: { type: Array, default: function () { return [] } },
     activeKey: { type: String, default: '' },
     asc: { type: Boolean, default: false },
+
     /** 列数选择；null / 空数组 = 不显示 */
     columns: { type: Array, default: null },
     activeColumns: { type: Number, default: 0 },
     columnsLabel: { type: String, default: '列数' },
+
     /**
      * 选中项后缀（默认 null = 排序面板的 ↑/↓ 箭头）。
      * 传 '' 可只保留高亮、不要箭头 —— 用于「点一次进入待确认」的破坏性项
      * （plinfo 的本地删除 / 删除：标签由页面自己改成「再点一次确认」）。
      */
     markText: { type: String, default: null },
+
     /**
      * 密集模式：面板高度收进 .psh-body（85vh）的可用竖空间。
-     * 用于选项 ≥4 的面板（plinfo 从本地下载进入时的「下载全部 / 重命名 / 本地删除 / 删除」，
-     * 常规几何 4×15.2 + 标题 + 内边距 ≈ 73vh，会从底部 24vh 向上顶穿内容区被裁掉）。
+     * 用于选项 ≥4 的面板（常规几何 4×15.2 + 标题 + 内边距 ≈ 73vh，会从底部 24vh 向上顶穿内容区被裁掉）。
      * 实现：隐藏标题、缩小内边距、选项降到 13vh（仍够点，图标/字号不变）。
      */
     dense: { type: Boolean, default: false }
@@ -81,7 +77,7 @@ export default {
     onPickColumns(n) {
       this.$emit('pick-columns', n)
     },
-    /** 当前生效项的方向箭头（只在选中项后面）；markText 非 null 时用它替代箭头 */
+
     mark(k) {
       if (!this.activeKey || k !== this.activeKey) return ''
       if (this.markText !== null) return this.markText
@@ -141,7 +137,8 @@ export default {
   margin-bottom: 1.6vh;
   margin-left: 1vh;
 }
-/* 选项行：14vh ≈ 34px 高（原 11vh 在小屏上太难点），字号提到 @fs-strong。
+
+/* 选项行：14vh ≈ 34px 高（11vh 在小屏上太难点）。
    面板宽 76vh ≈ 182px，容得下「添加到本地索引」6 个加粗汉字 + 图标。 */
 .cs-opt {
   height: 14vh;

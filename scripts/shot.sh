@@ -1,19 +1,8 @@
 #!/bin/bash
 # 截图（真机 / --vm）：点亮屏幕 → miniapp_cli capture → 拉回 → 空白帧检测
 #
-# 为什么单独一个脚本：装机（install.sh）只负责"装上去并能起来"，
-# 而截图是看一眼效果的动作，调试时经常要反复截而不要重装。
-#
-# 空白帧检测：设备 180 秒自动熄屏，熄屏后 capture 返回的是黑帧，
-# 旧版直接 pull 回来当成功（文件存在、非空）。这里用像素极差判断，空白就明确报出来。
-#
-# 用法：
-#   bash scripts/shot.sh                     # → shots/shot.png
-#   bash scripts/shot.sh --wait 5            # 先等 5 秒（等渲染）
-#   bash scripts/shot.sh --ready             # 先等应用起来（memoryApp 出现 App(appid)）
-#   bash scripts/shot.sh --out shots/foo.png
-#   bash scripts/shot.sh --ssh pen            # 走 Wi-Fi SSH（无需 USB）
-#   bash scripts/shot.sh --vm                # 截 dictpen-vm（dpctl screenshot）
+# 空白帧检测：设备 180 秒自动熄屏，熄屏后 capture 返回的是黑帧（文件存在、非空），
+# 所以用像素极差判断，空白就明确报出来。
 set -e
 export MSYS_NO_PATHCONV=1
 
@@ -77,7 +66,6 @@ sys.exit(10 if hi - lo < 8 else 0)
 PY
 }
 
-# ---------- 后端选择：vm / adb / ssh（传输层统一分派） ----------
 # ⚠ 不能写 `[ -n "$X" ] && SEL_ARGS+=(...)`：set -e 下 X 为空会让整条 && 列表
 #   返回非 0，脚本静默退出（实测踩过）。用 if 保持列表返回 0。
 SEL_ARGS=()
@@ -86,15 +74,12 @@ if [ -n "$SSH_TARGET" ]; then SEL_ARGS+=(--ssh "$SSH_TARGET"); fi
 if [ "$VM" = 1 ]; then
   [ -n "${DICTPEN_VM_PY:-}" ] && [ -z "${DPD_VM_PY:-}" ] && export DPD_VM_PY="$DICTPEN_VM_PY"
   dev_select --transport vm --project "$PROJ"
-  # dpctl screenshot 不是五个传输原语之一（截图留在本脚本是刻意偏差，不属于通用传输能力）
   stage "截取虚拟机画面"
   $DPD_VM_PY "$DPD_VM_DPCTL" screenshot --out "$(cygpath -w "$OUT")"
   info "  截图: $OUT"
   stage_done
   exit 0
 fi
-# 不指定 --ssh/--device 时按项目配置选设备（工作区 targets.env 或本项目
-# .dictpen-dev.env），不再把 adb 写死成默认值。
 _SHOT_ARGS=()
 if [ -n "$TRANSPORT" ]; then _SHOT_ARGS+=(--transport "$TRANSPORT"); fi
 dev_select --project "$PROJ" ${_SHOT_ARGS[@]+"${_SHOT_ARGS[@]}"} ${SEL_ARGS[@]+"${SEL_ARGS[@]}"}

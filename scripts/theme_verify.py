@@ -14,39 +14,39 @@ except Exception:
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJ = os.path.normpath(os.path.join(HERE, '..'))
 
-# (文件, [必须出现的片段...])
 CHECKS = [
-    # S3 拆分后：theme.js 只守状态本体（PRESETS/ACCENTS/换色广播）；mixin 面在 ui/mixins/accent.js
+
     ('src/ui/theme.js', ['export const ACCENTS', 'export function currentAccent(', 'export async function setAccent(',
                             'export function currentAccentKey(', 'export const THEME_EVENT',
-                            # 亮色预设的对比度兜底（Vocaloid 七色里 6 个是亮色）
+
                             'export const FG_LIGHT', 'export const FG_DARK', 'function pickOn(',
                             'a.on = pickOn(a.c)', "key: 'red'", "c: '#D93A49'"]),
     ('src/ui/mixins/accent.js', ['export const accentMixin', 'vm.accent = currentAccent()', 'THEME_EVENT', 'fgIcon']),
     ('src/core/infra/config.js', ["accentColor: 'red'"]),
     ('src/styles/common.less', ['默认主题色 = 重音红', '@accent-2: #F58A93']),
+
+    
     # X3S 设备自带 libsqlite3 3.21（2017）：没有 UPSERT 语法（3.24 才有）。
     # upsertSql 必须用 INSERT OR IGNORE + UPDATE 的等价写法，否则索引写入整批失败。
     ('src/core/platform/db.js', ['INSERT OR IGNORE INTO', 'X3S 的 libsqlite3']),
     ('src/core/infra/boot.js', ['背景色/主题色同理']),
     ('src/assets/icons.js', ['export const ACCENT_ICON', 'export function aIcon', 'icon-pl-teal.png?base64',
                              'icon-chevright.png?base64',
-                             # 实心主题色上的图标：亮色预设要深色版
+
                              'export const FG_ICON', 'export function fgIcon', 'icon-play-dark.png?base64']),
     ('scripts/gen_icons.py', ['ACCENT_ICONS = ', 'ACCENTS = (', 'def icon_files(', 'def icon_want_color',
                              "'chevright': '#888890'",
                              'DARK_ICONS = ', "('red', '#D93A49')", "DARK_FG = '#14151a'"]),
 
     ('src/components/NavRail.vue', ['accentMixin', 'this.accent.c', 'TOK.btnBg', 'width: 25vh']),
-    # SongRow：showQuality 列；勾选圈两态（TOK.markBorder）也在这
+
     ('src/components/SongRow.vue', ['accentMixin', 'this.accent.a12', 'this.accent.c', 'showQuality', 'TOK.markBorder']),
-    # keyboard.vue 已弃用移除，不再校验
 
     ('src/pages/index/index.vue', ['accentMixin', '{ color: accent.c }', '{ backgroundColor: accent.c }',
                                    "cico('pl')", "cico('dl')", "cico('hist')", 'return aIcon(key, this.accent.key)']),
-    # 播放页 2026-10-29 按设计稿重构、2026-10-30 调整交互：
-    # 左栏改回全局 PageShell/NavRail（设计稿左栏样式已应用到 NavRail 全局），页面只剩
-    # 控制区 + 子面板；默认空面板，三个切换键开合。判据钉「装配关系 + 主题色/开合契约」。
+
+    
+
     ('src/pages/player/player.vue', ['page-shell', 'control-panel', 'lyric-board',
                                      'comment-panel', 'timer-panel', 'seek-panel', 'hint-toast',
                                      'sleepTimer', 'pageFrameMixin', 'toggleSub', 'seekView',
@@ -54,8 +54,8 @@ CHECKS = [
     ('src/components/player/ControlPanel.vue', ['accentMixin', '{ backgroundColor: accent.c }',
                                                  "aIcon('liked', this.accent.key)", 'fgIcon',
                                                  'TOK.btnBg', 'ICON.micvocal', 'ICON.disc3']),
-    # 播放页子面板（2026-10-29 重构新增）：判据钉「主题色/令牌接入 + 对外事件契约」，
-    # 几何在设计稿与组件注释里，不重复巡（尺寸值巡了必误报）。
+
+    
     ('src/components/player/LyricBoard.vue', ['accentMixin', 'seekline', 'TOK.text2', 'trackStyle']),
     ('src/components/player/CommentPanel.vue', ['TOK.cardBg', 'ICON.thumbsup', 'fetchComments',
                                                 'postComment', "this.$emit('toast'"]),
@@ -66,9 +66,11 @@ CHECKS = [
     ('src/pages/account/account.vue', ['accentMixin', '{ backgroundColor: accent.c }', 'this.accent.c } : { backgroundColor']),
     ('src/pages/album/album.vue', ['accentMixin', '{ color: accent.light }']),
     ('src/pages/artist/artist.vue', ['accentMixin', '{ color: accent.light }']),
-    # dlqueue：取消的两个入口 —— 行内按钮单击即取消（`const ok = cancelTask(id)`，不许退回
-    # 两次点按），左栏「取消全部」才走两次点按确认（armed + 实心主题色键）。判据钉住服务层
-    # 函数与两种接线，防止确认强度被改乱。
+
+    
+
+    # dlqueue：取消有两个入口 —— 行内按钮单击即取消（`const ok = cancelTask(id)`，不许退回两次点按），
+    # 左栏「取消全部」才走两次点按确认（armed + 实心主题色键）。判据钉住服务层函数与两种接线，防止确认强度被改乱。
     ('src/pages/dlqueue/dlqueue.vue', ['accentMixin', 'this.accent.light',
                                        'cancelTask', 'cancelDownload', 'fgIcon',
                                        'const ok = cancelTask(id)', "this.isArmed('stopall')"]),
@@ -78,23 +80,23 @@ CHECKS = [
     ('src/pages/dlartists/dlartists.vue', ["'context-sheet': ContextSheet", 'sortKey', 'localArtistList', 'accentMixin']),
     ('src/pages/dlalbums/dlalbums.vue', ["'context-sheet': ContextSheet", 'sortKey', 'cols', 'localAlbumList', 'accentMixin']),
     ('src/components/ContextSheet.vue', ['accentMixin', 'OptChip', 'TOK.panel2', "this.$emit('pick'"]),
-    # list 页 2026-11-20 S2 拆解后：排序浮窗/搜索侧栏的 accent 内联样式已移入
-    # ContextSheet.vue / list/SearchSidebar.vue（各自的 CHECKS 条目仍钉住），本页只守
-    # 「模板级主题色还在用」与装配关系
+
+    
+
     ('src/pages/list/list.vue', ['accentMixin', '{ color: accent.light }', 'search-sidebar',
                                  'context-sheet', 'sortOptions', 'KINDS']),
     ('src/components/list/SearchSidebar.vue', ['accentMixin', 'this.accent.a18', 'this.accent.light : ', 'SEARCH_TYPES']),
-    # login 混 accentMixin（原手写 currentAccent() 已删），判据跟着改
+
     ('src/pages/login/login.vue', ['accentMixin', '{ color: accent.c }', '{ backgroundColor: accent.c }']),
-    # 四处逐字节相同的胶囊样式搬进 components/OptChip.vue（accent 判据跟着搬，
-    # 见下方 OptChip 条目）；本页改守「用的是共享控件」——防往回手写
+
+    
     ('src/pages/playeropts/playeropts.vue', ["'opt-chip': OptChip", "'opt-toggle': OptToggle"]),
     ('src/pages/playlists/playlists.vue', ['accentMixin', 'this.accent.light', '{ color: accent.light }']),
     ('src/pages/plinfo/plinfo.vue', ['accentMixin', 'this.accent.light', 'idxStyle', "'context-sheet': ContextSheet"]),
-    # 选中底 a20 → a12、勾选圈与 SongRow 对齐（统一行度量）；a14 仍是「当前播放底」
+
     ('src/pages/queue/queue.vue', ['accentMixin', 'this.accent.a12', 'this.accent.a14', 'this.accent.light',
                                    '{ color: accent.light }']),
-    # 主题色/背景色的开关在二级页 setlook（settings.vue 是分组索引）
+
     ('src/pages/setlook/setlook.vue', ['accentMixin', 'ACCENTS', 'currentAccentKey()', 'accents: ACCENTS',
                                        'accentKey:', 'lk-acrow', 'acStyle(a)', 'acTextStyle(a)',
                                        'pickAccent(key)', 'color: a.on', "'opt-toggle': OptToggle"]),
@@ -102,20 +104,20 @@ CHECKS = [
     ('src/pages/songinfo/songinfo.vue', ['accentMixin', '{ color: accent.light }']),
     ('src/pages/storage/storage.vue', ['accentMixin', 'this.accent.c : ']),
 
-    # 共享控件（主题色样式实体的所在处；改视觉时判据先看这里）
     ('src/components/OptChip.vue', ['accentMixin', 'this.accent.a18', 'this.accent.c', 'this.accent.light',
                                     'TOK.panel2', 'TOK.text2']),
     ('src/components/CueRow.vue', ['cue: { type: Boolean', 'dim: { type: Boolean', 'chevright']),
 
-    # 左栏兜底判据：frame.js 的 rail 必须在 computed；PageShell 必须兜底
-    # 非数组。语义判据在第四道（mixin 分组），这两条防的是「兜底/分组被改回去」。
+    
+    # 左栏兜底判据：frame.js 的 rail 必须在 computed；PageShell 必须兜底非数组（语义判据在第四道，
+    # 这两条防的是「兜底/分组被改回去」）
     ('src/ui/mixins/frame.js', ['computed: {', 'return [railBack()]']),
     ('src/components/PageShell.vue', ['Array.isArray(this.rail)', 'railItems', 'railBack']),
 
-    # 导航层：逻辑页 → 实例槽位（页面代码只认逻辑页名；槽位表与 app.json 由第六道交叉校验）
+    # 导航层：连点合并 / 槽位耗尽的退化策略不能悄悄丢掉（第六道只查调用点，查不到行为）
     ('src/core/infra/nav.js', ['const PAGES = {', 'export function go(', 'export function paramsFor(',
                           'export function attachPage(', 'export function noteLifeCycle(',
-                          # 连点合并 / 槽位耗尽的退化策略不能悄悄丢掉（第六道只查调用点，查不到行为）
+
                           'DEDUPE_MS', 'dup-ignore', 'topLiveSlot(']),
 ]
 
@@ -149,16 +151,18 @@ if CHECKS_MISSING:
 
 # ---- 第二道：跨模块符号「用了但没 import」 ----
 # 这是本项目最阴的一类 bug：JS 里引用了没导入的名字，**构建不报错**（当成全局查找），
-# 运行时才抛 `ReferenceError` —— 发生在 data()/render 里就是**整页黑屏**。
+# 运行时才抛 ReferenceError —— 发生在 data()/render 里就是**整页黑屏**。
 SYMBOLS = ['currentBg', 'currentAccent', 'currentAccentKey', 'bindTheme', 'unbindTheme',
            'setBg', 'setAccent', 'accentMixin', 'aIcon', 'fgIcon', 'ACCENTS', 'PRESETS', 'currentKey', 'ICON',
            'railBack', 'railBtn']
 import re
 
 for rel, _ in CHECKS:
+    # theme.js / accent.js / icons.js 是符号**定义处**；scripts/ 是 Python（自带 ACCENTS 等定义）
     if rel.startswith(('src/ui/theme.js', 'src/ui/mixins/accent.js', 'src/assets/icons.js', 'scripts/')):
-        continue  # theme.js / accent.js / icons.js 是符号**定义处**；gen_icons.py 是 Python（自带 ACCENTS 定义）
+        continue  
     src = io.open(os.path.join(PROJ, rel), encoding='utf-8').read()
+
     # 只看 <script> 段（模板里的同名字符串不算）
     m = re.search(r'<script>(.*?)</script>', src, re.S)
     body = m.group(1) if m else src
@@ -173,11 +177,13 @@ for rel, _ in CHECKS:
                     imported.add(part)
         if im.group(2):
             imported.add(im.group(2))
+
     # 去掉 import 行与注释再判「是否被使用」（否则注释里提一句符号就误报）
     stripped = re.sub(r'^import\s.*$', '', body, flags=re.M)
     stripped = re.sub(r'/\*.*?\*/', '', stripped, flags=re.S)
     stripped = re.sub(r'^\s*//.*$', '', stripped, flags=re.M)
     stripped = re.sub(r'<!--.*?-->', '', stripped, flags=re.S)
+
     # ⚠ `this.fgIcon(...)` 是 accentMixin 给的**方法**，不需要 import —— 先把 this. 前缀的抹掉
     stripped = re.sub(r'\bthis\.\w+\b', 'this.', stripped)
     used = [s for s in SYMBOLS if re.search(r'\b%s\b' % s, stripped) and s not in imported]
@@ -199,7 +205,7 @@ for rel, _ in CHECKS:
 
 # ---- 第四道（硬失败）：模板裸绑定必须有**值**定义 ----
 # 两类命中：
-#   ① 全工程找不到定义（原 artist.vue moreStyle 类）→ 警示；
+#   ① 全工程找不到定义 → 警示；
 #   ② **只有 methods 提供** → 硬失败。模板 `:x="name"` 编译出来是「取字段」
 #      （字节码实证：get_field rail），method 版取到的是函数——轻则静默失效
 #      （原 LyricPanel.transStyle），重则组件炸掉、整块 UI 消失（pageFrameMixin.rail
@@ -210,13 +216,12 @@ MEMBER_LINE = re.compile(r'^    ([A-Za-z_$][\w$]*)\s*[:(]')
 MEMBER6_LINE = re.compile(r'^      ([A-Za-z_$][\w$]*)\s*[:(]')
 RETURN_OBJ_LINE = re.compile(r'^\s*return\s*\{(.*)\}\s*$')
 
-
 def group_map(text):
     """名字 → 出现过的组集合（本工程缩进规范：组 2 空格、成员 4；data 的 return 里 6）"""
     m = {}
     group = None
     for line in text.splitlines():
-        if re.match(r'^[A-Za-z}<]', line):  # 顶格行 = 对象/函数边界，清状态
+        if re.match(r'^[A-Za-z}<]', line):  
             group = None
             continue
         g = GROUP_LINE.match(line)
@@ -227,17 +232,16 @@ def group_map(text):
         if mm and group:
             m.setdefault(mm.group(1), set()).add(group)
         if group == 'data':
-            m6 = MEMBER6_LINE.match(line)  # data(){ return { 多行写法
+            m6 = MEMBER6_LINE.match(line)  
             if m6:
                 m.setdefault(m6.group(1), set()).add('data')
-            rl = RETURN_OBJ_LINE.match(line)  # 单行 return { a: 1, b: 2 }
+            rl = RETURN_OBJ_LINE.match(line)  
             if rl:
                 for kv in rl.group(1).split(','):
                     k = kv.split(':')[0].strip()
                     if re.match(r'^[A-Za-z_$][\w$]*$', k):
                         m.setdefault(k, set()).add('data')
     return m
-
 
 MIXIN_SOURCES = {
     'accentMixin': 'src/ui/mixins/accent.js',
@@ -267,7 +271,8 @@ for rel in sorted(_view_files):
     if not mt or not ms:
         continue
     tpl, body = mt.group(1), ms.group(1)
-    tpl = re.sub(r'<!--.*?-->', '', tpl, flags=re.S)  # 注释里提到绑定形式不算
+    # 注释里提到绑定形式不算
+    tpl = re.sub(r'<!--.*?-->', '', tpl, flags=re.S)  
     body_c = re.sub(r'/\*.*?\*/', '', body, flags=re.S)
     body_c = re.sub(r'^\s*//.*$', '', body_c, flags=re.M)
     provided = {}
@@ -276,11 +281,14 @@ for rel in sorted(_view_files):
             for k, v in mp.items():
                 provided.setdefault(k, set()).update(v)
     pgroups = group_map(body_c)
+
     # 模板局部名（v-for 别名）与字面量不算
     locals_ = set(re.findall(r'v-for="\s*\(?\s*([A-Za-z_$][\w$]*)', tpl))
     locals_ |= set(re.findall(r'v-for="\s*\(\s*[A-Za-z_$][\w$]*\s*,\s*([A-Za-z_$][\w$]*)', tpl))
-    # 裸绑定名：:x="name" 与 v-for="x in name" 的集合名，模板都编译成 get_field（坑 24）。
-    # 后者曾漏检：queue.vue 把 rows() 写在 methods，v-for 取到函数 → 整窗 0 行、页面中间全空。
+
+    
+    # 裸绑定名：:x="name" 与 v-for="x in name" 的集合名，模板都编译成 get_field。
+    # 后者容易漏检：queue.vue 曾把 rows() 写在 methods，v-for 取到函数 → 整窗 0 行、页面中间全空。
     bare = []
     for b in re.finditer(r':([a-zA-Z][\w-]*)="([A-Za-z_$][\w$]*)"', tpl):
         bare.append((':%s="%s"' % (b.group(1), b.group(2)), b.group(2)))
@@ -299,9 +307,13 @@ for rel in sorted(_view_files):
         elif not groups:
             warns.append('%s 的 %s 在 script 里找不到定义' % (rel, label))
 
+    
+
+    
+
     # ---- 第四道补：页面 methods 与 mixin computed 同名（静默失效，上面的并集判不出来）----
     # Vue initState 是 methods → data → computed；initComputed 里 `if (!(key in vm))` 在
-    # 同名 method 存在时为假 → **只 warn 不覆盖**，`vm[key]` 仍是 mixin 那个 computed。
+    # 同名 method 存在时为假 → **只 warn 不覆盖**，vm[key] 仍是 mixin 那个 computed。
     # 实测：页面 methods.rail() 被整份丢掉，左栏回到 mixin 的 [返回]（「创建歌单」键从未出现）。
     # 模板里的裸绑定走上面那条并集判据，所以这里必须独立扫**页面自己**的分组。
     for _name, _groups in pgroups.items():
@@ -315,18 +327,19 @@ for rel in sorted(_view_files):
                 print('✗ %-42s 成员 %s 写在 methods，但 %s 已提供同名 computed'
                       '（Vue 保留 mixin 那份 → 页面这份整个失效）' % (rel, _name, _mx))
                 break
+
 # ---- 第五道：token 值字面量巡检（硬失败）----
-# 规则：token 的**颜色值**只能待在 src/ui/tokens.js（唯一来源）；
-# 消费走 TOK（JS）或 common.less 的生成段（LESS 用 @名）。
+# 规则：token 的**颜色值**只能待在 src/ui/tokens.js（唯一来源）；消费走 TOK（JS）或 common.less 的生成段（LESS 用 @名）。
 # 为什么只巡颜色不巡尺寸：尺寸值（6vh / 15vh…）与普通内边距/字号撞车，巡了必误报；
 # 颜色是 8 位十六进制/rgba，唯一性足够。新增 token 时把它的颜色值加进下表即可。
 TOKEN_VALUES = ['#1a1b1f', '#232428', 'rgba(255, 255, 255, 0.08)', '#ffffff', '#b9b9c0', '#888890',
                 '#7bd88f', '#ffd166', '#ff9a9a', '#2e3138', '#1c1e23', 'rgba(0, 0, 0, 0.28)',
                 'rgba(4, 7, 10, 0.6)', 'rgba(0, 0, 0, 0)', 'rgba(255, 255, 255, 0.85)',
-                # 播放页重构（PlayerPage 14:1570）新增的 4 个面/槽色
+
                 '#242424', '#272727', '#373737', '#282828']
 TOKEN_VALUE_OK = {'src/ui/tokens.js', 'src/styles/common.less', 'scripts/gen_tokens.py'}
-TOKEN_VALUE_DEFERRED = set()  # 当前没有豁免文件
+# 豁免清单（当前为空，逐条登记）：列在这里的文件只降级为警示，不直接判失败
+TOKEN_VALUE_DEFERRED = set()  
 
 import glob as _glob
 
@@ -358,7 +371,7 @@ for rel in sorted(_scan):
 # 每次 go() 会 navTo 一个**当前不在栈里**的槽位 key（= 真正压栈）。三者不一致会静默退化：
 #   - 新页面没登记进 PAGES / app.json → 导航回落平台语义（层级退回）或直接断链；
 #   - 槽位 key 没注册 / 指向别的 .vue → 压栈时黑屏或跑错页面；
-#   - 调用点写了旧别名 key 或变量 → 绕过槽位分配，平台复用语义重新出现。
+#   - 调用点写了旧别名 key 或变量 → 绕过槽位分配，平台「复用栈内同名页」的语义重新出现。
 # 这些构建期都不报错，所以必须在自检里兜住。
 import json as _json
 
@@ -418,7 +431,7 @@ for _rel2 in sorted(_nav_files):
     if re.search(r'songinfonested|artistlist|playlistpick', _text):
         _nav_bad.append('%s 仍引用旧别名 key（已由逻辑页 + 实例槽位取代）' % _rel2)
     if _rel2 == 'src/core/infra/nav.js':
-        continue  # 定义处：本身含 go()/navTo 定义，不扫
+        continue  
     if 'onPageParams' in _text:
         _nav_bad.append('%s 仍引用已废弃的 onPageParams（导航层只做压栈，不再复用页面实例）' % _rel2)
     if re.search(r'\$falcon\.navTo\s*\(', _text):
@@ -436,6 +449,7 @@ for _rel2 in sorted(_nav_files):
         elif _name == 'index':
             _nav_bad.append('%s 的 go(\'index\') —— index 是根页/入口页，不是导航目标（回上层用 finish 链路）'
                             % _rel2)
+
 # settings 的二级菜单表（GROUPS 的 key）必须与 openGroup 的字面量分支一一对应（新增/改名漏一处会静默 no-op）
 _settings = io.open(os.path.join(PROJ, 'src/pages/settings/settings.vue'), encoding='utf-8').read()
 _menu_keys = set(re.findall(r"\{\s*key:\s*'([A-Za-z][\w]*)'", _settings))
@@ -446,6 +460,7 @@ for _k, _v in _branch_pairs:
 if set(_k for _k, _ in _branch_pairs) != _menu_keys:
     _nav_bad.append('settings.vue 的 GROUPS 菜单 key %s 与 openGroup 的 go() 分支 %s 不一致'
                     % (sorted(_menu_keys), sorted(set(_k for _k, _ in _branch_pairs))))
+
 # 每个页面 .vue 都必须能在 app.json 找到（probe / anim 仅探针构建打包，跳过）
 for _p in _glob.glob(os.path.join(PROJ, 'src/pages', '*', '*.vue')):
     _rel2 = os.path.relpath(_p, PROJ).replace('\\', '/')
@@ -464,16 +479,13 @@ else:
           % ('导航路由表', len(_logic_slots), len(_app_pages), _go_calls))
 
 # ---- 第七道：分层方向校验（目录前缀 → 目录前缀的 import 边表）----
-# 轴定义与方向规则（R1-R6，违例即自检失败）：
-#   pages → {components, ui, services, core}
-#   components → {ui, core, services, assets, vendor}（域组件编码域知识，明确允许；
-#                components/chrome/ 追加禁止 → services，chrome 是跨应用框架候选）
-#   ui → {core, assets}；禁止 ui → services / components（multidl 拆分后 ui 无 services 边）
-#   services → {core, services}（跨 services 子域优先走门面）
-#   core → core：infra→platform 允许；platform→infra 限 log.js（万能底座，
-#          平台适配层也打日志，与 R6 的 DDL 式妥协同源）；其余禁止
+# 轴定义见 _AXIS_OF，_DIR_RULES 是「每个轴允许 import 的目标轴集合」（R1-R6，违例即自检失败）：
+#   components 明确允许 → services（域组件编码域知识），但 chrome/ 追加禁止 → services（chrome 是跨应用框架候选）；
+#   core 内 platform → infra 限 log.js（万能底座，平台适配层也打日志）；其余 core→core 跨目录禁止。
 # 豁免清单：一行一条 (文件, 说明符)。出现新违例要么改代码，要么带理由登记。
 LAYER_EXEMPT = {
+
+    
     # 启动序列是全应用的装配点（建目录/开库/灌会话/换肤广播），引域模块装配是它的职责；
     # 这不是「infra 依赖业务」，而是 boot 的域外装配身份 —— 保持集中，不往下拆
     ('src/core/infra/boot.js', '../../ui/theme.js'),
@@ -481,6 +493,8 @@ LAYER_EXEMPT = {
     ('src/core/infra/boot.js', '../../services/player/history.js'),
     ('src/core/infra/boot.js', '../../services/player/locallists.js'),
     ('src/core/infra/boot.js', '../../services/ncm/login.js'),
+
+    
     # 下载对账/续传是启动序列的一部分：退出时没下完的 .part 要在页面读下载列表前转正，
     # 缺元数据的条目要就地补。同上面的 locallists 一样属于 boot 的域外装配职责。
     ('src/core/infra/boot.js', '../../services/player/download.js'),
@@ -501,10 +515,12 @@ def _axis(rel):
     for prefix, name in _AXIS_OF:
         if rel.startswith(prefix):
             return name
-    return None  # assets/styles/vendor/app.js 不参与
+    # assets / styles / vendor / app.js 不参与分层
+    return None  
 
 _DIR_RULES = {
-    # 允许的目标轴集合；None = 该轴不 import 其它业务轴（资源除外，另行放行）
+
+    # 允许的目标轴集合；None/自己 = 不跨轴（资源除外，另行放行）
     'pages': {'pages', 'components', 'chrome', 'ui', 'services', 'infra', 'platform'},
     'components': {'components', 'chrome', 'ui', 'services', 'infra', 'platform'},
     'chrome': {'chrome', 'ui', 'infra', 'platform'},
@@ -560,10 +576,9 @@ if _dir_bad:
 else:
     print('✓ %-42s 0 处方向违例（R1-R6）' % '分层方向')
 
-# ---- 第八道：相对导入存在性（S1/S3 目录重构的路径写错只在运行期黑页）----
+# ---- 第八道：相对导入存在性（目录重构后路径写错只在运行期黑页）----
 # 判据：src/**/*.{js,vue} 里所有相对 import/from 的目标（补常见扩展名）必须存在。
-# 这类错误构建期不报（aiot-cli 只给一行「未找到以下模块」警告），页面运行到 import 才炸；
-# 2026-11-22 的 X3S 首跑就是被 listpage/tokens/dlsub 三处旧路径挡住（见修复 commit）。
+# 这类错误构建期不报（aiot-cli 只给一行「未找到以下模块」警告），页面运行到 import 才炸。
 _SPEC_RE8 = re.compile(r"""(?:\bfrom|\bimport\s*\(\s*)\s*(['"])(\.[^'"]+)\1""")
 _EXT8 = ('', '.js', '.vue', '.json', '.less', '.css', '.png', '.svg', '.gif', '.jpg')
 _n_imports8 = 0

@@ -1,7 +1,7 @@
-/**
- * 网易云 API 封装：歌词/搜索/直链/歌曲详情等读取全部走明文 /api/；
- * 登录与写操作走 weapi（weapiPost 把 /api/ 换成 /weapi/，本文件不再直接用它，见 weapi.js 的调用方）。
- */
+
+
+// 网易云 API 封装：歌词/搜索/直链/歌曲详情等读取全部走明文 /api/；登录与写操作走 weapi
+// （weapiPost 内部把 /api/ 换成 /weapi/）
 import { request } from '../../core/infra/net/request.js'
 import { toMs } from '../../core/infra/format.js'
 import { coverKey } from '../../services/cover/cover.js'
@@ -24,7 +24,7 @@ function pickArtist(song) {
   return names.join(' / ') || '未知歌手'
 }
 
-/** 图片 URL 统一 https（头像轻量接口会回 http://，封面缓存按 URL 直接下载） */
+// 图片 URL 统一 https：头像轻量接口会回 http://，而封面缓存按 URL 直接下载
 function picUrl(u) {
   const s = String(u || '')
   if (!s) return ''
@@ -33,14 +33,8 @@ function picUrl(u) {
   return s
 }
 
-/**
- * 别名提取（结构对齐用户 MusicVault 项目的 Track.from_ncm_payload）：
- *   aliases = tns(翻译名) + alia(新接口别名) [+ alias(老接口别名)]
- *   每项再按分隔符拆开、去重
- * 分隔符仅取「/ ; ；」——**逗号和顿号都不行**
- * （别名本身可能含逗号/顿号，会被误拆）
- * 返回字符串数组（保持顺序）
- */
+// 别名提取：aliases = tns(翻译名) + alia(新接口别名) [+ alias(老接口别名)]，每项再按分隔符拆开、去重。
+// 分隔符仅取「/ ; ；」——逗号和顿号都不行（别名本身可能含逗号/顿号，会被误拆）。
 export function pickAliases(raw) {
   const out = []
   const all = (raw.tns || []).concat(raw.alia || []).concat(raw.alias || [])
@@ -56,7 +50,7 @@ export function pickAliases(raw) {
   return out
 }
 
-/** 统一曲目结构；兼容搜索（artists/album/duration）与歌单详情（ar/al/dt）两种字段名 */
+// 统一曲目结构；兼容搜索（artists/album/duration）与歌单详情（ar/al/dt）两种字段名
 export function normalizeSong(raw) {
   const album = raw.album || raw.al || {}
   return {
@@ -72,9 +66,9 @@ export function normalizeSong(raw) {
   }
 }
 
-/* 搜索分类（加）：四个分类都走同一个端点 /api/search/get/web（PC 端 curl 实测），
-   只是 result 里的数组名不同。type 值与网易云一致：1 单曲 / 10 专辑 / 100 歌手 / 1000 歌单。
-   ⚠ 老端点没有 type=1002（用户）之类的新类型，别照搬新接口文档。 */
+// 四个搜索分类都走同一个端点 /api/search/get/web（PC 端 curl 实测），只是 result 里的数组名不同。
+// type 值与网易云一致：1 单曲 / 10 专辑 / 100 歌手 / 1000 歌单。
+// ⚠ 老端点没有 type=1002（用户）之类的新类型，别照搬新接口文档。
 export const SEARCH_TYPES = [
   { key: 1, label: '单曲', unit: '首', field: 'songs', count: 'songCount' },
   { key: 100, label: '歌手', unit: '位', field: 'artists', count: 'artistCount' },
@@ -82,7 +76,6 @@ export const SEARCH_TYPES = [
   { key: 10, label: '专辑', unit: '张', field: 'albums', count: 'albumCount' }
 ]
 
-/** 搜索分类 → 选项（label / unit / 计数字段）；未知 type 退回第一个 */
 export function searchMeta(type) {
   for (let i = 0; i < SEARCH_TYPES.length; i++) {
     if (SEARCH_TYPES[i].key === Number(type)) return SEARCH_TYPES[i]
@@ -90,7 +83,6 @@ export function searchMeta(type) {
   return SEARCH_TYPES[0]
 }
 
-/** 歌手名拼接（专辑/歌单条目里的 artists / creator 字段） */
 function joinArtists(arr) {
   const names = []
   const a = arr || []
@@ -105,12 +97,10 @@ function yearOf(ms) {
   return v ? new Date(v).getFullYear() || 0 : 0
 }
 
-/**
- * 分类搜索：返回 {type, items, total}
- *   type=1    → items 是 normalizeSong（可直接喂播放器）
- *   其余      → items 是行显示用的轻量结构 {id, kid, name, sub, cover}
- *               （kid = 带前缀的缓存键，避免歌手/专辑/歌单的 id 与歌曲 id 在封面缓存里撞车）
- */
+// 分类搜索：返回 {type, items, total}
+//   type=1 → items 是 normalizeSong（可直接喂播放器）
+//   其余   → items 是行显示用的轻量结构 {id, kid, name, sub, cover}
+//            （kid = 带前缀的缓存键，避免歌手/专辑/歌单的 id 与歌曲 id 在封面缓存里撞车）
 export async function searchByType(keyword, type, offset, limit) {
   const meta = searchMeta(type)
   const url =
@@ -131,10 +121,10 @@ export async function searchByType(keyword, type, offset, limit) {
       continue
     }
     if (meta.key === 100) {
+      // 头像缓存键与本地下载-歌手/歌手详情共用：同一歌手同一张图，避免各页面各存一份
       items.push({
         id: it.id,
-        /* 头像缓存键与本地下载-歌手/歌手详情共用：同一歌手同一张图，
-           避免各页面各存一份、来源不一致 */
+
         kid: coverKey('artist', it.id),
         name: it.name || '',
         cover: picUrl(it.picUrl || it.img1v1Url || ''),
@@ -155,7 +145,7 @@ export async function searchByType(keyword, type, offset, limit) {
       })
       continue
     }
-    // 1000 歌单
+
     const creator = it.creator || {}
     items.push({
       id: it.id,
@@ -168,24 +158,15 @@ export async function searchByType(keyword, type, offset, limit) {
   return { type: meta.key, items: items, total: res[meta.count] || items.length, meta: meta }
 }
 
-/**
- * 取歌曲直链（v1 接口，按档位 level 请求）
- *
- * `GET /api/song/enhance/player/url/v1?ids=[<id>]&level=<level>&encodeType=flac`
- *
- * 实测契约（PC 端 2026-10-22：匿名免费歌 + 带黑胶 cookie 的 Hi-Res 曲目；替代老接口 `/player/url?br=`）：
- *   - **`level` 和 `encodeType` 都是必需参数**，缺任一个就回 `{"code":400,"msg":"参数错误"}`
- *   - `ids` 必须带方括号，写成 `ids=123` 同样参数错误
- *   - 账号无该档权益时静默降级：匿名请求 lossless/hires 回 `type='mp3'`、`br=320000`
- *   - ⚠ **`data[0].level` 只是档位标签，不可靠**（带 cookie 实测）：请求 `level=hires` 回 `level='lossless'`，
- *     且 24bit（51.8MB / br≈1.8M）与 16bit（32.5MB / br≈0.8M）两种 flac 都标 `lossless`。
- *     判「到底拿到什么」只能看 `type` + `br`（要真判 24bit 得解 flac STREAMINFO，本应用不做）
- *   - **`level=hires`、`level=lossless`、老接口 `br=999000` 三者返回的是同一个文件**（同 size、同 CDN path，
- *     两首样本均验证）—— 换 v1 不额外解锁 Hi-Res，旧接口本来就能拿到
- *   - 受限/VIP 歌匿名请求回 `code=-110`（要登录），url 为空
- * 返回 {url, br, size, code, expi, type, level} 或 null
- * type = 'mp3' | 'flac' —— 缓存/下载扩展名以此为准（别假设请求无损就一定是 flac）
- */
+// 取歌曲直链（v1 接口，按档位 level 请求）：GET /api/song/enhance/player/url/v1?ids=[<id>]&level=<level>&encodeType=flac
+// 实测契约（PC 端 2026-10-22，匿名免费歌 + 带黑胶 cookie 的 Hi-Res 曲目；替代老接口 /player/url?br=）：
+//   - level 和 encodeType 都是必需参数，缺任一个就回 {"code":400,"msg":"参数错误"}；ids 必须带方括号
+//   - 账号无该档权益时静默降级：匿名请求 lossless/hires 回 type='mp3'、br=320000
+//   - ⚠ data[0].level 只是档位标签、不可靠：请求 level=hires 可能回 'lossless'，且 24bit 与 16bit
+//     两种 flac 都标 lossless；判「到底拿到什么」只能看 type + br（要判 24bit 得解 flac STREAMINFO，本应用不做）
+//   - level=hires、level=lossless、老接口 br=999000 三者返回同一个文件（同 size、同 CDN path）
+//   - 受限/VIP 歌匿名请求回 code=-110（要登录），url 为空
+// 返回 {url, br, size, code, expi, type, level} 或 null；type = 'mp3' | 'flac' 是缓存/下载扩展名的依据
 export async function getSongUrl(songId, level) {
   const url =
     BASE +
@@ -196,8 +177,10 @@ export async function getSongUrl(songId, level) {
     '&encodeType=flac'
   const r = await request({ url: url, headers: HEADERS })
   if (r.status !== 200) return null
-  // 参数不合法时服务端回的是**两段拼接的 JSON**（`{"code":400,…}{"code":400,…}`），
-  // JSON.parse 必抛 —— 不能让它冒到调用方（resolveUrl 的降级循环会整轮中断），这里吃掉
+
+  
+  // 参数不合法时服务端回的是两段拼接的 JSON（{"code":400,…}{"code":400,…}），JSON.parse 必抛；
+  // 不能让它冒到调用方（resolveUrl 的降级循环会整轮中断），这里吃掉
   let j = null
   try {
     j = JSON.parse(r.body)
@@ -213,11 +196,10 @@ export async function getSongUrl(songId, level) {
     code: d.code,
     expi: d.expi,
     type: d.type || '',
-    level: d.level || '' // 服务端档位**标签**，实测不可靠（见函数头），只进日志
+    level: d.level || '' 
   }
 }
 
-/** 歌曲详情（封面等）；返回 Song 或 null */
 export async function getSongDetail(songId) {
   const url = BASE + '/api/song/detail?ids=%5B' + songId + '%5D'
   const r = await request({ url: url, headers: HEADERS })
@@ -227,9 +209,7 @@ export async function getSongDetail(songId) {
   return s ? normalizeSong(s) : null
 }
 
-/* ==================== 以下为 新增（均 PC 端 curl 实测通过，免加密） ==================== */
-
-/** 统一 GET + JSON 解析；非 200 或解析失败抛错。timeout 缺省 12s（批量头像等小请求可传更短） */
+// 统一 GET + JSON 解析；非 200 或解析失败抛错。timeout 缺省 12s（批量头像等小请求可传更短）
 async function getJson(url, timeout) {
   const r = await request({ url: url, headers: HEADERS, timeout: timeout || 12000 })
   if (r.status !== 200) throw new Error('HTTP ' + r.status)
@@ -240,22 +220,15 @@ function arr(v) {
   return v && v.length ? v : []
 }
 
-/**
- * 歌词：原行 + 翻译 + 逐字，一条明文请求全拿。
- * GET /api/song/lyric/v1?id=&lv=-1&kv=-1&tv=-1&yv=-1 直接可用（匿名、无需 weapi）。
- *
- * 参数是**必带的版本选择器**（2026-11-01 PC 匿名对照实测，id=1875436617 有逐字）：
- *   - 只带 id → code=200 但响应里一个歌词字段都没有；
- *   - lv/kv/tv 选原文/卡拉OK/翻译组，yv 选逐字组（yrc/ytlrc/yromalrc），-1 = 最新版；
- *   - lv/kv/tv 带上后 yrc 无论 yv=-1/0/1 都会返回（yv 只影响「只带 id+yv」时的行为）；
- *   - pureMusic 标记 v1 同样返回（实测克罗地亚狂想曲 id=1696373，v1 与经典接口一致）。
- *
- *   lrc.lyric    原文，标准 LRC
- *   tlyric.lyric 翻译，时间戳与原文逐行对齐
- *   yrc.lyric    逐字原文（[行开始,时长](字开始,时长,0)文本）；没有逐字的曲目该字段缺省
- *   pureMusic    true = 纯音乐（lrc 只有元信息行）
- * 返回 {lrc, tlyric, yrc, pureMusic}
- */
+// 歌词：原行 + 翻译 + 逐字，一条明文请求全拿（匿名、无需 weapi）
+//   GET /api/song/lyric/v1?id=&lv=-1&kv=-1&tv=-1&yv=-1
+// 参数是必带的版本选择器（2026-11-01 PC 匿名对照实测）：
+//   - 只带 id → code=200 但响应里一个歌词字段都没有
+//   - lv/kv/tv 选原文/卡拉OK/翻译组，yv 选逐字组（yrc/ytlrc/yromalrc），-1 = 最新版
+//   - lv/kv/tv 带上后 yrc 无论 yv=-1/0/1 都会返回
+// 字段：lrc.lyric 原文标准 LRC；tlyric.lyric 翻译（时间戳与原文逐行对齐）；
+//       yrc.lyric 逐字（[行开始,时长](字开始,时长,0)文本，无逐字的曲目该字段缺省）；pureMusic 纯音乐标记
+// 返回 {lrc, tlyric, yrc, pureMusic}
 export async function fetchLyric(songId) {
   const url = BASE + '/api/song/lyric/v1?id=' + songId + '&lv=-1&kv=-1&tv=-1&yv=-1'
   const j = await getJson(url)
@@ -267,11 +240,9 @@ export async function fetchLyric(songId) {
   }
 }
 
-/**
- * 歌曲详细信息（歌曲详情页用）：一次拿全 normalizeSong 吃不到的元数据。
- * 用 v3（新字段名 ar/al/dt）；老接口 /api/song/detail 没有 pop/publishTime 之外的音轨信息。
- * 实测 c 参数必须是 JSON 字符串（URL 编码后放 query 也能过）。
- */
+// 歌曲详细信息（歌曲详情页用）：一次拿全 normalizeSong 吃不到的元数据。
+// 用 v3（新字段名 ar/al/dt）；老接口 /api/song/detail 没有音轨之外的这些字段。
+// 实测 c 参数必须是 JSON 字符串（URL 编码后放 query 也能过）。
 export async function fetchSongInfo(songId) {
   const c = encodeURIComponent(JSON.stringify([{ id: songId }]))
   const j = await getJson(BASE + '/api/v3/song/detail?c=' + c)
@@ -295,7 +266,6 @@ export async function fetchSongInfo(songId) {
   }
 }
 
-/** 歌手信息：artist{name,alias,picUrl,albumSize,musicSize}；followed = 是否已关注（未登录/未下发 → null） */
 export async function fetchArtist(artistId) {
   const j = await getJson(BASE + '/api/artist/' + artistId)
   const a = j.artist
@@ -308,18 +278,16 @@ export async function fetchArtist(artistId) {
     albumSize: a.albumSize || 0,
     musicSize: a.musicSize || 0,
     briefDesc: a.briefDesc || '',
+
     // 关注状态：登录态下接口会带 followed；未登录时字段缺失 → null（页面按未关注显示）
     followed: a.followed === true ? true : a.followed === false ? false : null
   }
 }
 
-/**
- * 歌手头像（轻量）：GET /api/artist/head/info/get?id=
- * 只取 data.artist.cover，返回结构与 fetchArtist 的 id/name/cover 对齐。
- * 为什么不用 /api/artist/{id}：那个接口会带 50 首 hotSongs，批量预热头像时
- * 为一张图白下几十 KB JSON；实测两者 cover 是同一张图。
- * cover 字段优先，缺了再用 avatar（img1v1 方图）。
- */
+// 歌手头像（轻量）：GET /api/artist/head/info/get?id=，只取 data.artist.cover，
+// 返回结构与 fetchArtist 的 id/name/cover 对齐。
+// 不用 /api/artist/{id}：那个接口会带 50 首 hotSongs，批量预热头像时为一张图白下几十 KB JSON；
+// 实测两者 cover 是同一张图。cover 字段优先，缺了再用 avatar（img1v1 方图）。
 export async function fetchArtistHead(artistId) {
   const j = await getJson(BASE + '/api/artist/head/info/get?id=' + artistId, 6000)
   const a = j && j.data && j.data.artist
@@ -331,13 +299,9 @@ export async function fetchArtistHead(artistId) {
   }
 }
 
-/**
- * 歌手曲目（热门曲目完整列表用）
- *   GET /api/v1/artist/songs?id=&order=hot|time&limit=&offset=
- * 实测：order=hot 是接口默认（按热度），order=time 按发行时间；服务端排序，
- * 返回 total 是歌手曲目总数（周杰伦 566），分页有效。
- * 注意无 v1 的 /api/artist/songs 返回空数组，别用。
- */
+// 歌手曲目（热门曲目完整列表用）：GET /api/v1/artist/songs?id=&order=hot|time&limit=&offset=
+// 实测：order=hot 是接口默认（按热度），order=time 按发行时间；服务端排序，
+// 返回 total 是歌手曲目总数（周杰伦 566），分页有效。注意无 v1 的 /api/artist/songs 返回空数组，别用。
 export async function fetchArtistSongs(artistId, order, offset, limit) {
   const url =
     BASE +
@@ -352,11 +316,8 @@ export async function fetchArtistSongs(artistId, order, offset, limit) {
   return { songs: songs, total: j.total || songs.length, more: j.more === true }
 }
 
-/**
- * 歌手专辑（歌手页横向卡片 + 完整列表用）
- *   GET /api/artist/albums/{id}?limit=&offset=   ← id 在路径里
- * 实测分页有效（周杰伦 44 张，limit=30&offset=30 返回 14）。
- */
+// 歌手专辑（歌手页横向卡片 + 完整列表用）：GET /api/artist/albums/{id}?limit=&offset=  ← id 在路径里
+// 实测分页有效（周杰伦 44 张，limit=30&offset=30 返回 14）
 export async function fetchArtistAlbums(artistId, offset, limit) {
   const url =
     BASE + '/api/artist/albums/' + artistId +
@@ -386,12 +347,9 @@ export async function fetchArtistAlbums(artistId, offset, limit) {
   return { albums: albums, more: j.more === true }
 }
 
-/**
- * 专辑详情 + 全量曲目
- *   GET /api/v1/album/{id}   ← id 在路径里
- * 实测 album.size 与 songs.length 一致（12/12、25/25），曲目是 v3 新字段格式。
- * 注意无 v1 的 /api/album/{id} 会返回风控验证页，别用。
- */
+// 专辑详情 + 全量曲目：GET /api/v1/album/{id}   ← id 在路径里
+// 实测 album.size 与 songs.length 一致（12/12、25/25），曲目是 v3 新字段格式。
+// 注意无 v1 的 /api/album/{id} 会返回风控验证页，别用。
 export async function fetchAlbum(albumId) {
   const j = await getJson(BASE + '/api/v1/album/' + albumId)
   const a = j.album || {}
@@ -403,6 +361,7 @@ export async function fetchAlbum(albumId) {
   for (let i = 0; i < ar.length; i++) {
     creators.push({ id: ar[i].id, name: ar[i].name || '' })
   }
+
   // album.artist 是老接口的单歌手字段，作兜底
   if (!creators.length && a.artist) creators.push({ id: a.artist.id, name: a.artist.name || '' })
   return {

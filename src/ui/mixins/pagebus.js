@@ -1,14 +1,14 @@
-/**
- * 页面级跨页事件（`$falcon.on` 的注册与退役）。
- *
- * 语义：每个事件只向框架注册**一次**；同一事件由**注册顺序最靠后、且实例还活着**的页面处理
- * （注册顺序 = 页面挂载顺序 = 栈序，即页面栈上层优先），实例销毁自动退役、事件回落到下层。
- *
- * 边界：只管 `$falcon.on` 的跨页业务事件，与 accentMixin 的 bindTheme（主题广播）不是一回事；
- * **一次性启动链的异步回调**（index 的 boot().then 那种）不走这里，它不是订阅事件。
- */
-const REG = {} // evt -> [{ vm, method }, ...]（挂载顺序；最后一个 = 当前最上层接收者）
-const WIRED = {} // evt -> true（已向框架注册过；永不解绑，框架级广播长存活）
+
+
+// 页面级跨页事件（`$falcon.on` 的注册与退役）。
+// 语义：每个事件只向框架注册**一次**；同一事件由**注册顺序最靠后、且实例还活着**的页面处理
+// （注册顺序 = 挂载顺序 = 栈序，即页面栈上层优先），实例销毁自动退役、事件回落到下层。
+// 边界：只管 `$falcon.on` 的跨页业务事件，与 accentMixin 的主题广播不是一回事；
+// **一次性启动链的异步回调**（index 的 boot().then 那种）不走这里，它不是订阅事件。
+// evt -> [{ vm, method }, ...]（挂载顺序；最后一个 = 当前最上层接收者）
+const REG = {} 
+// evt -> true（已向框架注册过；永不解绑，框架级广播长存活）
+const WIRED = {} 
 
 function wire(evt, vm, method) {
   if (!REG[evt]) REG[evt] = []
@@ -29,8 +29,9 @@ function wire(evt, vm, method) {
         if (!r || !r.vm) continue
         const fn = r.vm[r.method]
         if (typeof fn === 'function') {
+          // 只由最上层实例处理（与导航压栈语义一致）
           fn.call(r.vm, payload)
-          return // 只由最上层实例处理（与导航压栈语义一致）
+          return 
         }
       }
     })
@@ -48,7 +49,7 @@ function unwire(vm) {
 
 export const pageBusMixin = {
   methods: {
-    /** 订阅跨页事件（页面栈上层优先；实例销毁自动退役，下层接着收） */
+
     onPageEvent(evt, method) {
       wire(evt, this, method)
     }

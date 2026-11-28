@@ -8,13 +8,13 @@
       <div class="idx-fill"></div>
 
       <!-- 右上角登录态：整块可点、直接进个人中心（未登录时那里就是扫码入口，不必绕「设置 → 个人中心」）。
-           节点常驻、不随登录态换结构：同一父节点下增删兄弟节点会让后续 slot 插错位，登录态只改文本内容。 -->
+           节点常驻、不随登录态换结构，登录态只改文本内容（理由见 docs/待验证-slot补插错位.md）。 -->
       <text class="idx-status" @click="openAccount">{{ statusText }}</text>
     </div>
 
     <!-- 横向卡片流：五张卡都是 scroller 的直接子节点，不包 wrapper —— 横向 scroller 的内容层
          由渲染器生成，包 wrapper 会让宽度语义与命中区域都变复杂。
-         ⚠ 新增卡片只加在末尾：同一父节点下给已有兄弟节点换结构会让后续 slot 插错位。 -->
+         新增卡片只加在末尾：给已有兄弟节点换结构会影响后续节点位置。 -->
     <scroller class="idx-row" scroll-direction="horizontal" :show-scrollbar="false">
 
       <div class="idx-card idx-now" :style="nowStyle" @click="openPlayer">

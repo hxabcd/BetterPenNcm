@@ -13,6 +13,24 @@ X3S（RK3566「CHERRY」，aarch64，fw 3.4.5）的小程序运行时没有 S7 �
 设备自带 `libcurl.so.4` 与 `libsqlite3.so.0`，扩展通过 DT_NEEDED 使用它们；
 `libquickjs.so` 由宿主进程已加载。
 
+## 源码组织
+
+`native/csrc/` 按能力分文件，每个单元 < 20KB；`bpnnet.c` 只留导出入口与模块注册：
+
+| 文件 | 内容 |
+|---|---|
+| `bpnnet.c` | `custom_init_jsapis`（唯一导出）、`registerCModuleLoader`、`bpnnet_module_init` 的注册表 |
+| `bpnnet_common.c` | 时间、`dup_str`、响应/JSON 输出缓冲（`jbuf_*`） |
+| `bpnnet_fs.c` | fs 实现 + `fs*` 绑定 |
+| `bpnnet_http.c` | libcurl 声明、`do_http`/`do_download` + `startRequest`/`startDownload` 绑定 |
+| `bpnnet_exec.c` | `fork` + `/bin/sh -c` + 超时强杀 + `startExec` 绑定 |
+| `bpnnet_job.c` | 任务队列、后台线程、TLS 降级标志 + `takeResult`/`cancelAll` 绑定 |
+| `bpnnet_internal.h` | 共享结构体、宏与跨文件函数声明（仅本目录内部用） |
+
+跨文件函数去掉 `static`，并在 `bpnnet_internal.h` 里用 `BPNNET_INTERNAL`
+（`__attribute__((visibility("hidden")))`）显式标成 hidden——不依赖编译参数、
+也不会在 `-fPIC` 下多绕一层 GOT。新增文件要同步加进 `build-aarch64.sh` 的源文件列表。
+
 ## 构建
 
 产物已入库（`libs/arm64-cherry3566/libjsapi_bpnnet.so`），正常 `bash scripts/build.sh`

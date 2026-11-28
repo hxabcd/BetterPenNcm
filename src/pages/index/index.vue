@@ -80,27 +80,21 @@ import NowProgress from "../../components/NowProgress.vue";
 import { railBack, railBtn, ICON } from '../../ui/rail.js';
 import { boot } from '../../core/infra/boot.js';
 import { go } from '../../core/infra/nav.js';
-import { loadUserPlaylists } from '../../services/ncm/playlist.js';
-import { loadDailyRecommend, cachedDaily, todayMD } from '../../services/ncm/recommend.js';
-import { loggedIn, cachedProfile } from '../../services/ncm/login.js';
+import { todayMD } from '../../services/ncm/recommend.js';
 import config from '../../core/infra/config.js';
 import { openTextEdit, available as skAvailable } from '../../core/platform/systemKeyboard.js';
 import { player } from '../../services/player/player.js';
-import { countToday as histToday, isLoaded as histLoaded } from '../../services/player/history.js';
 import { bindDl } from '../../ui/mixins/dlsub.js';
-import { stats } from '../../services/player/cache.js';
-import { dlSig, dlApi, stopForExit, resetExit, dlText as dlBarText } from '../../services/player/download.js';
-import { fmtSize } from '../../core/infra/format.js';
-import { ensureCover, BIG_COVER } from '../../services/cover/cover.js';
-import { coverPair, glowGradient } from '../../services/cover/color.js';
+import { dlApi, stopForExit, resetExit } from '../../services/player/download.js';
 import { accentMixin } from '../../ui/mixins/accent.js';
 import { aIcon } from "../../assets/icons.js";
 import { BUILD_TAG } from "../../core/infra/buildInfo.js";
-import { evtJson } from '../../core/infra/events.js';
 import { log } from '../../core/infra/log.js';
 import { pageFrameMixin } from '../../ui/mixins/frame.js';
 import { pageBusMixin } from '../../ui/mixins/pagebus.js';
 import { bindPageVis } from '../../ui/vis.js';
+import { nowCardMixin } from './nowcard.js';
+import { homeDataMixin } from './homedata.js';
 
 // 防重：运行时页面会挂两遍。started 只护「启动链 + 登录事件」，不能护播放态订阅 ——
 // 订阅若只挂第一次挂载的实例，而实际显示的是最后挂载的那个，卡片会永远停在初始状态。
@@ -111,7 +105,7 @@ let live = null;
 
 export default {
   name: "index",
-  mixins: [accentMixin, pageBusMixin, pageFrameMixin],
+  mixins: [accentMixin, pageBusMixin, pageFrameMixin, nowCardMixin, homeDataMixin],
   components: {
     "page-shell": PageShell,
     "now-lyric": NowLyric,
@@ -158,17 +152,6 @@ export default {
       return { backgroundColor: this.bg };
     },
 
-    // 五张卡的**定宽（px）**，两机型完全一致。不能写百分比：percent 基准是 scroller 内容盒，
-    // 卡片自身还有 padding/边框/间距，会算过右沿；更关键是百分比随机型漂移。也不能写 vh：
-    // 平台把任何 >100vh 的 vh **宽度**静默截到 100vh（当前播放卡 530px 在 X3S 上 ≈ 209vh）。
-    // 取值以窄的 X3S 为基准反推（S7 更宽 → 只会在末尾多露一点，不会挤）：大卡 480、小卡 169。
-    // 改这两个数前先按 720 / 946 两条可用宽预算重算首屏露几张。
-    nowW() {
-      return 480;
-    },
-    cardW() {
-      return 169;
-    },
     nowStyle() {
       const s = this.glowStyle;
       s.width = this.nowW + 'px';
@@ -176,18 +159,6 @@ export default {
     },
     cardStyle() {
       return { width: this.cardW + 'px' };
-    },
-
-    // 「正在播放」卡的静态柔光渐变：形状/方向写死在 cover/color.js 的 GLOW_DEG / GLOW_STOPS，
-    // 只有颜色随封面走（播放中取封面主色 + 次色，单色系只取主色）；未播放/取不到时回落主题色。
-    // 平台只认 linear-gradient（没有 radial）；颜色不能写死在 LESS 里（主题色运行时可换）→ 只能内联。
-    // ⚠ 关闭时这里必须显式给 backgroundImage: '' 而不是返回空对象 —— 空对象里没有这个属性，
-    // 平台不会去清掉上一次写进去的渐变，看起来就像开关失灵。
-    glowStyle() {
-      if (!this.glowOn) return { backgroundImage: "" };
-      return {
-        backgroundImage: glowGradient(this.glowColor || this.accent.c, this.glowColor2),
-      };
     },
 
     // 左栏：主页是根页、没有上一级，第一个槽位的「返回」= 退出应用（$falcon.closeApp）；
@@ -227,34 +198,11 @@ export default {
       if (typeof this.recCount === "string" && this.recCount !== "—") return this.recCount;
       return todayMD();
     },
-    nowTitle() {
-      const c = (this.st && this.st.cur) || {};
-      return c.name || "未在播放";
-    },
-    nowArtist() {
-      const c = (this.st && this.st.cur) || {};
-      if (c.artist) return c.artist;
-      return this.hasTrack ? "" : "选择音乐以播放";
-    },
-    hasTrack() {
-      return !!(this.st && this.st.hasTrack);
-    },
-
     // 暂停中（或还没出声）显示 ▶，播放中显示 ⏸ —— 底是实心主题色，走 fgIcon 取深色版
     playIcon() {
       return this.fgIcon(this.st.paused || !this.st.isPlaying ? "play" : "pause");
     },
 
-    // 本地下载卡副行（只显示曲目数量，体积不再上屏）：下载中交给 download.js 的 dlText
-    // （算式只有那一份），否则 '—' /「N 首」/「暂无下载」。卡片定宽 169px，去掉尾部 ` · NN%`
-    // 才不折行；进度百分比在下载页看。体积仍要拉：下载页顶栏与日志用得上。
-    dlText() {
-      const dl = dlBarText(this.dl);
-      if (dl) return dl.replace(/\s·\s\d+%$/, "");
-      if (!this.dlLoaded) return "—";
-      if (!this.dlCount) return "暂无下载";
-      return this.dlCount + " 首";
-    },
   },
   mounted() {
     const self = this;
@@ -337,161 +285,12 @@ export default {
     this._onShow = null;
   },
   methods: {
-
     cico(key) {
       return aIcon(key, this.accent.key);
     },
 
-    onLoginDone() {
-      this.profile = cachedProfile();
-      this.keyword = "";
-      this.syncLogin();
-      this.loadPlaylists(true);
-      this.loadRecommend(true);
-    },
-    // 歌单详情页删/收藏了歌单 → 「我的歌单」卡的计数要跟着变（否则一直是旧数字）。
-    // 改名不影响卡片上的计数（首页只显示总数），不为它重拉整份歌单列表。
-    // 负载被框架套了一层壳（{type,timestamp,data}），必须解包 —— 见 core/infra/events.js
-    onPlaylistChanged(evt) {
-
-      const d = evtJson(evt) || {};
-      if (d.op !== "rename") this.loadPlaylists(true);
-    },
-    // 播放历史变了（记录/清空/载入完成）→ 卡片上的最近歌名跟着变
-    onPlayhist() {
-
-      this.syncHist();
-    },
-
-    // 播放态推送：必须自己判重 —— player 每 500ms 换一个全新的 state 对象
-    // （positionMs/status 一直在变），照单全收就是持续重渲染；而本平台 watch 不去重。
-    // 签名只含「卡片上看得见的东西」。
-    onPlayer(s) {
-
-      if (!this._vis) return;
-      const c = (s && s.cur) || {};
-      const k =
-        (c.id || 0) +
-        "|" +
-        (c.name || "") +
-        "|" +
-        (c.artist || "") +
-        "|" +
-        (c.cover || "") +
-        "|" +
-        (s.paused ? 1 : 0) +
-        (s.isPlaying ? 1 : 0) +
-        (s.hasTrack ? 1 : 0);
-      if (k === this._sig) return;
-      this._sig = k;
-      this.st = s;
-      this.syncCover();
-    },
-
-    // 封面：按 id+cover 判重（搜索结果的封面是详情接口后补的），回调里再校验一次 id
-    syncCover() {
-      const self = this;
-      const c = (this.st && this.st.cur) || {};
-      const key = (c.id || 0) + "|" + (c.cover || "");
-      if (key === this._coverKey) return;
-      this._coverKey = key;
-
-      // 换歌期间显示灰色音符占位 —— 它是中性的，属于「未就绪」，不会跟前后两张封面产生色相冲突；
-      // 反过来若保留旧图，就会出现「图是上一首、标题已经是下一首」的自相矛盾。
-      this.cover = "";
-        // 没有曲目在播（停止播放 / 冷启动未播放）→ 卡片写的是「未在播放」，还留着上一首的颜色属于说谎；
-        // 只有这时才丢掉旧色、回落主题色。有曲目时柔光色**故意不清**：旧写法在这儿清空，
-        // 取色那 ~100ms 里卡面会闪一下主题色（跟上一首往往不是一个色系，连点下一首还会连着闪）。
-      if (!c.id) {
-
-        this.glowColor = "";
-        this.glowColor2 = "";
-        return;
-      }
-
-      if (!c.cover) return;
-      ensureCover(
-        { id: c.id, cover: c.cover },
-        function (cid, p) {
-          if (p && cid === c.id) self.cover = p;
-          if (p) self.loadGlow(p, cid);
-        },
-        BIG_COVER,
-      );
-    },
-
-    async loadGlow(path, id) {
-      const pair = await coverPair(path);
-      if (this._dead) return;
-      const c = (this.st && this.st.cur) || {};
-      if (!pair || c.id !== id) return;
-      this.glowColor = pair[0];
-      this.glowColor2 = pair[1] || "";
-      log("index", "柔光取色 id=" + id + " → " + pair[0] + (pair[1] ? " + " + pair[1] : "（单色系）"));
-    },
-
-    syncLogin() {
-      this.isLogged = loggedIn();
-      if (!this.isLogged) {
-        this.createdCount = "—";
-        this.subCount = "—";
-        this.recCount = "—";
-      }
-    },
-
     openAccount() {
       go("account");
-    },
-
-    async loadPlaylists(force) {
-      const self = this;
-      if (!loggedIn()) {
-
-        this.syncLogin();
-        return;
-      }
-      const uid = config.get("userId") || this.profile.userId || 0;
-      if (!uid) return;
-      this.status = "加载歌单...";
-      try {
-        const r = await loadUserPlaylists(uid, force);
-
-        const created = r.created.length + (r.liked ? 1 : 0);
-
-        self.createdCount = created;
-        self.subCount = r.subscribed.length;
-
-        self.status = "";
-        log("index", "歌单: 创建=" + created + "（含我喜欢 " + (r.liked ? 1 : 0) + "）收藏=" + r.subscribed.length);
-      } catch (e) {
-        self.status = "歌单加载失败";
-        log("index", "歌单加载失败 " + ((e && e.message) || e));
-      }
-    },
-
-    async loadRecommend(force) {
-      if (!loggedIn()) {
-        this.recCount = "—";
-        return;
-      }
-
-      const c = force ? null : cachedDaily();
-      if (c) {
-        this.recCount = c.length;
-        return;
-      }
-      if (typeof this.recCount === "number" && !force) return;
-      this.recCount = "加载中…";
-      try {
-        const songs = await loadDailyRecommend(force);
-        if (this._dead) return;
-        this.recCount = (songs && songs.length) || 0;
-        log("index", "每日推荐卡: 今日 " + this.recCount + " 首");
-      } catch (e) {
-        if (this._dead) return;
-        this.recCount = "加载失败";
-        log("index", "每日推荐加载失败 " + ((e && e.message) || e));
-      }
     },
 
     openRecommend() {
@@ -551,35 +350,10 @@ export default {
       go("playlists", {});
     },
 
-    syncDl(s) {
-      const d = s || {};
-      const sig = dlSig(d);
-      if (sig === this._dlSig) return;
-      this._dlSig = sig;
-      this.dl = d;
-      const active = !!d.active;
-      if (this._wasActive && !active) this.loadDownloads();
-      this._wasActive = active;
-    },
-
-    async loadDownloads() {
-      const s = await stats();
-      if (this._dead) return;
-      this.dlCount = (s && s.songs && s.songs.count) || 0;
-      this.dlBytes = (s && s.songs && s.songs.bytes) || 0;
-      this.dlLoaded = true;
-      log("index", "本地下载卡: " + this.dlCount + " 首 / " + fmtSize(this.dlBytes));
-    },
     openDownloads() {
       go("downloads");
     },
 
-    syncHist() {
-      let t = "—";
-      if (histLoaded()) t = "今天听了 " + histToday() + " 首";
-      if (t === this.histText) return;
-      this.histText = t;
-    },
     openHistory() {
       go("list", { kind: "history", name: "播放历史" });
     },

@@ -41,7 +41,10 @@ function byTrack(a, b) {
   return (a.trackNo || 0) - (b.trackNo || 0)
 }
 
-// songinfo 页兜底：对齐 fetchSongInfo 的返回形状；索引里没有返回 null
+// songinfo 页兜底：对齐 fetchSongInfo 的返回形状；索引里没有返回 null。
+// ⚠ `song.id` 必须给：页面用它判「曲目已就绪」（`song()` computed → 左栏三颗上下文键的 disabled）。
+// 少了它，离线/网络失败兜底进本地视图时整排键被置灰点不动，而云端路径的 id 来自 normalizeSong
+// —— 这是本函数唯一容易漏、又只在本地方向暴露的字段。归一方式与 toSong() 一致：数字优先，非数字原样保留。
 export async function localSongInfo(id) {
   await loadIndex()
   const rec = indexOf(id)
@@ -51,8 +54,15 @@ export async function localSongInfo(id) {
   for (let i = 0; i < ars.length; i++) {
     artists.push({ id: ars[i].i, name: ars[i].n || '' })
   }
+  const nid = Number(id)
   return {
-    song: { name: rec.n || '', durationMs: rec.d || 0, fee: rec.fee || 0, aliases: rec.alia || [] },
+    song: {
+      id: isNaN(nid) ? id : nid,
+      name: rec.n || '',
+      durationMs: rec.d || 0,
+      fee: rec.fee || 0,
+      aliases: rec.alia || []
+    },
     artists: artists,
     album: { id: (rec.al && rec.al.i) || 0, name: (rec.al && rec.al.n) || '', cover: (rec.al && rec.al.c) || '' },
     publishTime: rec.pub || 0,

@@ -43,6 +43,11 @@ mkdir -p "$OUT_DIR"
   -I "$ROOT/native/iot-miniapp-sdk/include" \
   -o "$OUT" \
   "$ROOT/native/csrc/bpnnet.c" \
+  "$ROOT/native/csrc/bpnnet_common.c" \
+  "$ROOT/native/csrc/bpnnet_fs.c" \
+  "$ROOT/native/csrc/bpnnet_exec.c" \
+  "$ROOT/native/csrc/bpnnet_http.c" \
+  "$ROOT/native/csrc/bpnnet_job.c" \
   "$ROOT/native/csrc/sqlite3mod.c" \
   "$ROOT/native/stubs-aarch64/libquickjs.so" \
   "$ROOT/native/stubs-aarch64/libcurl.so.4" \

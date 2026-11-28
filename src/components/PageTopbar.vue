@@ -1,9 +1,8 @@
 <template>
   <div class="ptb" :style="bgStyle">
     <!-- 标题区结构恒定：link 只改「可点性 + › 有无」（文本内容），不增删任何节点。
-         实测坑：本平台渲染器对「v-if 换过结构之后再补插节点」会插错位 ——
-         歌曲列表页第二次进多选时，右上角 slot（全选）被插到 .ptb-fill 前面、整体左移 ~180px。
-         所以这里一个 v-if 都不留：三个 text 常驻，cue 为空串时占 0 宽 -->
+         三个 text 常驻、cue 为空串时占 0 宽，这样 slot 的兄弟结构永不变化。
+         依据与未决事项见 docs/待验证-slot补插错位.md -->
     <div class="ptb-link" @click="onTap">
       <text class="ptb-ttl">{{ title }}</text>
       <text class="ptb-sub">{{ sub || '' }}</text>

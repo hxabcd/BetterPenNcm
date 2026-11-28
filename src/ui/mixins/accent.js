@@ -35,7 +35,11 @@ export function unbindTheme(apply) {
 
 export const accentMixin = {
   data() {
-    return { accent: currentAccent() }
+    // bg 必须和 accent 一样在这里声明：模板 / computed 都读 this.bg，而 bindTheme
+    // 是 mounted 里才赋值 —— 落到 data 里没有的字段，拿到的是 undefined。
+    // 后果：backgroundColor 不生效、页面落到渲染器的默认底色。真机默认黑、模拟器
+    // 默认白，所以这个错在真机上看着「没毛病」、只有模拟器才照得出来。
+    return { accent: currentAccent(), bg: currentBg() }
   },
   mounted() {
     this._accentOff = bindTheme(this)
